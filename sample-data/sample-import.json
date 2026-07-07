@@ -1,0 +1,139 @@
+[
+  {
+    "id": "ref-001",
+    "title": "Swiss grid poster study",
+    "imageUrl": "https://picsum.photos/seed/organizer-1/480/620",
+    "tags": ["poster", "grid", "serif"],
+    "style": "Swiss"
+  },
+  {
+    "id": "ref-002",
+    "title": "Brutalist type specimen",
+    "imageUrl": "https://picsum.photos/seed/organizer-2/480/360",
+    "tags": ["type specimen", "monospace"],
+    "style": "Brutalist"
+  },
+  {
+    "id": "ref-003",
+    "title": "Minimal editorial spread",
+    "imageUrl": "https://picsum.photos/seed/organizer-3/480/700",
+    "tags": ["editorial", "sans-serif", "grid"],
+    "style": "Minimal"
+  },
+  {
+    "id": "ref-004",
+    "title": "Vintage travel poster",
+    "imageUrl": "https://picsum.photos/seed/organizer-4/480/640",
+    "tags": ["poster", "serif", "color"],
+    "style": "Vintage"
+  },
+  {
+    "id": "ref-005",
+    "title": "Swiss International typography",
+    "imageUrl": "https://picsum.photos/seed/organizer-5/480/400",
+    "tags": ["serif", "grid", "black-and-white"],
+    "style": "Swiss"
+  },
+  {
+    "id": "ref-006",
+    "title": "Brutalist web layout",
+    "imageUrl": "https://picsum.photos/seed/organizer-6/480/560",
+    "tags": ["grid", "monospace"],
+    "style": "Brutalist"
+  },
+  {
+    "id": "ref-007",
+    "title": "Minimal packaging system",
+    "imageUrl": "https://picsum.photos/seed/organizer-7/480/480",
+    "tags": ["packaging", "sans-serif"],
+    "style": "Minimal"
+  },
+  {
+    "id": "ref-008",
+    "title": "Vintage record sleeve",
+    "imageUrl": "https://picsum.photos/seed/organizer-8/480/480",
+    "tags": ["album cover", "color", "serif"],
+    "style": "Vintage"
+  },
+  {
+    "id": "ref-009",
+    "title": "Swiss museum signage",
+    "imageUrl": "https://picsum.photos/seed/organizer-9/480/720",
+    "tags": ["signage", "grid"],
+    "style": "Swiss"
+  },
+  {
+    "id": "ref-010",
+    "title": "Monospace terminal UI",
+    "imageUrl": "https://picsum.photos/seed/organizer-10/480/380",
+    "tags": ["monospace", "ui"],
+    "style": "Brutalist"
+  },
+  {
+    "id": "ref-011",
+    "title": "Editorial magazine cover",
+    "imageUrl": "https://picsum.photos/seed/organizer-11/480/660",
+    "tags": ["editorial", "serif", "color"]
+  },
+  {
+    "id": "ref-012",
+    "title": "Minimal business card set",
+    "imageUrl": "https://picsum.photos/seed/organizer-12/480/340",
+    "tags": ["stationery", "sans-serif"],
+    "style": "Minimal"
+  },
+  {
+    "id": "ref-013",
+    "title": "Vintage matchbook labels",
+    "imageUrl": "https://picsum.photos/seed/organizer-13/480/460",
+    "tags": ["packaging", "color", "serif"],
+    "style": "Vintage"
+  },
+  {
+    "id": "ref-014",
+    "title": "Swiss annual report layout",
+    "imageUrl": "https://picsum.photos/seed/organizer-14/480/640",
+    "tags": ["editorial", "grid", "sans-serif"],
+    "style": "Swiss"
+  },
+  {
+    "id": "ref-015",
+    "title": "Brutalist concert poster",
+    "imageUrl": "https://picsum.photos/seed/organizer-15/480/700",
+    "tags": ["poster", "monospace", "black-and-white"],
+    "style": "Brutalist"
+  },
+  {
+    "id": "ref-016",
+    "title": "Unsorted color study",
+    "imageUrl": "https://picsum.photos/seed/organizer-16/480/400",
+    "tags": ["color"]
+  },
+  {
+    "id": "ref-017",
+    "title": "Minimal wayfinding system",
+    "imageUrl": "https://picsum.photos/seed/organizer-17/480/560",
+    "tags": ["signage", "grid", "sans-serif"],
+    "style": "Minimal"
+  },
+  {
+    "id": "ref-018",
+    "title": "Vintage typewriter specimen",
+    "imageUrl": "https://picsum.photos/seed/organizer-18/480/380",
+    "tags": ["type specimen", "serif"],
+    "style": "Vintage"
+  },
+  {
+    "id": "ref-019",
+    "title": "Swiss grid book jacket",
+    "imageUrl": "https://picsum.photos/seed/organizer-19/480/620",
+    "tags": ["editorial", "grid", "serif"],
+    "style": "Swiss"
+  },
+  {
+    "id": "ref-020",
+    "title": "Loose sketchbook scan",
+    "imageUrl": "https://picsum.photos/seed/organizer-20/480/500",
+    "tags": ["sketch"]
+  }
+]

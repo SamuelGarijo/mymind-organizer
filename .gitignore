@@ -1,0 +1,15 @@
+node_modules
+dist
+.DS_Store
+*.local
+ORGANIZER-API.rtf
+.env
+
+# Real personal data export (~190MB) — never belongs in git
+organizer-backup.json
+
+# TypeScript incremental build cache — machine-specific, auto-regenerated
+*.tsbuildinfo
+
+# Claude Code local-only settings (tool permission grants for this machine)
+.claude/settings.local.json

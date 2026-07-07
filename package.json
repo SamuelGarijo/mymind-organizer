@@ -1,0 +1,34 @@
+{
+  "name": "the-organizer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5773 --strictPort",
+    "server": "node server/index.js",
+    "dev:full": "concurrently -n vite,server -c blue,magenta \"npm:dev\" \"npm:server\"",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.14.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "fuse.js": "^7.4.2",
+    "idb-keyval": "^6.2.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.0.1",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

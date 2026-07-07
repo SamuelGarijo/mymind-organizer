@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-line rounded-full;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer components {
+  .tag-chip {
+    @apply inline-flex items-center rounded-full bg-canvas border border-line px-2 py-0.5 text-[11px] leading-4 text-ink/70;
+  }
+}
+
+.masonry {
+  column-gap: 16px;
+}
+
+.masonry > * {
+  break-inside: avoid;
+  margin-bottom: 16px;
+}
