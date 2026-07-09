@@ -1,16 +1,18 @@
 import Fuse from "fuse.js";
 import type { DesignObject } from "../types";
+import { NOTE_CONTENT_KEY } from "./mymindSync";
 
 /**
- * Weighted fuzzy search across title, tags, and mymind's summary. Title
- * outranks the rest so an exact title hit beats a loose tag/summary match —
- * weights are relative, not percentages.
+ * Weighted fuzzy search across title, tags, real note content, and mymind's
+ * summary. Title outranks the rest so an exact title hit beats a loose
+ * tag/content match — weights are relative, not percentages.
  */
 const FUSE_OPTIONS: ConstructorParameters<typeof Fuse<DesignObject>>[1] = {
   keys: [
     { name: "title", weight: 0.5 },
     { name: "tags", weight: 0.3 },
-    { name: "fields.summary", weight: 0.2 },
+    { name: `fields.${NOTE_CONTENT_KEY}`, weight: 0.3 },
+    { name: "fields.summary", weight: 0.15 },
   ],
   threshold: 0.35,
   ignoreLocation: true,

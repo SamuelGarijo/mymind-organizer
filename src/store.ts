@@ -1,5 +1,5 @@
-import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { create, type StoreApi } from "zustand";
+import { persist } from "zustand/middleware";
 import type {
   Collection,
   DesignObject,
@@ -13,10 +13,13 @@ import type {
 import { makeId } from "./lib/id";
 import { matchesSmartCollection, norm } from "./lib/ruleEngine";
 import type { FacetMode } from "./lib/quickFilter";
-import { idbStorage } from "./lib/idbStorage";
+import { createIdbStorage } from "./lib/idbStorage";
+import { loadEmbeddings, saveEmbeddings } from "./lib/embeddingsStorage";
+import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
 import { rankBySimilarity } from "./lib/similarity";
 import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
+import { parseBackup } from "./lib/backupValidation";
 
 export type ViewMode = "grid" | "table";
 
@@ -46,13 +49,50 @@ type State = {
   importObjects: (objs: DesignObject[], tagGroupHints?: TagGroups) => void;
   /** Upserts objects synced from mymind. Unlike importObjects (JSON import,
    * a full replace), this preserves manualCollectionIds and createdAt across
-   * re-syncs — local curation and first-seen time are ours, everything else
-   * (title/tags/fields/tagFlags) is refreshed from mymind on every sync.
-   * Never touches tagGroups. */
+   * re-syncs — local curation and first-seen time are ours. Tags are merged
+   * (mymind's tags, minus anything in `localTagRemovals`, plus any tag that
+   * only exists locally) rather than overwritten, so hand-added/removed
+   * tags survive a Full resync instead of being reverted to mymind's raw
+   * copy. Facet-schema field values are preserved the same way. Never
+   * touches tagGroups. */
   syncMymindObjects: (objs: DesignObject[]) => void;
   /** Removes locally imported sample objects only — never anything synced
    * from mymind, and never calls mymind's API. Returns how many were removed. */
   deleteSampleObjects: () => number;
+  /** mymind ids removed locally via `deleteObjectLocally`. mymind has no
+   * DELETE endpoint we're authorized to use, so deletion is local-only —
+   * this list is what keeps a later Full resync / Sync from mymind from
+   * silently bringing a deleted object back. */
+  deletedMymindIds: string[];
+  /** Removes a single object from the local library. Never calls mymind's
+   * API (no DELETE is authorized) — if it's a synced object, its mymind id
+   * is tombstoned in `deletedMymindIds` so it doesn't reappear on the next
+   * sync. */
+  deleteObjectLocally: (id: string) => void;
+  /** Bulk version of deleteObjectLocally, driven by a fresh set of ids
+   * mymind currently has (see lib/mymindSync.ts's fetchAllMymindIds) — any
+   * local mymind-sourced object missing from that set is tombstoned exactly
+   * like a manual delete (same deletedMymindIds list, never calls mymind).
+   * Returns how many were removed, for the sync-result message. Callers
+   * MUST NOT invoke this with a possibly-partial id set (see that
+   * function's `truncated` flag) — a partial set would wrongly tombstone
+   * everything mymind just didn't get around to listing. */
+  reconcileMymindDeletions: (presentIds: Set<string>) => number;
+  /** Tag names the user has explicitly removed locally, per object id, that
+   * originated from mymind. mymind has no tag-removal endpoint we're
+   * authorized to use, so a removal is local-only — this is what stops
+   * `syncMymindObjects` from silently re-adding a tag the user took off,
+   * on every subsequent sync forever. */
+  localTagRemovals: Record<string, string[]>;
+  /** Adds a tag the user typed by hand — local-only, never pushed to mymind
+   * (the one write endpoint we're authorized to use is the facet-field
+   * push in DetailPanel, not this). Also clears any prior local removal of
+   * the same tag, since re-adding it supersedes that. */
+  addObjectTag: (objectId: string, tag: string) => void;
+  /** Removes a tag locally. mymind has no removal endpoint, so this only
+   * ever affects our own copy — and records the removal so a later sync
+   * doesn't bring the tag straight back. */
+  removeObjectTag: (objectId: string, tag: string) => void;
   setTagGroup: (tagName: string, group: string | null) => void;
   addSmartCollection: (name: string, rule: FilterGroup) => string;
   updateSmartCollection: (id: string, name: string, rule: FilterGroup) => void;
@@ -68,6 +108,11 @@ type State = {
    * sidebar. Undefined until auto-backup has been configured and run once. */
   lastBackupAt?: string;
   setLastBackupAt: (iso: string) => void;
+
+  /** Whether the left sidebar is hidden — persisted like viewMode, so it
+   * stays collapsed across reloads once the user hides it. */
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (collapsed: boolean) => void;
 
   setSelectedView: (view: ViewSelection) => void;
   openDetail: (id: string) => void;
@@ -95,13 +140,39 @@ type State = {
   exportDataString: () => string;
   /** Full restore from a backup produced by exportDataString — replaces
    * objects/collections/tagGroups wholesale. Used for disaster recovery,
-   * not everyday import. */
+   * not everyday import. Validates structure first (lib/backupValidation.ts)
+   * and throws BackupValidationError without touching the store at all if
+   * the shape looks truncated/corrupted — callers should catch this and
+   * show `err.message` directly, it's already written to be user-facing. */
   restoreFromBackup: (json: string) => void;
 };
 
+/** What actually gets persisted — deliberately narrower than State. See the
+ * `partialize` comment below for why the rest is excluded. */
+type PersistedState = Pick<
+  State,
+  | "objects"
+  | "collections"
+  | "collectionOrder"
+  | "tagGroups"
+  | "lastBackupAt"
+  | "viewMode"
+  | "deletedMymindIds"
+  | "localTagRemovals"
+  | "sidebarCollapsed"
+>;
+
+// Captured synchronously when the creator below runs (before `create()`
+// returns), so `onRehydrateStorage`'s callback — which only fires later,
+// once rehydration finishes — can reach the store without a circular
+// reference to `useStore` itself.
+let storeApi: StoreApi<State> | null = null;
+
 export const useStore = create<State>()(
   persist(
-    (set, get) => ({
+    (set, get, api) => {
+      storeApi = api;
+      return {
       objects: {},
       collections: {},
       collectionOrder: [],
@@ -116,8 +187,14 @@ export const useStore = create<State>()(
       typeFilter: "",
       viewMode: "grid",
 
+      deletedMymindIds: [],
+      localTagRemovals: {},
+
       lastBackupAt: undefined,
       setLastBackupAt: (iso) => set({ lastBackupAt: iso }),
+
+      sidebarCollapsed: false,
+      setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
       importObjects: (objs, tagGroupHints) =>
         set((s) => {
@@ -134,11 +211,26 @@ export const useStore = create<State>()(
       syncMymindObjects: (objs) =>
         set((s) => {
           const next = { ...s.objects };
+          const tombstoned = new Set(s.deletedMymindIds);
           for (const obj of objs) {
+            // Locally deleted — don't let a resync resurrect it.
+            if (tombstoned.has(obj.id)) continue;
             const existing = next[obj.id];
+            // mymind's fresh tag list, minus anything the user explicitly
+            // removed locally, plus any tag that only exists in our copy
+            // (hand-added, or facet-pushed but not yet reflected back by
+            // mymind) — never a flat overwrite, or every local tag edit
+            // would be reverted the next time this object is touched by a
+            // sync (in practice: every object, on a Full resync).
+            const removedTags = new Set(s.localTagRemovals[obj.id] ?? []);
+            const localOnlyTags = existing
+              ? existing.tags.filter((t) => !obj.tags.includes(t) && !removedTags.has(t))
+              : [];
+            const tags = [...obj.tags.filter((t) => !removedTags.has(t)), ...localOnlyTags];
             next[obj.id] = existing
               ? {
                   ...obj,
+                  tags,
                   manualCollectionIds: existing.manualCollectionIds,
                   createdAt: existing.createdAt,
                   // Embeddings are opt-in per sync (large payload) — a sync
@@ -159,8 +251,12 @@ export const useStore = create<State>()(
                     ...obj.fields,
                   },
                 }
-              : obj;
+              : { ...obj, tags };
           }
+          // Persisted separately, on its own debounce — see
+          // lib/embeddingsStorage.ts for why this can't just ride along with
+          // the main store's own (now-cheap) persistence path.
+          saveEmbeddings(next);
           return { objects: next };
         }),
 
@@ -177,6 +273,83 @@ export const useStore = create<State>()(
         });
         return doomed.length;
       },
+
+      deleteObjectLocally: (id) =>
+        set((s) => {
+          const existing = s.objects[id];
+          if (!existing) return {};
+          const { [id]: _removed, ...objects } = s.objects;
+          // `id` IS the mymind id for synced objects (see mapMymindObjectToDesignObject)
+          // — tombstone it so a later resync doesn't bring it back.
+          const deletedMymindIds =
+            existing.source === "mymind" && !s.deletedMymindIds.includes(id)
+              ? [...s.deletedMymindIds, id]
+              : s.deletedMymindIds;
+          const detailObjectId = s.detailObjectId === id ? null : s.detailObjectId;
+          return { objects, deletedMymindIds, detailObjectId };
+        }),
+
+      reconcileMymindDeletions: (presentIds) => {
+        let removed = 0;
+        set((s) => {
+          const objects = { ...s.objects };
+          let deletedMymindIds = s.deletedMymindIds;
+          for (const obj of Object.values(s.objects)) {
+            if (obj.source !== "mymind" || presentIds.has(obj.id)) continue;
+            delete objects[obj.id];
+            removed++;
+            if (!deletedMymindIds.includes(obj.id)) {
+              deletedMymindIds = [...deletedMymindIds, obj.id];
+            }
+          }
+          if (removed === 0) return {};
+          const detailObjectId =
+            s.detailObjectId && !objects[s.detailObjectId] ? null : s.detailObjectId;
+          return { objects, deletedMymindIds, detailObjectId };
+        });
+        return removed;
+      },
+
+      addObjectTag: (objectId, tag) =>
+        set((s) => {
+          const existing = s.objects[objectId];
+          if (!existing || existing.tags.includes(tag)) return {};
+          const removals = s.localTagRemovals[objectId];
+          const localTagRemovals = removals?.includes(tag)
+            ? { ...s.localTagRemovals, [objectId]: removals.filter((t) => t !== tag) }
+            : s.localTagRemovals;
+          return {
+            objects: {
+              ...s.objects,
+              [objectId]: {
+                ...existing,
+                tags: [...existing.tags, tag],
+                updatedAt: new Date().toISOString(),
+              },
+            },
+            localTagRemovals,
+          };
+        }),
+
+      removeObjectTag: (objectId, tag) =>
+        set((s) => {
+          const existing = s.objects[objectId];
+          if (!existing) return {};
+          const removals = s.localTagRemovals[objectId] ?? [];
+          return {
+            objects: {
+              ...s.objects,
+              [objectId]: {
+                ...existing,
+                tags: existing.tags.filter((t) => t !== tag),
+                updatedAt: new Date().toISOString(),
+              },
+            },
+            localTagRemovals: removals.includes(tag)
+              ? s.localTagRemovals
+              : { ...s.localTagRemovals, [objectId]: [...removals, tag] },
+          };
+        }),
 
       setTagGroup: (tagName, group) =>
         set((s) => {
@@ -340,6 +513,7 @@ export const useStore = create<State>()(
         set((s) => {
           const existing = s.objects[objectId];
           if (!existing) return {};
+          const removals = s.localTagRemovals[objectId] ?? [];
           return {
             objects: {
               ...s.objects,
@@ -350,6 +524,11 @@ export const useStore = create<State>()(
                 updatedAt: new Date().toISOString(),
               },
             },
+            // The tag now lives in a facet field instead — a resync
+            // shouldn't hand it back as a loose tag too.
+            localTagRemovals: removals.includes(tag)
+              ? s.localTagRemovals
+              : { ...s.localTagRemovals, [objectId]: [...removals, tag] },
           };
         }),
 
@@ -357,7 +536,12 @@ export const useStore = create<State>()(
         const s = get();
         return JSON.stringify(
           {
-            objects: Object.values(s.objects),
+            // Embeddings are excluded — they're the bulk of the payload
+            // (~90% of it) and are fully recoverable by resyncing with
+            // embeddings included, unlike everything else here (tags,
+            // facets, collections, local descriptions), which only exists
+            // in this app.
+            objects: Object.values(s.objects).map(({ embedding: _embedding, ...rest }) => rest),
             collections: s.collectionOrder.map((id) => s.collections[id]),
             tagGroups: s.tagGroups,
           },
@@ -367,16 +551,15 @@ export const useStore = create<State>()(
       },
 
       restoreFromBackup: (json) => {
-        const parsed = JSON.parse(json) as {
-          objects?: DesignObject[];
-          collections?: Collection[];
-          tagGroups?: TagGroups;
-        };
+        // Throws BackupValidationError on any structural problem — nothing
+        // below runs, so a truncated/corrupted file never gets the chance
+        // to wipe the store down to (near-)nothing after the fact.
+        const parsed = parseBackup(json);
         const objects: Record<string, DesignObject> = {};
-        for (const obj of parsed.objects ?? []) objects[obj.id] = obj;
+        for (const obj of parsed.objects) objects[obj.id] = obj;
         const collections: Record<string, Collection> = {};
         const collectionOrder: string[] = [];
-        for (const c of parsed.collections ?? []) {
+        for (const c of parsed.collections) {
           collections[c.id] = c;
           collectionOrder.push(c.id);
         }
@@ -384,13 +567,49 @@ export const useStore = create<State>()(
           objects,
           collections,
           collectionOrder,
-          tagGroups: parsed.tagGroups ?? {},
+          tagGroups: parsed.tagGroups,
           selectedView: { kind: "all" },
           detailObjectId: null,
         });
       },
-    }),
-    { name: "organizer-store", storage: createJSONStorage(() => idbStorage) }
+      };
+    },
+    {
+      name: "organizer-store",
+      storage: createIdbStorage<PersistedState>(),
+      // Transient UI state has no business surviving a reload, and more
+      // importantly: persist's wrapped setState calls partialize+setItem on
+      // every single set() — including every keystroke in the search box.
+      // Keeping this list short keeps that per-call cost O(1) regardless of
+      // how large `objects`/`collections` grow.
+      partialize: (state) => ({
+        objects: state.objects,
+        collections: state.collections,
+        collectionOrder: state.collectionOrder,
+        tagGroups: state.tagGroups,
+        lastBackupAt: state.lastBackupAt,
+        viewMode: state.viewMode,
+        deletedMymindIds: state.deletedMymindIds,
+        localTagRemovals: state.localTagRemovals,
+        sidebarCollapsed: state.sidebarCollapsed,
+      }),
+      // Embeddings are deliberately excluded from what idbStorage actually
+      // writes (see its stripEmbeddings replacer) — merge them back in from
+      // their own separate store once this rehydration finishes.
+      onRehydrateStorage: () => () => {
+        loadEmbeddings().then((map) => {
+          if (Object.keys(map).length === 0 || !storeApi) return;
+          storeApi.setState((s) => {
+            const objects = { ...s.objects };
+            for (const [id, embedding] of Object.entries(map)) {
+              if (objects[id]) objects[id] = { ...objects[id], embedding };
+            }
+            return { objects };
+          });
+        });
+        if (storeApi) applyCuratedCollectionsSeed(storeApi.getState);
+      },
+    }
   )
 );
 
@@ -405,7 +624,12 @@ export function isSampleObject(obj: DesignObject): boolean {
   return !obj.fields?.mymind_id;
 }
 
-export function getVisibleObjects(state: State): DesignObject[] {
+/** What getVisibleObjects actually reads — narrower than the full State so
+ * callers can pass a shallow-selected subset (see App.tsx) instead of
+ * subscribing to the whole store just to call this function. */
+export type VisibilityState = Pick<State, "objects" | "collections" | "selectedView" | "tagGroups">;
+
+export function getVisibleObjects(state: VisibilityState): DesignObject[] {
   const all = Object.values(state.objects);
   const view = state.selectedView;
 

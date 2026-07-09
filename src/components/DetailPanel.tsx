@@ -1,10 +1,23 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { matchesSmartCollection, norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { normalizeFacetSchema } from "../lib/facetSchema";
-import { MYMIND_OWNED_FIELD_KEYS } from "../lib/mymindSync";
-import { addMymindTag } from "../lib/mymindWrite";
+import {
+  BLOB_TYPE_KEY,
+  DESCRIPTION_KEY,
+  MYMIND_OWNED_FIELD_KEYS,
+  NOTE_CONTENT_KEY,
+  NOTE_ID_KEY,
+} from "../lib/mymindSync";
+import {
+  addMymindTag,
+  createMymindNote,
+  updateMymindContent,
+  updateMymindNote,
+} from "../lib/mymindWrite";
+import { buildDownloadFilename } from "../lib/downloadFilename";
 import type { FacetField, ManualCollection } from "../types";
 
 /** Drag payload for "drag a tag onto an empty facet field" — distinct from
@@ -19,20 +32,58 @@ const COLLAPSED_MYMIND_KEYS = (MYMIND_OWNED_FIELD_KEYS as readonly string[]).fil
   (k) => k !== "summary"
 );
 
-/** Local-only for now — see DetailPanel's description field for why this
- * doesn't sync to mymind (no content-write endpoint is authorized). */
-const DESCRIPTION_KEY = "description";
+/** `source_url` is data from mymind, rendered as a real `<a href>` — a
+ * `javascript:` (or other non-http) URL saved there would execute on click
+ * otherwise. Low real-world risk (it's your own account's data), but the
+ * fix costs nothing: only ever link out to http(s). */
+function isSafeHref(value: string): boolean {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
 
 export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: () => void }) {
-  const state = useStore();
+  // Shallow-selected — while a detail panel is open, typing in the main
+  // search box (or anything else touching unrelated store fields) shouldn't
+  // re-render it.
+  const state = useStore(
+    useShallow((s) => ({
+      objects: s.objects,
+      collections: s.collections,
+      tagGroups: s.tagGroups,
+      updateObject: s.updateObject,
+      addObjectTag: s.addObjectTag,
+      removeObjectTag: s.removeObjectTag,
+      moveTagToField: s.moveTagToField,
+      setTagGroup: s.setTagGroup,
+      setSelectedView: s.setSelectedView,
+      removeFromManualCollection: s.removeFromManualCollection,
+      deleteObjectLocally: s.deleteObjectLocally,
+    }))
+  );
   const object = state.objects[objectId];
   const [tagDraft, setTagDraft] = useState("");
   const [dragOverField, setDragOverField] = useState<string | null>(null);
   const [tagPushError, setTagPushError] = useState<string | null>(null);
+  const [notePushError, setNotePushError] = useState<string | null>(null);
+  const [contentPushError, setContentPushError] = useState<string | null>(null);
   // Value a facet field held when it was focused — compared against the
   // value on blur so a push to mymind only fires for a value the user
   // actually finished changing, not on every keystroke.
   const focusValues = useRef<Record<string, string>>({});
+  // The grid deliberately uses a small, capped thumbnail (object.imageUrl —
+  // fine for thousands of cards at once). Here, where there's exactly one
+  // image to show and it's worth looking closely at, try the original blob
+  // first and only fall back if it 404s/422s (not every object has one —
+  // e.g. a saved webpage has no uploaded attachment) or fails to load.
+  const [blobFailed, setBlobFailed] = useState(false);
+  const [defaultThumbFailed, setDefaultThumbFailed] = useState(false);
+  useEffect(() => {
+    setBlobFailed(false);
+    setDefaultThumbFailed(false);
+  }, [objectId]);
 
   const smartMatches = useMemo(() => {
     if (!object) return [];
@@ -79,7 +130,9 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
         !facetOwnedKeys.has(key) &&
         !COLLAPSED_MYMIND_KEYS.includes(key) &&
         key !== "summary" &&
-        key !== DESCRIPTION_KEY
+        key !== DESCRIPTION_KEY &&
+        key !== NOTE_ID_KEY &&
+        key !== NOTE_CONTENT_KEY
     );
   }, [object, facetOwnedKeys]);
 
@@ -90,18 +143,73 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
 
   if (!object) return null;
 
+  // Try the original blob, then mymind's own default thumbnail, then the
+  // small capped one we already have as a last resort — only for
+  // mymind-sourced objects (sample/local ones have no blob to reach for).
+  // mymind's CDN doesn't always report the blob's real Content-Type
+  // correctly (confirmed empirically — an object once came back as
+  // `application/json` with a genuine JPEG body), so whenever we know it
+  // from sync (BLOB_TYPE_KEY, straight from the object's own `blob.type`),
+  // pass it through and let the proxy override the upstream header with it.
+  // A mymind Note has no real uploaded image — its own thumbnail endpoint
+  // just 404s (or returns a generic placeholder), so skip the whole
+  // image/download-original block rather than showing a broken fetch chain.
+  // The note's real content, shown below, is the actual "image" here.
+  const isNote = object.fields.entity_type === "Note";
+  // NOTE_CONTENT_KEY isn't Note-exclusive — mymind's "Content" entityType
+  // (saved snippets/clippings) carries the same real-text `content` field
+  // with no image either (confirmed empirically 2026-07-08, 0/16 sampled had
+  // a blob). Only Notes are writable back to mymind (PUT /objects/:id/content
+  // 422s for any other type), so this shows read-only for everything else.
+  const hasRealContent = !!object.fields[NOTE_CONTENT_KEY];
+  const blobType = object.fields[BLOB_TYPE_KEY];
+  const blobTypeParam = blobType ? `?type=${encodeURIComponent(blobType)}` : "";
+  const detailImageSrc =
+    object.source === "mymind"
+      ? !blobFailed
+        ? `/api/mymind/blob/${object.id}${blobTypeParam}`
+        : !defaultThumbFailed
+        ? `/api/mymind/image/${object.id}`
+        : object.imageUrl
+      : object.imageUrl;
+
+  function handleDelete() {
+    const ok = window.confirm(
+      object.source === "mymind"
+        ? "Delete this item from The Organizer? It stays in mymind — this only removes it here, and it won't come back on the next sync."
+        : "Delete this item from The Organizer? This can't be undone."
+    );
+    if (!ok) return;
+    state.deleteObjectLocally(object.id);
+    onClose();
+  }
+
   function addTag() {
     const value = tagDraft.trim();
     if (!value || object.tags.includes(value)) {
       setTagDraft("");
       return;
     }
-    state.updateObject(object.id, { tags: [...object.tags, value] });
+    state.addObjectTag(object.id, value);
     setTagDraft("");
+    void pushNewTag(value);
+  }
+
+  /** Pushes a freshly-added plain tag to mymind — a deliberate "Add" click
+   * (or Enter), never a live-typing field, so this fires immediately rather
+   * than waiting for blur like maybePushFacetTag. */
+  async function pushNewTag(value: string) {
+    if (object.source !== "mymind") return;
+    try {
+      await addMymindTag(object.id, value);
+      setTagPushError(null);
+    } catch (err) {
+      setTagPushError(`Couldn't sync "${value}" to mymind as a tag: ${(err as Error).message}`);
+    }
   }
 
   function removeTag(tag: string) {
-    state.updateObject(object.id, { tags: object.tags.filter((t) => t !== tag) });
+    state.removeObjectTag(object.id, tag);
   }
 
   function setFieldValue(key: string, value: string) {
@@ -132,6 +240,52 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
       setTagPushError(null);
     } catch (err) {
       setTagPushError(`Couldn't sync "${trimmed}" to mymind as a tag: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Pushes the description to mymind as a note — the other write path this
+   * app performs, only on blur (same reasoning as maybePushFacetTag: never
+   * per keystroke). Creates a note the first time, then updates that same
+   * note in place on every later edit (using the id captured back from
+   * mymind after the first push). Never DELETE — clearing the field to
+   * empty just replaces the note's body with an empty string.
+   */
+  async function maybePushDescription(newValue: string) {
+    if (object.source !== "mymind") return;
+    const priorValue = focusValues.current[DESCRIPTION_KEY] ?? "";
+    if (newValue === priorValue) return;
+
+    try {
+      const noteId = object.fields[NOTE_ID_KEY];
+      const created = noteId
+        ? await updateMymindNote(object.id, noteId, newValue)
+        : await createMymindNote(object.id, newValue);
+      if (created) setFieldValue(NOTE_ID_KEY, created.id);
+      setNotePushError(null);
+    } catch (err) {
+      setNotePushError(`Couldn't sync the description to mymind: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Pushes an edit to a Note's own content — the real write path (distinct
+   * from maybePushDescription, which writes the separate notes[] annotation
+   * via the notes endpoints). Only ever called for entity_type "Note"
+   * objects (mymind 422s otherwise), and only on blur, same reasoning as
+   * every other write here: never per keystroke. No id to capture back —
+   * unlike a note, content isn't a separate entity with its own id.
+   */
+  async function maybePushContent(newValue: string) {
+    if (object.source !== "mymind") return;
+    const priorValue = focusValues.current[NOTE_CONTENT_KEY] ?? "";
+    if (newValue === priorValue) return;
+
+    try {
+      await updateMymindContent(object.id, newValue);
+      setContentPushError(null);
+    } catch (err) {
+      setContentPushError(`Couldn't sync the note content to mymind: ${(err as Error).message}`);
     }
   }
 
@@ -173,8 +327,31 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
           </button>
         </div>
 
-        {object.imageUrl && (
-          <img src={object.imageUrl} alt={object.title} className="w-full h-auto" />
+        {!isNote && object.imageUrl && (
+          <img
+            src={detailImageSrc}
+            alt={object.title}
+            className="w-full h-auto"
+            onError={() => {
+              if (!blobFailed) setBlobFailed(true);
+              else if (!defaultThumbFailed) setDefaultThumbFailed(true);
+            }}
+          />
+        )}
+
+        {!isNote && object.source === "mymind" && blobType && (
+          <div className="px-4 pt-4">
+            <a
+              href={`/api/mymind/blob/${object.id}?filename=${encodeURIComponent(
+                buildDownloadFilename(object.title, blobType)
+              )}&type=${encodeURIComponent(blobType)}`}
+              download={buildDownloadFilename(object.title, blobType)}
+              className="block w-full text-center text-sm px-3 py-1.5 rounded-lg border border-line hover:bg-line/40"
+              title="The original uploaded file, byte-for-byte — not the compressed thumbnail shown above"
+            >
+              ⭳ Download original
+            </a>
+          </div>
         )}
 
         {object.source === "mymind" && object.embedding && (
@@ -201,6 +378,43 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
               className="mt-1 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
             />
           </div>
+
+          {hasRealContent && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wide text-muted">
+                {isNote ? "Note content" : "Content"}
+              </label>
+              {isNote ? (
+                <>
+                  <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
+                    The note's real text — synced to mymind once you leave the field. Markdown
+                    (page links, tables, task lists) is supported, same as mymind itself.
+                  </p>
+                  <textarea
+                    value={object.fields[NOTE_CONTENT_KEY] ?? ""}
+                    onChange={(e) => setFieldValue(NOTE_CONTENT_KEY, e.target.value)}
+                    onFocus={(e) => {
+                      focusValues.current[NOTE_CONTENT_KEY] = e.target.value;
+                    }}
+                    onBlur={(e) => void maybePushContent(e.target.value)}
+                    placeholder="Write the note…"
+                    rows={8}
+                    className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent resize-y max-h-64"
+                  />
+                </>
+              ) : (
+                <>
+                  <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
+                    The real saved text, read from mymind — read-only here (mymind's write API
+                    only accepts edits back for Notes, not this object type).
+                  </p>
+                  <div className="text-sm text-ink/90 leading-relaxed whitespace-pre-wrap rounded-lg border border-line px-2.5 py-1.5 max-h-64 overflow-y-auto">
+                    {object.fields[NOTE_CONTENT_KEY]}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {object.fields.summary && (
             <p className="text-sm text-ink/80 leading-relaxed">{object.fields.summary}</p>
@@ -280,13 +494,17 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
           <div>
             <label className="text-[11px] uppercase tracking-wide text-muted">Description</label>
             <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
-              Local to this app for now — mymind has no writable description endpoint we're
-              allowed to use, so this doesn't sync there yet.
+              {object.source === "mymind"
+                ? "Synced to mymind as a note once you leave the field — mymind has no way for us to remove a note once sent, so this only ever adds/updates it, never deletes."
+                : "Local to this app — this sample object has no mymind counterpart to sync to."}
             </p>
             <textarea
-              key={object.id}
-              defaultValue={object.fields[DESCRIPTION_KEY] ?? ""}
-              onBlur={(e) => setFieldValue(DESCRIPTION_KEY, e.target.value)}
+              value={object.fields[DESCRIPTION_KEY] ?? ""}
+              onChange={(e) => setFieldValue(DESCRIPTION_KEY, e.target.value)}
+              onFocus={(e) => {
+                focusValues.current[DESCRIPTION_KEY] = e.target.value;
+              }}
+              onBlur={(e) => void maybePushDescription(e.target.value)}
               placeholder="Add a description…"
               rows={3}
               className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent resize-y"
@@ -381,6 +599,32 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
             </div>
           )}
 
+          {notePushError && (
+            <div className="flex items-start justify-between gap-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+              <span>{notePushError}</span>
+              <button
+                onClick={() => setNotePushError(null)}
+                className="text-red-700/60 hover:text-red-700 shrink-0"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {contentPushError && (
+            <div className="flex items-start justify-between gap-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+              <span>{contentPushError}</span>
+              <button
+                onClick={() => setContentPushError(null)}
+                className="text-red-700/60 hover:text-red-700 shrink-0"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {otherMetadataEntries.length > 0 && (
             <div>
               <label className="text-[11px] uppercase tracking-wide text-muted">Metadata</label>
@@ -410,7 +654,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                     <span className="text-muted w-20 shrink-0 truncate" title={key}>
                       {key}
                     </span>
-                    {key === "source_url" ? (
+                    {key === "source_url" && isSafeHref(value) ? (
                       <a
                         href={value}
                         target="_blank"
@@ -473,6 +717,20 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="pt-3 border-t border-line">
+            <button
+              onClick={handleDelete}
+              className="w-full text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50"
+              title={
+                object.source === "mymind"
+                  ? "Removes it from The Organizer only — mymind is untouched, we never delete there"
+                  : "Removes it from The Organizer"
+              }
+            >
+              Delete from Organizer
+            </button>
           </div>
         </div>
       </div>

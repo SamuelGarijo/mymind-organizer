@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore, isSampleObject } from "../store";
 import { matchesSmartCollection } from "../lib/ruleEngine";
 import { chooseBackupFile, getStoredBackupHandle, isAutoBackupSupported } from "../lib/autoBackup";
@@ -38,6 +39,19 @@ function FolderIcon() {
         fill="currentColor"
         className="text-muted"
       />
+    </svg>
+  );
+}
+
+/** Shows the sidebar's CURRENT state (shaded left panel = visible), not the
+ * action the click performs — same convention as most apps' sidebar-toggle
+ * icon (VSCode, Notion, etc.). */
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" className="shrink-0">
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
+      {!collapsed && <rect x="2.4" y="3.4" width="3" height="9.2" fill="currentColor" opacity="0.5" />}
     </svg>
   );
 }
@@ -141,7 +155,26 @@ export function Sidebar({
   onEditSmart: (collectionId: string) => void;
   onEditManual: (collectionId: string) => void;
 }) {
-  const state = useStore();
+  // Shallow-selected — Sidebar has nothing to do with search/facet/type
+  // filters or which detail panel is open, so it shouldn't re-render (and
+  // re-run its per-object counts memo's dependency check) on every keystroke
+  // elsewhere in the app.
+  const state = useStore(
+    useShallow((s) => ({
+      collections: s.collections,
+      collectionOrder: s.collectionOrder,
+      selectedView: s.selectedView,
+      setSelectedView: s.setSelectedView,
+      objects: s.objects,
+      tagGroups: s.tagGroups,
+      lastBackupAt: s.lastBackupAt,
+      deleteSampleObjects: s.deleteSampleObjects,
+      deleteCollection: s.deleteCollection,
+      assignToManualCollection: s.assignToManualCollection,
+      sidebarCollapsed: s.sidebarCollapsed,
+      setSidebarCollapsed: s.setSidebarCollapsed,
+    }))
+  );
   const { collections, collectionOrder, selectedView, setSelectedView } = state;
 
   const [backupConfigured, setBackupConfigured] = useState(false);
@@ -206,11 +239,36 @@ export function Sidebar({
     if (ok) state.deleteSampleObjects();
   }
 
+  if (state.sidebarCollapsed) {
+    return (
+      <aside className="w-9 shrink-0 border-r border-line bg-panel h-full flex flex-col items-center pt-5">
+        <button
+          onClick={() => state.setSidebarCollapsed(false)}
+          className="text-muted hover:text-ink p-1.5 rounded-lg hover:bg-line/40"
+          aria-label="Show sidebar"
+          title="Show sidebar"
+        >
+          <SidebarToggleIcon collapsed />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="w-64 shrink-0 border-r border-line bg-panel h-full flex flex-col">
-      <div className="px-4 pt-5 pb-3">
-        <div className="text-[13px] font-semibold tracking-tight">The Organizer</div>
-        <div className="text-[11px] text-muted mt-0.5">Design reference archive</div>
+      <div className="px-4 pt-5 pb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold tracking-tight">The Organizer</div>
+          <div className="text-[11px] text-muted mt-0.5">Design reference archive</div>
+        </div>
+        <button
+          onClick={() => state.setSidebarCollapsed(true)}
+          className="text-muted hover:text-ink p-1 rounded-lg hover:bg-line/40 shrink-0"
+          aria-label="Hide sidebar"
+          title="Hide sidebar"
+        >
+          <SidebarToggleIcon collapsed={false} />
+        </button>
       </div>
 
       <div className="px-3 space-y-0.5">
@@ -314,9 +372,9 @@ export function Sidebar({
             <button
               onClick={handleSetBackupFile}
               className="w-full text-left rounded-lg border border-line px-2.5 py-1.5 text-[11px] text-ink/70 hover:bg-line/40"
-              title="Pick a file — every future sync silently rewrites it, no dialog"
+              title="Pick a folder — every sync writes a new dated backup file there, no dialog, keeping the last 7"
             >
-              Set backup file for auto-backup
+              Set backup folder for auto-backup
             </button>
           )
         ) : (

@@ -16,7 +16,11 @@ app.get("/api/health", (_req, res) => {
 });
 
 const port = Number(process.env.PORT) || 8787;
-app.listen(port, () => {
+// Bound to loopback only — this proxy holds your mymind credentials (via
+// signed requests) and has no auth of its own. Listening on all interfaces
+// (the default with no host arg) would expose it, and your whole mymind
+// library plus the tag-write endpoint, to anyone else on the same network.
+app.listen(port, "127.0.0.1", () => {
   console.log(`mymind proxy listening on http://localhost:${port}`);
   if (!process.env.MYMIND_KID || !process.env.MYMIND_SECRET) {
     console.warn(

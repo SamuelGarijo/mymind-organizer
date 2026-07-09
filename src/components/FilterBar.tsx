@@ -1,4 +1,5 @@
 import { useStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import type { TagFrequency, TypeFrequency } from "../lib/quickFilter";
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
@@ -10,6 +11,10 @@ export function FilterBar({
   topTags: TagFrequency[];
   objectTypes: TypeFrequency[];
 }) {
+  // Shallow-selected — this bar legitimately re-renders on every keystroke
+  // (it's the input itself), but a bare useStore() also re-rendered it on
+  // every unrelated store change (syncs, tag edits, opening a detail panel),
+  // which this avoids.
   const {
     searchQuery,
     facetTags,
@@ -21,7 +26,20 @@ export function FilterBar({
     setFacetMode,
     clearFacetTags,
     setTypeFilter,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      searchQuery: s.searchQuery,
+      facetTags: s.facetTags,
+      facetMode: s.facetMode,
+      typeFilter: s.typeFilter,
+      tagGroups: s.tagGroups,
+      setSearchQuery: s.setSearchQuery,
+      toggleFacetTag: s.toggleFacetTag,
+      setFacetMode: s.setFacetMode,
+      clearFacetTags: s.clearFacetTags,
+      setTypeFilter: s.setTypeFilter,
+    }))
+  );
 
   return (
     <div className="border-b border-line bg-panel">

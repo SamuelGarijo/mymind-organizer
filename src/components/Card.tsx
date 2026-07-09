@@ -5,6 +5,7 @@ import { useStore } from "../store";
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
+import { NOTE_CONTENT_KEY } from "../lib/mymindSync";
 
 const VISIBLE_TAG_LIMIT = 4;
 
@@ -30,6 +31,15 @@ export const Card = memo(function Card({
   // URL is always present, but the underlying request can 404/422.
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = object.imageUrl && !imageFailed;
+  // Text-based objects (notes, etc.) have no real thumbnail — prefer the
+  // real written content (NOTE_CONTENT_KEY) over mymind's AI-generated
+  // `summary`, falling back to summary only when there's no real content
+  // (e.g. a non-Note object with no thumbnail). Only the preview slot itself
+  // gets the white/rounded "paper" card treatment — it floats as its own
+  // shape, decoupled from the metadata below, which stays identical to
+  // every other card's (no special background or padding).
+  const textPreview = (object.fields[NOTE_CONTENT_KEY] || object.fields.summary)?.trim();
+  const isTextOnly = !showImage && !!textPreview;
 
   return (
     <div
@@ -41,31 +51,34 @@ export const Card = memo(function Card({
       onClick={() => onOpen(object.id)}
       className="cursor-grab active:cursor-grabbing"
     >
-      <div className="w-full border border-line bg-line/10">
-        {showImage ? (
-          <img
-            src={object.imageUrl}
-            alt={object.title}
-            loading="lazy"
-            className="w-full h-auto block"
-            draggable={false}
-            onError={() => setImageFailed(true)}
-          />
-        ) : (
-          <div className="w-full aspect-[4/3] flex items-center justify-center text-muted text-xs">
-            No image
-          </div>
-        )}
-      </div>
+      {isTextOnly ? (
+        <div className="w-full bg-panel rounded-card shadow-card p-3.5">
+          <p className="text-[14px] leading-snug text-ink/75 line-clamp-[10] whitespace-pre-line">
+            {textPreview}
+          </p>
+        </div>
+      ) : (
+        <div className="w-full border border-line bg-line/10">
+          {showImage ? (
+            <img
+              src={object.imageUrl}
+              alt={object.title}
+              loading="lazy"
+              className="w-full h-auto block"
+              draggable={false}
+              onError={() => setImageFailed(true)}
+            />
+          ) : (
+            <div className="w-full aspect-[4/3] flex items-center justify-center text-muted text-xs">
+              No image
+            </div>
+          )}
+        </div>
+      )}
       <div className="pt-2 pb-1">
         <div className="text-[13px] leading-snug line-clamp-2" title={object.title}>
           {object.title}
         </div>
-        {object.fields.summary && (
-          <div className="mt-0.5 text-[12px] text-muted leading-snug line-clamp-2">
-            {object.fields.summary}
-          </div>
-        )}
         {visibleTags.length > 0 && (
           <div className="mt-1 text-[11px] text-muted/80 leading-snug">
             {visibleTags.map((t, i) => {

@@ -147,8 +147,7 @@ export async function getMymindResource(pathname, searchParams) {
 }
 
 /** POSTs a JSON body to a mymind endpoint, signed, with the same 429 backoff
- * as getUrl. Only ever used for the one write endpoint this proxy is
- * allowed to call — never PATCH, never DELETE, never content writes. */
+ * as getUrl. */
 async function postUrl(url, body) {
   let attempt = 0;
   while (true) {
@@ -196,4 +195,82 @@ export async function addTag(objectId, name) {
   const url = buildUrl(`/objects/${objectId}/tags`);
   const res = await postUrl(url, { name });
   return res.json();
+}
+
+/** Sends a raw (non-JSON) body to a mymind endpoint — used for the
+ * notes endpoints, which take `text/markdown` directly rather than a JSON
+ * envelope. Same 429 backoff as postUrl/getUrl. */
+async function rawBodyRequest(method, url, body, contentType) {
+  let attempt = 0;
+  while (true) {
+    const jwt = signMymindRequest(method, url.pathname);
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        "User-Agent": USER_AGENT,
+        Accept: "application/json",
+        "Content-Type": contentType,
+      },
+      body,
+    });
+
+    if (res.status === 429 && attempt < 4) {
+      const delay = backoffDelayMs(res.headers, attempt);
+      attempt += 1;
+      await sleep(delay);
+      continue;
+    }
+
+    if (!res.ok) {
+      let problem = null;
+      try {
+        problem = await res.json();
+      } catch {
+        // non-JSON error body; status still carries the failure
+      }
+      throw new MymindApiError(res.status, problem);
+    }
+
+    return res;
+  }
+}
+
+/**
+ * Creates a new note on an object (empirically confirmed against a
+ * disposable test object) — mymind auto-converts the markdown body to its
+ * internal Prose format. Returns `{ id }` for the new note.
+ *
+ * Deliberately no corresponding delete function: this proxy never issues
+ * DELETE against mymind for anything, by explicit instruction — clearing a
+ * description replaces the note's body with an empty string instead (see
+ * updateNote), it never removes the note object itself.
+ */
+export async function createNote(objectId, body) {
+  const url = buildUrl(`/objects/${objectId}/notes`);
+  const res = await rawBodyRequest("POST", url, body, "text/markdown");
+  return res.json();
+}
+
+/** Replaces an existing note's body in place — idempotent per mymind's
+ * docs. Used once an object already has a note id (from a prior create or
+ * from a sync that pulled one down) so a later edit updates it instead of
+ * creating a second note. */
+export async function updateNote(objectId, noteId, body) {
+  const url = buildUrl(`/objects/${objectId}/notes/${noteId}`);
+  await rawBodyRequest("PUT", url, body, "text/markdown");
+}
+
+/**
+ * Replaces a Note's own primary content in place — distinct from
+ * createNote/updateNote above, which write to the separate `notes[]`
+ * annotation array. This is the real write path for a Note object's actual
+ * body (per mymind's docs: "replace a Note's full content body"; 422 for
+ * any other object type). Idempotent. No id to track in the response —
+ * unlike a note, an object's content isn't a separate entity with its own
+ * id, so there's nothing to store back locally.
+ */
+export async function updateContent(objectId, body) {
+  const url = buildUrl(`/objects/${objectId}/content`);
+  await rawBodyRequest("PUT", url, body, "text/markdown");
 }

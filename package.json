@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --port 5773 --strictPort",
     "server": "node server/index.js",
-    "dev:full": "concurrently -n vite,server -c blue,magenta \"npm:dev\" \"npm:server\"",
+    "server:watch": "node --watch server/index.js",
+    "dev:full": "concurrently -n vite,server -c blue,magenta \"npm:dev\" \"npm:server:watch\"",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },

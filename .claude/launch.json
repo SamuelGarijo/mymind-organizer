@@ -10,7 +10,7 @@
     {
       "name": "organizer-api",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "server"],
+      "runtimeArgs": ["run", "server:watch"],
       "port": 8787
     }
   ]

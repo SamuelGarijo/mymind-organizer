@@ -8,6 +8,9 @@ ORGANIZER-API.rtf
 # Real personal data export (~190MB) — never belongs in git
 organizer-backup.json
 
+# Rotating auto-backups (real personal data, ~12MB each) — never belongs in git
+Backup-folder/
+
 # TypeScript incremental build cache — machine-specific, auto-regenerated
 *.tsbuildinfo
 
