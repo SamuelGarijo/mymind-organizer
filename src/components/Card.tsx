@@ -47,7 +47,14 @@ export const Card = memo(function Card({
       onDragStart={(e) => {
         e.dataTransfer.setData(DRAG_MIME, object.id);
         e.dataTransfer.effectAllowed = "copy";
+        // Imperative getState() read, not a reactive subscription — this
+        // fires per-drag, not per-render, so it doesn't cost every one of
+        // the thousands of mounted cards a re-render subscription just for
+        // an event that only ever touches one of them at a time.
+        const { sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
+        if (sidebarCollapsed) setDragRevealSidebar(true);
       }}
+      onDragEnd={() => useStore.getState().setDragRevealSidebar(false)}
       onClick={() => onOpen(object.id)}
       className="active:cursor-grabbing"
     >

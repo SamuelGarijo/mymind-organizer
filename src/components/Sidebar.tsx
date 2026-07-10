@@ -173,6 +173,7 @@ export function Sidebar({
       assignToManualCollection: s.assignToManualCollection,
       sidebarCollapsed: s.sidebarCollapsed,
       setSidebarCollapsed: s.setSidebarCollapsed,
+      dragRevealSidebar: s.dragRevealSidebar,
     }))
   );
   const { collections, collectionOrder, selectedView, setSelectedView } = state;
@@ -239,7 +240,7 @@ export function Sidebar({
     if (ok) state.deleteSampleObjects();
   }
 
-  if (state.sidebarCollapsed) {
+  if (state.sidebarCollapsed && !state.dragRevealSidebar) {
     return (
       <aside className="w-9 shrink-0 border-r border-line bg-panel h-full flex flex-col items-center pt-5">
         <button

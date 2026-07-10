@@ -114,6 +114,16 @@ type State = {
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
 
+  /** Temporary override that shows the sidebar even while `sidebarCollapsed`
+   * is true, for the duration of a card drag — so there's a folder to drop
+   * onto. Deliberately separate from `sidebarCollapsed` itself (never
+   * persisted, never mutates the user's actual collapse preference): once
+   * the drag ends this just flips back to false and the real preference
+   * takes back over on its own, whether the drag ended in a drop or was
+   * cancelled. */
+  dragRevealSidebar: boolean;
+  setDragRevealSidebar: (reveal: boolean) => void;
+
   setSelectedView: (view: ViewSelection) => void;
   openDetail: (id: string) => void;
   closeDetail: () => void;
@@ -195,6 +205,9 @@ export const useStore = create<State>()(
 
       sidebarCollapsed: false,
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+
+      dragRevealSidebar: false,
+      setDragRevealSidebar: (reveal) => set({ dragRevealSidebar: reveal }),
 
       importObjects: (objs, tagGroupHints) =>
         set((s) => {
