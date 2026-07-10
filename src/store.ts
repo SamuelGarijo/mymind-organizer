@@ -96,10 +96,10 @@ type State = {
   setTagGroup: (tagName: string, group: string | null) => void;
   addSmartCollection: (name: string, rule: FilterGroup) => string;
   updateSmartCollection: (id: string, name: string, rule: FilterGroup) => void;
-  addManualCollection: (name: string, facetSchema?: FacetField[]) => string;
+  addManualCollection: (name: string, facetSchema?: FacetField[], roleFieldName?: string) => string;
   updateManualCollection: (
     id: string,
-    patch: { name?: string; facetSchema?: FacetField[] }
+    patch: { name?: string; facetSchema?: FacetField[]; roleFieldName?: string }
   ) => void;
   renameCollection: (id: string, name: string) => void;
   deleteCollection: (id: string) => void;
@@ -398,7 +398,7 @@ export const useStore = create<State>()(
           return { collections: { ...s.collections, [id]: updated } };
         }),
 
-      addManualCollection: (name, facetSchema) => {
+      addManualCollection: (name, facetSchema, roleFieldName) => {
         const id = makeId("manual");
         const collection: ManualCollection = {
           id,
@@ -406,6 +406,7 @@ export const useStore = create<State>()(
           name,
           createdAt: new Date().toISOString(),
           ...(facetSchema && facetSchema.length > 0 ? { facetSchema } : {}),
+          ...(roleFieldName ? { roleFieldName } : {}),
         };
         set((s) => ({
           collections: { ...s.collections, [id]: collection },
@@ -422,6 +423,11 @@ export const useStore = create<State>()(
             ...existing,
             ...(patch.name !== undefined ? { name: patch.name } : {}),
             ...(patch.facetSchema !== undefined ? { facetSchema: patch.facetSchema } : {}),
+            // Always overwritten from the patch (never merge-preserved) —
+            // the modal is this action's only caller and always sends its
+            // full current draft, including explicitly clearing this to
+            // undefined when no field is designated as the role anymore.
+            roleFieldName: patch.roleFieldName,
           };
           return { collections: { ...s.collections, [id]: updated } };
         }),

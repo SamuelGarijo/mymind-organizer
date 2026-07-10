@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { normalizeFacetSchema } from "../lib/facetSchema";
+import { getKnownFields } from "../lib/fieldCatalog";
 import type { FacetField, FacetFieldType } from "../types";
 
 const TYPE_LABELS: Record<FacetFieldType, string> = {
@@ -26,9 +27,17 @@ export function ManualCollectionModal({
   const [facets, setFacets] = useState<FacetField[]>(
     existing?.type === "manual" ? normalizeFacetSchema(existing) : []
   );
+  const [roleFieldName, setRoleFieldName] = useState<string | undefined>(
+    existing?.type === "manual" ? existing.roleFieldName : undefined
+  );
   const [nameDraft, setNameDraft] = useState("");
   const [typeDraft, setTypeDraft] = useState<FacetFieldType>("text");
   const [optionsDraft, setOptionsDraft] = useState("");
+
+  // Derived live from every manual collection's schema — not a stored
+  // catalog, so it can never drift from what's actually in use. Powers the
+  // "reuse this field" suggestion below.
+  const knownFields = useMemo(() => getKnownFields(state.collections), [state.collections]);
 
   function addFacet() {
     const value = nameDraft.trim();
@@ -52,15 +61,18 @@ export function ManualCollectionModal({
 
   function removeFacet(name: string) {
     setFacets(facets.filter((f) => f.name !== name));
+    // A role field that no longer exists is a dangling pointer, not a
+    // meaningful "no role" state — clear it rather than leave it stale.
+    if (roleFieldName === name) setRoleFieldName(undefined);
   }
 
   function save() {
     const trimmed = name.trim();
     if (!trimmed) return;
     if (existing) {
-      state.updateManualCollection(existing.id, { name: trimmed, facetSchema: facets });
+      state.updateManualCollection(existing.id, { name: trimmed, facetSchema: facets, roleFieldName });
     } else {
-      const id = state.addManualCollection(trimmed, facets);
+      const id = state.addManualCollection(trimmed, facets, roleFieldName);
       state.setSelectedView({ kind: "collection", collectionId: id });
     }
     onClose();
@@ -116,12 +128,32 @@ export function ManualCollectionModal({
           <div className="mt-1.5 space-y-1.5">
             <div className="flex gap-1.5">
               <input
+                list="known-field-names"
                 value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setNameDraft(value);
+                  // Exact match (case-insensitive) on a field already used
+                  // somewhere else — reuse its type/options instead of
+                  // making you redefine "Author" from scratch and risk a
+                  // second, slightly different version of the same field.
+                  const known = knownFields.find(
+                    (f) => f.name.toLowerCase() === value.trim().toLowerCase()
+                  );
+                  if (known) {
+                    setTypeDraft(known.type);
+                    setOptionsDraft(known.options?.join(", ") ?? "");
+                  }
+                }}
                 onKeyDown={(e) => e.key === "Enter" && typeDraft !== "select" && addFacet()}
                 placeholder="Field name…"
                 className="flex-1 rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
               />
+              <datalist id="known-field-names">
+                {knownFields.map((f) => (
+                  <option key={`${f.name}::${f.type}`} value={f.name} />
+                ))}
+              </datalist>
               <select
                 value={typeDraft}
                 onChange={(e) => setTypeDraft(e.target.value as FacetFieldType)}
@@ -151,6 +183,32 @@ export function ManualCollectionModal({
             </button>
           </div>
         </div>
+
+        {facets.some((f) => f.type === "select") && (
+          <div className="mt-4">
+            <div className="text-[11px] uppercase tracking-wide text-muted">
+              Role field (optional)
+            </div>
+            <p className="text-[12px] text-muted/80 mt-0.5 mb-1.5">
+              Pick a select field to use as this collection's role — lets different kinds of
+              items (e.g. photo vs. author vs. book) live side by side in one collection.
+            </p>
+            <select
+              value={roleFieldName ?? ""}
+              onChange={(e) => setRoleFieldName(e.target.value || undefined)}
+              className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm bg-panel"
+            >
+              <option value="">None</option>
+              {facets
+                .filter((f) => f.type === "select")
+                .map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
 
         <div className="mt-4 flex justify-end gap-2">
           <button

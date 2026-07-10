@@ -86,6 +86,16 @@ export type ManualCollection = {
    * normalizeFacetSchema() in lib/facetSchema.ts. */
   facetFields?: string[];
   facetSchema?: FacetField[];
+  /** Name of a select-type field in facetSchema designated as this
+   * collection's "role" branch point — e.g. distinguishing photo/author/
+   * book entries living side by side in one heterogeneous collection.
+   * Undefined for the common case (an ordinary homogeneous collection with
+   * no role concept). The role VALUE itself lives on each object exactly
+   * like any other facet value (object.fields[roleFieldName]) — this only
+   * marks which field plays that part for this collection. Rendering
+   * role-specific extra fields based on this is later scope, not
+   * implemented yet. */
+  roleFieldName?: string;
 };
 
 export type Collection = SmartCollection | ManualCollection;
