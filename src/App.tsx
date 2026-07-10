@@ -16,7 +16,13 @@ import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
 import { parseBackup } from "./lib/backupValidation";
 import { normalizeFacetSchema } from "./lib/facetSchema";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
+import { CredentialsModal } from "./components/CredentialsModal";
 import type { FacetField } from "./types";
+
+// Set right before a restore-triggered reload, read once on the next
+// mount — sessionStorage (not state) is the only thing that survives the
+// reload itself.
+const RESTORE_NOTICE_KEY = "organizer_restore_notice";
 
 type Modal =
   | { kind: "smart"; collectionId?: string }
@@ -162,9 +168,35 @@ export default function App() {
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [credentialsModal, setCredentialsModal] = useState<{ dismissible: boolean } | null>(null);
+  const [restoreNotice, setRestoreNotice] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const prefsRef = useRef<HTMLDivElement>(null);
   const autoSyncedOnMount = useRef(false);
+
+  // First run: no MYMIND_KID/MYMIND_SECRET in .env yet means every mymind
+  // call would just fail one by one with a confusing error — ask for the
+  // key up front instead. A fetch failure here (proxy not running yet)
+  // is left alone; that already surfaces via the normal sync error banner.
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((data: { credentialsConfigured: boolean }) => {
+        if (!data.credentialsConfigured) setCredentialsModal({ dismissible: false });
+      })
+      .catch(() => {});
+  }, []);
+
+  // Read once on mount: the restore flow sets this flag then reloads the
+  // page (see handleRestoreFile) since a full page reload is the simplest
+  // way to guarantee every view re-reads the freshly-restored IndexedDB
+  // store, rather than trusting every component downstream to notice.
+  useEffect(() => {
+    if (sessionStorage.getItem(RESTORE_NOTICE_KEY)) {
+      sessionStorage.removeItem(RESTORE_NOTICE_KEY);
+      setRestoreNotice(true);
+    }
+  }, []);
 
   // Closes the Preferences menu on an outside click — sync/backup controls
   // are used occasionally, not constantly (issue #74), so this is a plain
@@ -351,7 +383,15 @@ export default function App() {
         state.restoreFromBackup(text);
       } catch (err) {
         alert("Couldn't restore that backup: " + (err as Error).message);
+        return;
       }
+
+      // A reload (rather than trusting every mounted component to notice
+      // the store swap) is what actually fixed the "collections don't
+      // show up" symptom this was built for — simplest guarantee that
+      // every view re-reads the restored store from scratch.
+      sessionStorage.setItem(RESTORE_NOTICE_KEY, "1");
+      window.location.reload();
     });
   }
 
@@ -459,12 +499,38 @@ export default function App() {
                   >
                     Restore backup
                   </button>
+
+                  <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+                    Connection
+                  </div>
+                  <button
+                    onClick={() => {
+                      setCredentialsModal({ dismissible: true });
+                      setPrefsOpen(false);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
+                    title="View or replace the mymind API key this app connects with"
+                  >
+                    mymind API credentials
+                  </button>
                 </div>
               )}
             </div>
           </div>
         </header>
 
+        {restoreNotice && (
+          <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-[12px] text-emerald-800 flex items-center justify-between gap-3">
+            <span>Your data is back and ready to use!</span>
+            <button
+              onClick={() => setRestoreNotice(false)}
+              className="text-emerald-800/60 hover:text-emerald-800 shrink-0"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {syncState.status === "error" && (
           <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-[12px] text-red-800 flex items-center justify-between gap-3">
             <span>{syncState.message}</span>
@@ -550,6 +616,14 @@ export default function App() {
         <ManualCollectionModal
           collectionId={modal.collectionId}
           onClose={() => setModal(null)}
+        />
+      )}
+
+      {credentialsModal && (
+        <CredentialsModal
+          dismissible={credentialsModal.dismissible}
+          onClose={() => setCredentialsModal(null)}
+          onSaved={() => void runSync({ full: false })}
         />
       )}
     </div>
