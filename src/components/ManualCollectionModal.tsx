@@ -99,12 +99,13 @@ export function ManualCollectionModal({
         />
 
         <div className="mt-4">
-          <div className="text-[11px] uppercase tracking-wide text-muted">Facet schema</div>
-          <p className="text-[12px] text-muted/80 mt-0.5 mb-2">
-            A fixed, typed schema for this collection — every item placed here gets exactly
-            these fields to fill in (e.g. author: text, fact-check: select). Optional.
-          </p>
-          <div className="space-y-1">
+          <div
+            className="text-[11px] uppercase tracking-wide text-muted"
+            title="Every item placed in this collection gets exactly these fields to fill in (e.g. author: text, fact-check: select). Optional."
+          >
+            Custom fields
+          </div>
+          <div className="mt-1.5 space-y-1">
             {facets.map((field) => (
               <div key={field.name} className="flex items-center gap-1.5">
                 <span className="tag-chip flex-1 justify-start gap-1.5">
@@ -114,10 +115,26 @@ export function ManualCollectionModal({
                     <span className="text-muted/70 truncate">({field.options.join(", ")})</span>
                   )}
                 </span>
+                {field.type === "select" && (
+                  <button
+                    onClick={() =>
+                      setRoleFieldName(roleFieldName === field.name ? undefined : field.name)
+                    }
+                    className={[
+                      "shrink-0 text-[11px] rounded-full border px-2 py-0.5",
+                      roleFieldName === field.name
+                        ? "border-accent text-accent"
+                        : "border-line text-muted hover:text-ink",
+                    ].join(" ")}
+                    title="The item-type field says what kind of thing each item is (photo, author, book…) — it's how one collection can mix different kinds of items. Grouping the table by it gives each kind its own section."
+                  >
+                    {roleFieldName === field.name ? "✓ item type" : "use as item type"}
+                  </button>
+                )}
                 <button
                   onClick={() => removeFacet(field.name)}
                   className="text-muted hover:text-ink px-1"
-                  aria-label={`Remove facet ${field.name}`}
+                  aria-label={`Remove field ${field.name}`}
                 >
                   ×
                 </button>
@@ -183,32 +200,6 @@ export function ManualCollectionModal({
             </button>
           </div>
         </div>
-
-        {facets.some((f) => f.type === "select") && (
-          <div className="mt-4">
-            <div className="text-[11px] uppercase tracking-wide text-muted">
-              Role field (optional)
-            </div>
-            <p className="text-[12px] text-muted/80 mt-0.5 mb-1.5">
-              Pick a select field to use as this collection's role — lets different kinds of
-              items (e.g. photo vs. author vs. book) live side by side in one collection.
-            </p>
-            <select
-              value={roleFieldName ?? ""}
-              onChange={(e) => setRoleFieldName(e.target.value || undefined)}
-              className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm bg-panel"
-            >
-              <option value="">None</option>
-              {facets
-                .filter((f) => f.type === "select")
-                .map((f) => (
-                  <option key={f.name} value={f.name}>
-                    {f.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-        )}
 
         <div className="mt-4 flex justify-end gap-2">
           <button

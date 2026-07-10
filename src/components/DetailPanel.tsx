@@ -65,6 +65,14 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   );
   const object = state.objects[objectId];
   const [tagDraft, setTagDraft] = useState("");
+  // Tag pill whose actions (group / remove) are currently open — click a
+  // pill to toggle. One editor row below the pill cloud, never a
+  // hover-revealed control floating over other UI (the old hover input
+  // could visually collide with the panel's close button).
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  // Select-type facet whose full option list is expanded past the visible
+  // cap ("see more") — reset when switching objects.
+  const [expandedOptionsField, setExpandedOptionsField] = useState<string | null>(null);
   const [dragOverField, setDragOverField] = useState<string | null>(null);
   const [tagPushError, setTagPushError] = useState<string | null>(null);
   const [notePushError, setNotePushError] = useState<string | null>(null);
@@ -83,6 +91,8 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   useEffect(() => {
     setBlobFailed(false);
     setDefaultThumbFailed(false);
+    setActiveTag(null);
+    setExpandedOptionsField(null);
   }, [objectId]);
 
   const smartMatches = useMemo(() => {
@@ -243,6 +253,16 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     }
   }
 
+  /** Click-a-chip path for select facets — one gesture, so the "value the
+   * field held when focused" that the blur path reads from an input's focus
+   * event is captured here explicitly before overwriting it. Same push
+   * semantics as blur: only fires when the value actually changed. */
+  function selectFacetOption(field: FacetField, value: string) {
+    focusValues.current[field.name] = object.fields[field.name] ?? "";
+    setFieldValue(field.name, value);
+    void maybePushFacetTag(field.name, value);
+  }
+
   /**
    * Pushes the description to mymind as a note — the other write path this
    * app performs, only on blur (same reasoning as maybePushFacetTag: never
@@ -318,11 +338,12 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl overflow-y-auto">
-        <div className="sticky top-0 bg-panel border-b border-line px-4 py-3 flex items-center justify-between">
-          <span className="text-[12px] font-medium text-muted uppercase tracking-wide">
-            Item details
-          </span>
-          <button onClick={onClose} className="text-muted hover:text-ink text-lg leading-none">
+        <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex justify-end">
+          <button
+            onClick={onClose}
+            className="text-muted hover:text-ink text-lg leading-none"
+            aria-label="Close item details"
+          >
             ×
           </button>
         </div>
@@ -386,11 +407,8 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
               </label>
               {isNote ? (
                 <>
-                  <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
-                    The note's real text — synced to mymind once you leave the field. Markdown
-                    (page links, tables, task lists) is supported, same as mymind itself.
-                  </p>
                   <textarea
+                    title="The note's real text — synced to mymind once you leave the field. Markdown is supported, same as mymind itself."
                     value={object.fields[NOTE_CONTENT_KEY] ?? ""}
                     onChange={(e) => setFieldValue(NOTE_CONTENT_KEY, e.target.value)}
                     onFocus={(e) => {
@@ -403,15 +421,12 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                   />
                 </>
               ) : (
-                <>
-                  <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
-                    The real saved text, read from mymind — read-only here (mymind's write API
-                    only accepts edits back for Notes, not this object type).
-                  </p>
-                  <div className="text-sm text-ink/90 leading-relaxed whitespace-pre-wrap rounded-lg border border-line px-2.5 py-1.5 max-h-64 overflow-y-auto">
-                    {object.fields[NOTE_CONTENT_KEY]}
-                  </div>
-                </>
+                <div
+                  className="text-sm text-ink/90 leading-relaxed whitespace-pre-wrap rounded-lg border border-line px-2.5 py-1.5 max-h-64 overflow-y-auto"
+                  title="The real saved text, read from mymind — read-only here (mymind's write API only accepts edits back for Notes, not this object type)."
+                >
+                  {object.fields[NOTE_CONTENT_KEY]}
+                </div>
               )}
             </div>
           )}
@@ -421,59 +436,78 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
           )}
 
           <div>
-            <label className="text-[11px] uppercase tracking-wide text-muted">Tags</label>
-            <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
-              Hover or tab onto a tag to group it (e.g. "dog/caniche") — tints it and enables
-              filtering by that group in smart collections. Groups are local to this app, not
-              mymind.
-            </p>
-            <div>
+            <label
+              className="text-[11px] uppercase tracking-wide text-muted"
+              title='Click a tag to group or remove it. Grouping (e.g. "dog/caniche") tints the tag and enables group filtering in smart collections — groups are local to this app, not mymind. Drag a tag onto an empty field below to move it there.'
+            >
+              Tags
+            </label>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
               {object.tags.map((t) => {
                 const group = state.tagGroups[norm(t)] ?? "";
-                const color = group ? colorForGroup(group).text : undefined;
+                const color = group ? colorForGroup(group) : null;
+                const isActive = activeTag === t;
                 return (
-                  <div key={t} className="group/tagrow relative flex items-center gap-1.5 py-1">
-                    <span
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData(TAG_DRAG_MIME, t);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
-                      title="Drag onto an empty facet field below to move it there"
-                      className="flex-1 min-w-0 truncate text-[13px] cursor-grab active:cursor-grabbing"
-                      style={color ? { color } : undefined}
-                    >
-                      {group && (
-                        <span className="hidden text-muted group-hover/tagrow:inline group-focus-within/tagrow:inline">
-                          {group}/
-                        </span>
-                      )}
-                      {t}
-                    </span>
-                    <input
-                      defaultValue={group}
-                      onBlur={(e) => state.setTagGroup(t, e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                      placeholder="group"
-                      list="known-groups"
-                      className="w-0 opacity-0 focus:w-16 focus:opacity-100 group-hover/tagrow:w-16 group-hover/tagrow:opacity-100 transition-all duration-150 text-[11px] border-b border-line/40 outline-none bg-transparent"
-                    />
-                    <button
-                      onClick={() => removeTag(t)}
-                      className="opacity-0 group-hover/tagrow:opacity-100 focus:opacity-100 text-muted hover:text-ink px-1"
-                      aria-label={`Remove tag ${t}`}
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <button
+                    key={t}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(TAG_DRAG_MIME, t);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onClick={() => setActiveTag(isActive ? null : t)}
+                    title={group ? `${group}/${t}` : t}
+                    className={["tag-chip", isActive ? "ring-1 ring-accent" : ""].join(" ")}
+                    style={
+                      color
+                        ? { backgroundColor: color.bg, borderColor: color.border, color: color.text }
+                        : undefined
+                    }
+                  >
+                    #{t}
+                  </button>
                 );
               })}
-              <datalist id="known-groups">
-                {knownGroups.map((g) => (
-                  <option key={g} value={g} />
-                ))}
-              </datalist>
             </div>
+            {activeTag !== null && object.tags.includes(activeTag) && (
+              <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-line bg-canvas px-2.5 py-1.5 text-[12px]">
+                <span className="truncate font-medium" title={activeTag}>
+                  #{activeTag}
+                </span>
+                <input
+                  key={activeTag}
+                  defaultValue={state.tagGroups[norm(activeTag)] ?? ""}
+                  onBlur={(e) => state.setTagGroup(activeTag, e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  placeholder="group…"
+                  list="known-groups"
+                  className="flex-1 min-w-0 rounded border border-line bg-panel px-1.5 py-0.5 outline-none focus:border-accent"
+                  title="Assign this tag to a group — local to this app, never synced to mymind"
+                />
+                <button
+                  onClick={() => {
+                    removeTag(activeTag);
+                    setActiveTag(null);
+                  }}
+                  className="shrink-0 text-red-700/80 hover:text-red-700"
+                  title="Remove this tag from the item (local only — never deleted in mymind)"
+                >
+                  Remove
+                </button>
+                <button
+                  onClick={() => setActiveTag(null)}
+                  className="shrink-0 text-muted hover:text-ink px-0.5"
+                  aria-label="Close tag actions"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <datalist id="known-groups">
+              {knownGroups.map((g) => (
+                <option key={g} value={g} />
+              ))}
+            </datalist>
             <div className="mt-2 flex gap-1.5">
               <input
                 value={tagDraft}
@@ -492,12 +526,16 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
           </div>
 
           <div>
-            <label className="text-[11px] uppercase tracking-wide text-muted">Description</label>
-            <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
-              {object.source === "mymind"
-                ? "Synced to mymind as a note once you leave the field — mymind has no way for us to remove a note once sent, so this only ever adds/updates it, never deletes."
-                : "Local to this app — this sample object has no mymind counterpart to sync to."}
-            </p>
+            <label
+              className="text-[11px] uppercase tracking-wide text-muted"
+              title={
+                object.source === "mymind"
+                  ? "Synced to mymind as a note once you leave the field — mymind has no way for us to remove a note once sent, so this only ever adds/updates it, never deletes."
+                  : "Local to this app — this sample object has no mymind counterpart to sync to."
+              }
+            >
+              Description
+            </label>
             <textarea
               value={object.fields[DESCRIPTION_KEY] ?? ""}
               onChange={(e) => setFieldValue(DESCRIPTION_KEY, e.target.value)}
@@ -513,63 +551,115 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
 
           {facetSections.map((collection) => (
             <div key={collection.id}>
-              <label className="text-[11px] uppercase tracking-wide text-muted">
-                📁 {collection.name} — facets
+              <label
+                className="text-[11px] uppercase tracking-wide text-muted"
+                title={
+                  "This collection's fields — edit them via ✎ on the collection in the sidebar." +
+                  (object.source === "mymind"
+                    ? " Finished values sync to mymind as a plain tag — mymind has no way for us to remove a tag once sent, so double-check before moving on."
+                    : "")
+                }
+              >
+                📁 {collection.name} — fields
               </label>
-              <p className="text-[11px] text-muted/80 mt-0.5 mb-1.5">
-                This collection's schema. Edit the schema itself via ✎ on the collection in the
-                sidebar.
-                {object.source === "mymind" &&
-                  " Finished values sync to mymind as a plain tag when you leave the field — mymind has no way for us to remove a tag once sent, so double-check before moving on."}
-              </p>
-              <div className="space-y-1.5">
+              <div className="mt-1.5 space-y-1.5">
                 {normalizeFacetSchema(collection).map((field) => {
                   const acceptsDrop = fieldAcceptsDrop(field);
-                  return (
-                  <div
-                    key={field.name}
-                    onDragOver={
-                      acceptsDrop
-                        ? (e) => {
-                            e.preventDefault();
-                            setDragOverField(field.name);
-                          }
-                        : undefined
-                    }
-                    onDragLeave={acceptsDrop ? () => setDragOverField(null) : undefined}
-                    onDrop={acceptsDrop ? (e) => handleFieldDrop(field, e) : undefined}
-                    className={[
-                      "flex items-center gap-1.5 rounded-lg",
-                      dragOverField === field.name ? "ring-2 ring-accent ring-offset-1 ring-offset-panel" : "",
-                    ].join(" ")}
-                  >
-                    <span
-                      className="text-[12px] text-muted w-24 shrink-0 truncate"
-                      title={field.name}
-                    >
-                      {field.name}
-                    </span>
-                    {field.type === "select" ? (
-                      <select
-                        value={object.fields[field.name] ?? ""}
-                        onChange={(e) => setFieldValue(field.name, e.target.value)}
-                        onFocus={(e) => {
-                          focusValues.current[field.name] = e.target.value;
-                        }}
-                        onBlur={(e) => void maybePushFacetTag(field.name, e.target.value)}
-                        className="flex-1 rounded-lg border border-line px-2.5 py-1 text-sm bg-panel outline-none focus:border-accent"
+                  const value = object.fields[field.name] ?? "";
+                  const dropHandlers = {
+                    onDragOver: acceptsDrop
+                      ? (e: React.DragEvent) => {
+                          e.preventDefault();
+                          setDragOverField(field.name);
+                        }
+                      : undefined,
+                    onDragLeave: acceptsDrop ? () => setDragOverField(null) : undefined,
+                    onDrop: acceptsDrop ? (e: React.DragEvent) => handleFieldDrop(field, e) : undefined,
+                  };
+                  const dropRing =
+                    dragOverField === field.name
+                      ? "ring-2 ring-accent ring-offset-1 ring-offset-panel"
+                      : "";
+
+                  if (field.type === "select") {
+                    // One fluid pill: the field itself, expanding in place on
+                    // hover/focus to offer its options as chips — no separate
+                    // dropdown-open step. Long option lists cap at a few chips
+                    // with a "+N more" toggle.
+                    const options = field.options ?? [];
+                    const expanded = expandedOptionsField === field.name;
+                    const VISIBLE_OPTIONS = 6;
+                    const shownOptions = expanded ? options : options.slice(0, VISIBLE_OPTIONS);
+                    const hiddenCount = options.length - shownOptions.length;
+                    return (
+                      <div
+                        key={field.name}
+                        {...dropHandlers}
+                        className={["group/facetrow rounded-lg", dropRing].join(" ")}
                       >
-                        <option value="">—</option>
-                        {(field.options ?? []).map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            className={[
+                              "tag-chip gap-1 cursor-default",
+                              value ? "border-accent/40 bg-accent/5 text-ink" : "",
+                            ].join(" ")}
+                            title={acceptsDrop ? "Drop a tag here to use it as this field's value" : field.name}
+                          >
+                            {field.name}
+                            {value && <span className="font-medium">· {value}</span>}
+                          </span>
+                          <div className="hidden group-hover/facetrow:contents group-focus-within/facetrow:contents">
+                            {value && (
+                              <button
+                                onClick={() => setFieldValue(field.name, "")}
+                                className="tag-chip text-muted hover:text-ink"
+                                title="Clear this field (locally — an already-synced mymind tag stays)"
+                              >
+                                clear
+                              </button>
+                            )}
+                            {shownOptions
+                              .filter((opt) => opt !== value)
+                              .map((opt) => (
+                                <button
+                                  key={opt}
+                                  onClick={() => selectFacetOption(field, opt)}
+                                  className="tag-chip hover:border-accent hover:text-ink"
+                                >
+                                  {opt}
+                                </button>
+                              ))}
+                            {(hiddenCount > 0 || expanded) && (
+                              <button
+                                onClick={() =>
+                                  setExpandedOptionsField(expanded ? null : field.name)
+                                }
+                                className="tag-chip text-muted hover:text-ink"
+                              >
+                                {expanded ? "less" : `+${hiddenCount} more`}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={field.name}
+                      {...dropHandlers}
+                      className={["flex items-center gap-1.5 rounded-lg", dropRing].join(" ")}
+                    >
+                      <span
+                        className="text-[12px] text-muted w-24 shrink-0 truncate"
+                        title={field.name}
+                      >
+                        {field.name}
+                      </span>
                       <input
                         type={field.type === "date" ? "date" : "text"}
-                        value={object.fields[field.name] ?? ""}
+                        value={value}
                         onChange={(e) => setFieldValue(field.name, e.target.value)}
                         onFocus={(e) => {
                           focusValues.current[field.name] = e.target.value;
@@ -578,8 +668,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                         placeholder={field.type === "date" ? undefined : "—"}
                         className="flex-1 rounded-lg border border-line px-2.5 py-1 text-sm outline-none focus:border-accent"
                       />
-                    )}
-                  </div>
+                    </div>
                   );
                 })}
               </div>
