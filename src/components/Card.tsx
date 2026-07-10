@@ -49,7 +49,7 @@ export const Card = memo(function Card({
         e.dataTransfer.effectAllowed = "copy";
       }}
       onClick={() => onOpen(object.id)}
-      className="cursor-grab active:cursor-grabbing"
+      className="active:cursor-grabbing"
     >
       {isTextOnly ? (
         <div className="w-full bg-panel rounded-card shadow-card p-3.5">
