@@ -586,6 +586,7 @@ export default function App() {
                 tagFrequency={tagFrequency}
                 onOpen={state.openDetail}
                 emptyLabel={emptyLabel}
+                viewKey={viewKey}
               />
             </div>
           ) : (
