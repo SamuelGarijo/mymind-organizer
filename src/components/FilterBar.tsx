@@ -114,9 +114,16 @@ export function FilterBar({
         )}
       </div>
 
-      {topTags.length > 0 && (
-        <div className="px-5 pb-3 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-          {topTags.map(({ tag, count }) => {
+      {topTags.length > 0 &&
+        (() => {
+          // Active tags render outside the scrollable region, pinned to the
+          // left — otherwise a selected tag can scroll partway out of view
+          // (half-clipped at the edge, looking broken) while browsing the
+          // rest of the row, with no indication it's still applied.
+          const activeTags = topTags.filter(({ tag }) => facetTags.includes(tag));
+          const inactiveTags = topTags.filter(({ tag }) => !facetTags.includes(tag));
+
+          function renderChip({ tag, count }: TagFrequency) {
             const active = facetTags.includes(tag);
             const group = tagGroups[norm(tag)];
             const color = group ? colorForGroup(group) : null;
@@ -142,9 +149,26 @@ export function FilterBar({
                 <span className={active ? "opacity-60" : "text-muted"}>{count}</span>
               </button>
             );
-          })}
-        </div>
-      )}
+          }
+
+          return (
+            <div className="px-5 pb-3 flex items-center gap-1.5">
+              {activeTags.length > 0 && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {activeTags.map(renderChip)}
+                </div>
+              )}
+              {activeTags.length > 0 && inactiveTags.length > 0 && (
+                <div className="h-4 w-px bg-line shrink-0" />
+              )}
+              {inactiveTags.length > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap min-w-0">
+                  {inactiveTags.map(renderChip)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
     </div>
   );
 }
