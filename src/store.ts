@@ -21,6 +21,7 @@ import { rankBySimilarity } from "./lib/similarity";
 import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
 import { parseBackup } from "./lib/backupValidation";
+import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
 
 export type ViewMode = "grid" | "table";
 
@@ -106,9 +107,18 @@ type State = {
    * doesn't exist yet auto-creates an empty definition. */
   roles: Record<string, RoleDefinition>;
   /** Sets (or clears, with null) an object's role. Local-only — never
-   * calls mymind. Auto-registers an empty RoleDefinition for a new name;
-   * the stored `object.role` always uses the definition's display casing. */
+   * calls mymind. A brand-new role name is seeded from
+   * lib/curatedRoleFields.ts when it matches the starter catalog, else an
+   * empty field package; the stored `object.role` always uses the
+   * definition's display casing. Also auto-fills any of the role's select
+   * fields whose options exactly match one of the object's own tags (see
+   * applyRoleToObject above) — the tag moves into the field, same as a
+   * manual drag. */
   setObjectRole: (objectId: string, roleName: string | null) => void;
+  /** Same as setObjectRole, applied to many objects in one atomic update —
+   * the bulk "Auto-assign roles" action's write path (issue #104). Skips
+   * any objectId that no longer exists; does not touch objects not listed. */
+  bulkAssignRoles: (assignments: { objectId: string; role: string }[]) => void;
   /** Replaces a role's field package. Retroactive by construction: every
    * consumer looks fields up through `roles`, so objects with this role
    * pick the change up everywhere immediately. */
@@ -190,6 +200,49 @@ type PersistedState = Pick<
 // once rehydration finishes — can reach the store without a circular
 // reference to `useStore` itself.
 let storeApi: StoreApi<State> | null = null;
+
+/**
+ * Applies a role to one object: creates its RoleDefinition (seeded from
+ * CURATED_ROLE_FIELDS when the name is brand new — see that file) if it
+ * doesn't exist yet, then auto-fills any of the role's empty select fields
+ * from a tag that's an exact (case-insensitive) match for one of the
+ * field's options — same effect as dragging the tag onto the field by
+ * hand (moveTagToField below), just triggered by the role applying
+ * instead of the gesture (issue #104, closed 2026-07-11). Skipped
+ * per-field when more than one of the object's tags matches — ambiguous,
+ * left for manual resolution rather than guessed wrong.
+ *
+ * Shared by setObjectRole (one object) and bulkAssignRoles (many at
+ * once) so both paths get identical behavior for free.
+ */
+function applyRoleToObject(
+  obj: DesignObject,
+  roleName: string,
+  roles: Record<string, RoleDefinition>
+): { object: DesignObject; roles: Record<string, RoleDefinition>; movedTags: string[] } {
+  const trimmed = roleName.trim();
+  const key = norm(trimmed);
+  const existingDef = roles[key];
+  const nextRoles = existingDef
+    ? roles
+    : { ...roles, [key]: { name: trimmed, fields: CURATED_ROLE_FIELDS[key] ?? [] } };
+  const def = nextRoles[key];
+
+  let tags = obj.tags;
+  const fields = { ...obj.fields };
+  const movedTags: string[] = [];
+  for (const field of def.fields) {
+    if (field.type !== "select" || fields[field.name] || !field.options?.length) continue;
+    const matches = tags.filter((t) => field.options!.some((opt) => norm(opt) === norm(t)));
+    if (matches.length !== 1) continue;
+    const [tag] = matches;
+    fields[field.name] = field.options.find((opt) => norm(opt) === norm(tag))!;
+    tags = tags.filter((t) => t !== tag);
+    movedTags.push(tag);
+  }
+
+  return { object: { ...obj, role: def.name, tags, fields }, roles: nextRoles, movedTags };
+}
 
 export const useStore = create<State>()(
   persist(
@@ -453,20 +506,41 @@ export const useStore = create<State>()(
           if (roleName === null) {
             return { objects: { ...s.objects, [objectId]: { ...obj, role: undefined } } };
           }
-          const trimmed = roleName.trim();
-          if (!trimmed) return {};
-          const key = norm(trimmed);
-          const existingDef = s.roles[key];
-          const roles = existingDef
-            ? s.roles
-            : { ...s.roles, [key]: { name: trimmed, fields: [] } };
-          // Reuse the definition's display casing so "photo" and "Photo"
-          // stay one role instead of two visually-distinct spellings.
-          const canonicalName = (existingDef ?? roles[key]).name;
-          return {
-            objects: { ...s.objects, [objectId]: { ...obj, role: canonicalName } },
+          if (!roleName.trim()) return {};
+          const { object, roles, movedTags } = applyRoleToObject(obj, roleName, s.roles);
+          const update: Partial<State> = {
+            objects: { ...s.objects, [objectId]: object },
             roles,
           };
+          if (movedTags.length > 0) {
+            const removals = s.localTagRemovals[objectId] ?? [];
+            update.localTagRemovals = {
+              ...s.localTagRemovals,
+              [objectId]: Array.from(new Set([...removals, ...movedTags])),
+            };
+          }
+          return update;
+        }),
+
+      bulkAssignRoles: (assignments) =>
+        set((s) => {
+          const objects = { ...s.objects };
+          let roles = s.roles;
+          const localTagRemovals = { ...s.localTagRemovals };
+          for (const { objectId, role } of assignments) {
+            const obj = objects[objectId];
+            if (!obj) continue;
+            const applied = applyRoleToObject(obj, role, roles);
+            objects[objectId] = applied.object;
+            roles = applied.roles;
+            if (applied.movedTags.length > 0) {
+              const removals = localTagRemovals[objectId] ?? [];
+              localTagRemovals[objectId] = Array.from(
+                new Set([...removals, ...applied.movedTags])
+              );
+            }
+          }
+          return { objects, roles, localTagRemovals };
         }),
 
       updateRoleFields: (roleName, fields) =>
