@@ -104,12 +104,11 @@ const TableRow = memo(function TableRow({
           .join(" ") || "—"}
       </span>
       {facetColumns.map((f) => (
-        <span
-          key={f.name}
-          className="w-28 shrink-0 truncate"
-          title={object.fields[f.name] ?? ""}
-        >
-          {object.fields[f.name] || "—"}
+        // Empty cells render blank, not a "—" placeholder (issue #101) —
+        // this object may simply not carry this column's role, or hasn't
+        // had the field filled in yet.
+        <span key={f.name} className="w-28 shrink-0 truncate" title={object.fields[f.name] ?? ""}>
+          {object.fields[f.name] ?? ""}
         </span>
       ))}
     </div>

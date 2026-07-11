@@ -81,6 +81,11 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   // role's field-package editor modal is open.
   const [roleDraft, setRoleDraft] = useState("");
   const [editingRoleFields, setEditingRoleFields] = useState(false);
+  // Empty role fields are hidden by default (issue #101 — dead-looking rows
+  // for fields nothing has filled in yet) but stay reachable behind this
+  // toggle, since typing/picking a value here is still the only way to set
+  // one until #102's drag-to-classify buckets exist.
+  const [showEmptyRoleFields, setShowEmptyRoleFields] = useState(false);
   const [tagPushError, setTagPushError] = useState<string | null>(null);
   const [notePushError, setNotePushError] = useState<string | null>(null);
   const [contentPushError, setContentPushError] = useState<string | null>(null);
@@ -102,6 +107,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     setExpandedOptionsField(null);
     setRoleDraft("");
     setEditingRoleFields(false);
+    setShowEmptyRoleFields(false);
   }, [objectId]);
 
   const smartMatches = useMemo(() => {
@@ -349,6 +355,102 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
       return;
     }
     state.moveTagToField(object.id, tag, field.name, tag);
+  }
+
+  /** One role-package field, as a select-value pill or a plain input —
+   * extracted so the visible/hidden split above (issue #101) can map over
+   * either list without duplicating this. */
+  function renderRoleField(field: FacetField) {
+    const acceptsDrop = fieldAcceptsDrop(field);
+    const value = object.fields[field.name] ?? "";
+    const dropHandlers = {
+      onDragOver: acceptsDrop
+        ? (e: React.DragEvent) => {
+            e.preventDefault();
+            setDragOverField(field.name);
+          }
+        : undefined,
+      onDragLeave: acceptsDrop ? () => setDragOverField(null) : undefined,
+      onDrop: acceptsDrop ? (e: React.DragEvent) => handleFieldDrop(field, e) : undefined,
+    };
+    const dropRing =
+      dragOverField === field.name ? "ring-2 ring-accent ring-offset-1 ring-offset-panel" : "";
+
+    if (field.type === "select") {
+      // One fluid pill: the field itself, expanding in place on hover/focus
+      // to offer its options as chips — no separate dropdown-open step.
+      // Long option lists cap at a few chips with a "+N more" toggle.
+      const options = field.options ?? [];
+      const expanded = expandedOptionsField === field.name;
+      const VISIBLE_OPTIONS = 6;
+      const shownOptions = expanded ? options : options.slice(0, VISIBLE_OPTIONS);
+      const hiddenCount = options.length - shownOptions.length;
+      return (
+        <div key={field.name} {...dropHandlers} className={["group/facetrow rounded-lg", dropRing].join(" ")}>
+          <div className="flex flex-wrap items-center gap-1">
+            <span
+              className={[
+                "tag-chip gap-1 cursor-default",
+                value ? "border-accent/40 bg-accent/5 text-ink" : "",
+              ].join(" ")}
+              title={acceptsDrop ? "Drop a tag here to use it as this field's value" : field.name}
+            >
+              {field.name}
+              {value && <span className="font-medium">· {value}</span>}
+            </span>
+            <div className="hidden group-hover/facetrow:contents group-focus-within/facetrow:contents">
+              {value && (
+                <button
+                  onClick={() => setFieldValue(field.name, "")}
+                  className="tag-chip text-muted hover:text-ink"
+                  title="Clear this field (locally — an already-synced mymind tag stays)"
+                >
+                  clear
+                </button>
+              )}
+              {shownOptions
+                .filter((opt) => opt !== value)
+                .map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => selectFacetOption(field, opt)}
+                    className="tag-chip hover:border-accent hover:text-ink"
+                  >
+                    {opt}
+                  </button>
+                ))}
+              {(hiddenCount > 0 || expanded) && (
+                <button
+                  onClick={() => setExpandedOptionsField(expanded ? null : field.name)}
+                  className="tag-chip text-muted hover:text-ink"
+                >
+                  {expanded ? "less" : `+${hiddenCount} more`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={field.name} {...dropHandlers} className={["flex items-center gap-1.5 rounded-lg", dropRing].join(" ")}>
+        <span className="text-[12px] text-muted w-24 shrink-0 truncate" title={field.name}>
+          {field.name}
+        </span>
+        <input
+          type={field.type === "date" ? "date" : "text"}
+          value={value}
+          onChange={(e) => setFieldValue(field.name, e.target.value)}
+          onFocus={(e) => {
+            focusValues.current[field.name] = e.target.value;
+          }}
+          onBlur={(e) => void maybePushFacetTag(field.name, e.target.value)}
+          placeholder={field.type === "date" ? undefined : "—"}
+          className="flex-1 rounded-lg border border-line px-2.5 py-1 text-sm outline-none focus:border-accent"
+        />
+      </div>
+    );
   }
 
   return (
@@ -657,114 +759,26 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                 {object.role} — fields
               </label>
               <div className="mt-1.5 space-y-1.5">
-                {rolePackageFields.map((field) => {
-                  const acceptsDrop = fieldAcceptsDrop(field);
-                  const value = object.fields[field.name] ?? "";
-                  const dropHandlers = {
-                    onDragOver: acceptsDrop
-                      ? (e: React.DragEvent) => {
-                          e.preventDefault();
-                          setDragOverField(field.name);
-                        }
-                      : undefined,
-                    onDragLeave: acceptsDrop ? () => setDragOverField(null) : undefined,
-                    onDrop: acceptsDrop ? (e: React.DragEvent) => handleFieldDrop(field, e) : undefined,
-                  };
-                  const dropRing =
-                    dragOverField === field.name
-                      ? "ring-2 ring-accent ring-offset-1 ring-offset-panel"
-                      : "";
-
-                  if (field.type === "select") {
-                    // One fluid pill: the field itself, expanding in place on
-                    // hover/focus to offer its options as chips — no separate
-                    // dropdown-open step. Long option lists cap at a few chips
-                    // with a "+N more" toggle.
-                    const options = field.options ?? [];
-                    const expanded = expandedOptionsField === field.name;
-                    const VISIBLE_OPTIONS = 6;
-                    const shownOptions = expanded ? options : options.slice(0, VISIBLE_OPTIONS);
-                    const hiddenCount = options.length - shownOptions.length;
-                    return (
-                      <div
-                        key={field.name}
-                        {...dropHandlers}
-                        className={["group/facetrow rounded-lg", dropRing].join(" ")}
-                      >
-                        <div className="flex flex-wrap items-center gap-1">
-                          <span
-                            className={[
-                              "tag-chip gap-1 cursor-default",
-                              value ? "border-accent/40 bg-accent/5 text-ink" : "",
-                            ].join(" ")}
-                            title={acceptsDrop ? "Drop a tag here to use it as this field's value" : field.name}
-                          >
-                            {field.name}
-                            {value && <span className="font-medium">· {value}</span>}
-                          </span>
-                          <div className="hidden group-hover/facetrow:contents group-focus-within/facetrow:contents">
-                            {value && (
-                              <button
-                                onClick={() => setFieldValue(field.name, "")}
-                                className="tag-chip text-muted hover:text-ink"
-                                title="Clear this field (locally — an already-synced mymind tag stays)"
-                              >
-                                clear
-                              </button>
-                            )}
-                            {shownOptions
-                              .filter((opt) => opt !== value)
-                              .map((opt) => (
-                                <button
-                                  key={opt}
-                                  onClick={() => selectFacetOption(field, opt)}
-                                  className="tag-chip hover:border-accent hover:text-ink"
-                                >
-                                  {opt}
-                                </button>
-                              ))}
-                            {(hiddenCount > 0 || expanded) && (
-                              <button
-                                onClick={() =>
-                                  setExpandedOptionsField(expanded ? null : field.name)
-                                }
-                                className="tag-chip text-muted hover:text-ink"
-                              >
-                                {expanded ? "less" : `+${hiddenCount} more`}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
+                {(() => {
+                  const filled = rolePackageFields.filter((f) => object.fields[f.name]);
+                  const empty = rolePackageFields.filter((f) => !object.fields[f.name]);
+                  const visible = showEmptyRoleFields ? rolePackageFields : filled;
                   return (
-                    <div
-                      key={field.name}
-                      {...dropHandlers}
-                      className={["flex items-center gap-1.5 rounded-lg", dropRing].join(" ")}
-                    >
-                      <span
-                        className="text-[12px] text-muted w-24 shrink-0 truncate"
-                        title={field.name}
-                      >
-                        {field.name}
-                      </span>
-                      <input
-                        type={field.type === "date" ? "date" : "text"}
-                        value={value}
-                        onChange={(e) => setFieldValue(field.name, e.target.value)}
-                        onFocus={(e) => {
-                          focusValues.current[field.name] = e.target.value;
-                        }}
-                        onBlur={(e) => void maybePushFacetTag(field.name, e.target.value)}
-                        placeholder={field.type === "date" ? undefined : "—"}
-                        className="flex-1 rounded-lg border border-line px-2.5 py-1 text-sm outline-none focus:border-accent"
-                      />
-                    </div>
+                    <>
+                      {visible.map(renderRoleField)}
+                      {empty.length > 0 && (
+                        <button
+                          onClick={() => setShowEmptyRoleFields(!showEmptyRoleFields)}
+                          className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
+                        >
+                          {showEmptyRoleFields
+                            ? "hide empty fields"
+                            : `+${empty.length} empty field${empty.length === 1 ? "" : "s"}`}
+                        </button>
+                      )}
+                    </>
                   );
-                })}
+                })()}
               </div>
             </div>
           )}
