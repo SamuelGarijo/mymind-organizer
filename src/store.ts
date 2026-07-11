@@ -6,6 +6,7 @@ import type {
   FacetField,
   FilterGroup,
   ManualCollection,
+  RoleDefinition,
   SmartCollection,
   TagGroups,
   ViewSelection,
@@ -96,11 +97,22 @@ type State = {
   setTagGroup: (tagName: string, group: string | null) => void;
   addSmartCollection: (name: string, rule: FilterGroup) => string;
   updateSmartCollection: (id: string, name: string, rule: FilterGroup) => void;
-  addManualCollection: (name: string, facetSchema?: FacetField[], roleFieldName?: string) => string;
-  updateManualCollection: (
-    id: string,
-    patch: { name?: string; facetSchema?: FacetField[]; roleFieldName?: string }
-  ) => void;
+  addManualCollection: (name: string, facetSchema?: FacetField[]) => string;
+  updateManualCollection: (id: string, patch: { name?: string }) => void;
+
+  /** Item types (issue #84): role name (normalized via norm()) → its
+   * definition, including the field package every object with that role
+   * gets, in every collection. Grows organically — assigning a role that
+   * doesn't exist yet auto-creates an empty definition. */
+  roles: Record<string, RoleDefinition>;
+  /** Sets (or clears, with null) an object's role. Local-only — never
+   * calls mymind. Auto-registers an empty RoleDefinition for a new name;
+   * the stored `object.role` always uses the definition's display casing. */
+  setObjectRole: (objectId: string, roleName: string | null) => void;
+  /** Replaces a role's field package. Retroactive by construction: every
+   * consumer looks fields up through `roles`, so objects with this role
+   * pick the change up everywhere immediately. */
+  updateRoleFields: (roleName: string, fields: FacetField[]) => void;
   renameCollection: (id: string, name: string) => void;
   deleteCollection: (id: string) => void;
 
@@ -165,6 +177,7 @@ type PersistedState = Pick<
   | "collections"
   | "collectionOrder"
   | "tagGroups"
+  | "roles"
   | "lastBackupAt"
   | "viewMode"
   | "deletedMymindIds"
@@ -250,6 +263,12 @@ export const useStore = create<State>()(
                   // that didn't request them shouldn't erase one fetched
                   // earlier.
                   embedding: obj.embedding ?? existing.embedding,
+                  // The item type is a local classification mymind knows
+                  // nothing about — the fresh `obj` never carries one, so
+                  // without this line every resync would silently strip it
+                  // (the same failure mode tags/facet values had before
+                  // their explicit preservation above).
+                  role: existing.role,
                   // `obj.fields` only ever carries mymind-owned keys (see
                   // MYMIND_OWNED_FIELD_KEYS) — anything else in the existing
                   // object's fields is user-entered (facet schema values)
@@ -398,7 +417,7 @@ export const useStore = create<State>()(
           return { collections: { ...s.collections, [id]: updated } };
         }),
 
-      addManualCollection: (name, facetSchema, roleFieldName) => {
+      addManualCollection: (name, facetSchema) => {
         const id = makeId("manual");
         const collection: ManualCollection = {
           id,
@@ -406,7 +425,6 @@ export const useStore = create<State>()(
           name,
           createdAt: new Date().toISOString(),
           ...(facetSchema && facetSchema.length > 0 ? { facetSchema } : {}),
-          ...(roleFieldName ? { roleFieldName } : {}),
         };
         set((s) => ({
           collections: { ...s.collections, [id]: collection },
@@ -422,14 +440,43 @@ export const useStore = create<State>()(
           const updated: ManualCollection = {
             ...existing,
             ...(patch.name !== undefined ? { name: patch.name } : {}),
-            ...(patch.facetSchema !== undefined ? { facetSchema: patch.facetSchema } : {}),
-            // Always overwritten from the patch (never merge-preserved) —
-            // the modal is this action's only caller and always sends its
-            // full current draft, including explicitly clearing this to
-            // undefined when no field is designated as the role anymore.
-            roleFieldName: patch.roleFieldName,
           };
           return { collections: { ...s.collections, [id]: updated } };
+        }),
+
+      roles: {},
+
+      setObjectRole: (objectId, roleName) =>
+        set((s) => {
+          const obj = s.objects[objectId];
+          if (!obj) return {};
+          if (roleName === null) {
+            return { objects: { ...s.objects, [objectId]: { ...obj, role: undefined } } };
+          }
+          const trimmed = roleName.trim();
+          if (!trimmed) return {};
+          const key = norm(trimmed);
+          const existingDef = s.roles[key];
+          const roles = existingDef
+            ? s.roles
+            : { ...s.roles, [key]: { name: trimmed, fields: [] } };
+          // Reuse the definition's display casing so "photo" and "Photo"
+          // stay one role instead of two visually-distinct spellings.
+          const canonicalName = (existingDef ?? roles[key]).name;
+          return {
+            objects: { ...s.objects, [objectId]: { ...obj, role: canonicalName } },
+            roles,
+          };
+        }),
+
+      updateRoleFields: (roleName, fields) =>
+        set((s) => {
+          const key = norm(roleName);
+          const existing = s.roles[key];
+          const def: RoleDefinition = existing
+            ? { ...existing, fields }
+            : { name: roleName.trim(), fields };
+          return { roles: { ...s.roles, [key]: def } };
         }),
 
       renameCollection: (id, name) =>
@@ -563,6 +610,7 @@ export const useStore = create<State>()(
             objects: Object.values(s.objects).map(({ embedding: _embedding, ...rest }) => rest),
             collections: s.collectionOrder.map((id) => s.collections[id]),
             tagGroups: s.tagGroups,
+            roles: s.roles,
           },
           null,
           2
@@ -587,6 +635,7 @@ export const useStore = create<State>()(
           collections,
           collectionOrder,
           tagGroups: parsed.tagGroups,
+          roles: parsed.roles,
           selectedView: { kind: "all" },
           detailObjectId: null,
         });
@@ -606,6 +655,7 @@ export const useStore = create<State>()(
         collections: state.collections,
         collectionOrder: state.collectionOrder,
         tagGroups: state.tagGroups,
+        roles: state.roles,
         lastBackupAt: state.lastBackupAt,
         viewMode: state.viewMode,
         deletedMymindIds: state.deletedMymindIds,

@@ -27,6 +27,12 @@ export type DesignObject = {
    * default. Used entirely client-side for local cosine-similarity ranking;
    * never sent anywhere. mymind-sourced objects only. */
   embedding?: number[];
+  /** The object's item type / role (Photo, Author, Book, Album…) — a single
+   * app-wide concept (issue #84), NOT a per-collection facet value. The
+   * display-cased name of a RoleDefinition in the store's `roles` map; the
+   * role's field package determines which classification fields this object
+   * gets everywhere it appears. Local-only — never written to mymind. */
+  role?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -70,6 +76,18 @@ export type FacetField = {
   options?: string[];
 };
 
+/** One item type (Photo, Author, Book, Album…) and the field package every
+ * object carrying it gets, in every collection it appears in (issue #84 —
+ * schema ownership lives here, not on collections). Editing `fields` is
+ * retroactive: it changes what renders for every object with this role.
+ * Classification fields only — select/date (multi-select pending #99),
+ * never free text (that's what the description is for). Keyed in the
+ * store's `roles` map by norm(name); `name` keeps display casing. */
+export type RoleDefinition = {
+  name: string;
+  fields: FacetField[];
+};
+
 export type ManualCollection = {
   id: string;
   type: "manual";
@@ -85,17 +103,13 @@ export type ManualCollection = {
    * collections created before this existed still read correctly via
    * normalizeFacetSchema() in lib/facetSchema.ts. */
   facetFields?: string[];
+  /** @deprecated Superseded by role-owned field packages (issue #84) —
+   * collections no longer own schemas; an object's fields come from its
+   * role's RoleDefinition. Kept only so pre-#84 persisted data and old
+   * backups still parse (the leftover data is inert — no migration, per
+   * CLAUDE.md's prototype-phase rule), and as a suggestion source for
+   * lib/fieldCatalog.ts. Never rendered or edited anymore. */
   facetSchema?: FacetField[];
-  /** Name of a select-type field in facetSchema designated as this
-   * collection's "role" branch point — e.g. distinguishing photo/author/
-   * book entries living side by side in one heterogeneous collection.
-   * Undefined for the common case (an ordinary homogeneous collection with
-   * no role concept). The role VALUE itself lives on each object exactly
-   * like any other facet value (object.fields[roleFieldName]) — this only
-   * marks which field plays that part for this collection. Rendering
-   * role-specific extra fields based on this is later scope, not
-   * implemented yet. */
-  roleFieldName?: string;
 };
 
 export type Collection = SmartCollection | ManualCollection;

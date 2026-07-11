@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { matchesSmartCollection, norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
-import { normalizeFacetSchema } from "../lib/facetSchema";
+import { suggestRole } from "../lib/roleSuggestion";
 import {
   BLOB_TYPE_KEY,
   DESCRIPTION_KEY,
@@ -18,6 +18,7 @@ import {
   updateMymindNote,
 } from "../lib/mymindWrite";
 import { buildDownloadFilename } from "../lib/downloadFilename";
+import { RolePackageModal } from "./RolePackageModal";
 import type { FacetField, ManualCollection } from "../types";
 
 /** Drag payload for "drag a tag onto an empty facet field" — distinct from
@@ -53,11 +54,13 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
       objects: s.objects,
       collections: s.collections,
       tagGroups: s.tagGroups,
+      roles: s.roles,
       updateObject: s.updateObject,
       addObjectTag: s.addObjectTag,
       removeObjectTag: s.removeObjectTag,
       moveTagToField: s.moveTagToField,
       setTagGroup: s.setTagGroup,
+      setObjectRole: s.setObjectRole,
       setSelectedView: s.setSelectedView,
       removeFromManualCollection: s.removeFromManualCollection,
       deleteObjectLocally: s.deleteObjectLocally,
@@ -74,6 +77,10 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   // cap ("see more") — reset when switching objects.
   const [expandedOptionsField, setExpandedOptionsField] = useState<string | null>(null);
   const [dragOverField, setDragOverField] = useState<string | null>(null);
+  // "New type…" input draft in the item-type picker, and whether the
+  // role's field-package editor modal is open.
+  const [roleDraft, setRoleDraft] = useState("");
+  const [editingRoleFields, setEditingRoleFields] = useState(false);
   const [tagPushError, setTagPushError] = useState<string | null>(null);
   const [notePushError, setNotePushError] = useState<string | null>(null);
   const [contentPushError, setContentPushError] = useState<string | null>(null);
@@ -93,6 +100,8 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     setDefaultThumbFailed(false);
     setActiveTag(null);
     setExpandedOptionsField(null);
+    setRoleDraft("");
+    setEditingRoleFields(false);
   }, [objectId]);
 
   const smartMatches = useMemo(() => {
@@ -109,19 +118,27 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
       .filter((c): c is ManualCollection => c?.type === "manual");
   }, [state.collections, object]);
 
-  /** Collections this object belongs to that define a facet schema. */
-  const facetSections = useMemo(
-    () => manualMemberships.filter((c) => normalizeFacetSchema(c).length > 0),
-    [manualMemberships]
+  /** The object's item-type field package (issue #84) — fields come from
+   * the role, not from any collection the object happens to sit in. */
+  const rolePackageFields = useMemo<FacetField[]>(() => {
+    if (!object?.role) return [];
+    return state.roles[norm(object.role)]?.fields ?? [];
+  }, [object, state.roles]);
+
+  /** Every known item type, for the picker — display names, sorted. */
+  const knownRoles = useMemo(
+    () => Object.values(state.roles).map((d) => d.name).sort((a, b) => a.localeCompare(b)),
+    [state.roles]
   );
 
-  /** Field keys owned by a facet schema of any collection this object is in
-   * — everything else in `fields` is read-only metadata (e.g. from mymind). */
+  /** Field keys owned by the object's role package — everything else in
+   * `fields` is read-only metadata (from mymind, or orphaned values from a
+   * role/schema this object no longer carries). */
   const facetOwnedKeys = useMemo(() => {
     const set = new Set<string>();
-    for (const c of facetSections) for (const f of normalizeFacetSchema(c)) set.add(f.name);
+    for (const f of rolePackageFields) set.add(f.name);
     return set;
-  }, [facetSections]);
+  }, [rolePackageFields]);
 
   /** mymind-owned but debug-ish (id/url/timestamps) — tucked into a
    * collapsed section so it doesn't compete with actual content. */
@@ -549,21 +566,98 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
             />
           </div>
 
-          {facetSections.map((collection) => (
-            <div key={collection.id}>
+          <div>
+            <label
+              className="text-[11px] uppercase tracking-wide text-muted"
+              title="What kind of thing this item is (Photo, Author, Book…) — one type per item, app-wide. Its type decides which classification fields the item gets, in every collection. Local to this app, never synced to mymind."
+            >
+              Item type
+            </label>
+            <div className="mt-1.5 group/rolerow">
+              <div className="flex flex-wrap items-center gap-1">
+                <span
+                  className={[
+                    "tag-chip gap-1 cursor-default",
+                    object.role ? "border-accent/40 bg-accent/5 text-ink" : "",
+                  ].join(" ")}
+                >
+                  {object.role ?? "no type"}
+                </span>
+                <div className="hidden group-hover/rolerow:contents group-focus-within/rolerow:contents">
+                  {object.role && (
+                    <>
+                      <button
+                        onClick={() => setEditingRoleFields(true)}
+                        className="tag-chip text-muted hover:border-accent hover:text-ink"
+                        title={`Edit the fields every ${object.role} item gets — applies to all of them, in every collection`}
+                      >
+                        ✎ fields
+                      </button>
+                      <button
+                        onClick={() => state.setObjectRole(object.id, null)}
+                        className="tag-chip text-muted hover:text-ink"
+                        title="Clear this item's type"
+                      >
+                        clear
+                      </button>
+                    </>
+                  )}
+                  {!object.role &&
+                    (() => {
+                      const suggested = suggestRole(object);
+                      return suggested ? (
+                        <button
+                          onClick={() => state.setObjectRole(object.id, suggested)}
+                          className="tag-chip border-accent/50 text-accent hover:bg-accent/5"
+                          title="Suggested from mymind's own type and this item's tags — click to accept, or pick anything else"
+                        >
+                          ✦ {suggested}?
+                        </button>
+                      ) : null;
+                    })()}
+                  {knownRoles
+                    .filter((r) => r !== object.role)
+                    .map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => state.setObjectRole(object.id, r)}
+                        className="tag-chip hover:border-accent hover:text-ink"
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  <input
+                    value={roleDraft}
+                    onChange={(e) => setRoleDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && roleDraft.trim()) {
+                        state.setObjectRole(object.id, roleDraft);
+                        setRoleDraft("");
+                      }
+                    }}
+                    placeholder="new type…"
+                    className="w-24 rounded-full border border-line bg-panel px-2 py-0.5 text-[11px] outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {object.role && rolePackageFields.length > 0 && (
+            <div>
               <label
                 className="text-[11px] uppercase tracking-wide text-muted"
                 title={
-                  "This collection's fields — edit them via ✎ on the collection in the sidebar." +
+                  `Fields every ${object.role} item gets, in every collection — edit them via ✎ on the type above.` +
                   (object.source === "mymind"
                     ? " Finished values sync to mymind as a plain tag — mymind has no way for us to remove a tag once sent, so double-check before moving on."
                     : "")
                 }
               >
-                📁 {collection.name} — fields
+                {object.role} — fields
               </label>
               <div className="mt-1.5 space-y-1.5">
-                {normalizeFacetSchema(collection).map((field) => {
+                {rolePackageFields.map((field) => {
                   const acceptsDrop = fieldAcceptsDrop(field);
                   const value = object.fields[field.name] ?? "";
                   const dropHandlers = {
@@ -673,7 +767,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                 })}
               </div>
             </div>
-          ))}
+          )}
 
           {tagPushError && (
             <div className="flex items-start justify-between gap-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
@@ -823,6 +917,10 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
           </div>
         </div>
       </div>
+
+      {editingRoleFields && object.role && (
+        <RolePackageModal roleName={object.role} onClose={() => setEditingRoleFields(false)} />
+      )}
     </div>
   );
 }

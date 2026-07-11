@@ -8,16 +8,21 @@ const GROUP_HEADER_HEIGHT = 32;
 const VISIBLE_TAG_LIMIT = 4;
 const UNGROUPED_LABEL = "—";
 
+/** Sentinel group-by key for the object's item type (`object.role`, issue
+ * #84) — deliberately not a valid field name, so it can never collide with
+ * a real facet field called "role" or "Item type". */
+export const ITEM_TYPE_GROUP = "__item_type__";
+
 type FlatRow =
   | { kind: "header"; label: string; count: number }
   | { kind: "item"; object: DesignObject };
 
-/** Partitions objects by their value for `groupByField`, preserving each
- * object's existing relative order within its group (the caller's list is
- * already recency-sorted). Groups are ordered by the field's own defined
- * `options` order when it's a select field (so "Role" groups render as
- * photo/author/book… in the order the schema author actually chose, not
- * alphabetically) — anything else falls back to alphabetical. */
+/** Partitions objects by their value for `groupByField` (or by item type,
+ * for the ITEM_TYPE_GROUP sentinel), preserving each object's existing
+ * relative order within its group (the caller's list is already
+ * recency-sorted). Groups are ordered by the field's own defined `options`
+ * order when it's a select field — anything else (item types included)
+ * falls back to alphabetical. */
 function buildFlatRows(
   objects: DesignObject[],
   groupByField: string | null,
@@ -27,7 +32,9 @@ function buildFlatRows(
 
   const groups = new Map<string, DesignObject[]>();
   for (const object of objects) {
-    const value = object.fields[groupByField] || UNGROUPED_LABEL;
+    const value =
+      (groupByField === ITEM_TYPE_GROUP ? object.role : object.fields[groupByField]) ||
+      UNGROUPED_LABEL;
     (groups.get(value) ?? groups.set(value, []).get(value)!).push(object);
   }
 
@@ -169,9 +176,11 @@ export function Table({
   // into a couple of characters.
   const minWidth = 220 + 128 + 224 + facetColumns.length * 112 + 36;
 
+  const hasRoles = objects.some((o) => o.role);
+
   return (
     <div className="h-full flex flex-col">
-      {facetColumns.length > 0 && (
+      {(facetColumns.length > 0 || hasRoles) && (
         <div className="shrink-0 flex items-center gap-1.5 mb-2 text-[12px]">
           <span className="text-muted">Group by</span>
           <select
@@ -180,6 +189,7 @@ export function Table({
             className="rounded-lg border border-line px-2 py-1 text-[12px] bg-panel outline-none focus:border-accent"
           >
             <option value="">None</option>
+            {hasRoles && <option value={ITEM_TYPE_GROUP}>Item type</option>}
             {facetColumns.map((f) => (
               <option key={f.name} value={f.name}>
                 {f.name}

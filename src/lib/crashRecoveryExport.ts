@@ -14,6 +14,7 @@ type RawPersistedEnvelope = {
     collections?: Record<string, unknown>;
     collectionOrder?: string[];
     tagGroups?: unknown;
+    roles?: unknown;
   };
 };
 
@@ -37,7 +38,11 @@ export async function exportBackupFromIdb(): Promise<string> {
     .map((id) => collectionsById[id])
     .filter((c): c is Record<string, unknown> => c !== undefined);
 
-  return JSON.stringify({ objects, collections, tagGroups: state.tagGroups ?? {} }, null, 2);
+  return JSON.stringify(
+    { objects, collections, tagGroups: state.tagGroups ?? {}, roles: state.roles ?? {} },
+    null,
+    2
+  );
 }
 
 export function downloadBackupFile(json: string): void {

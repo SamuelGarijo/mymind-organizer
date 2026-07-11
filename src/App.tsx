@@ -14,7 +14,7 @@ import { buildSearchIndex, searchObjects } from "./lib/search";
 import { describeMymindError, fetchAllMymindIds, syncFull, syncIncremental } from "./lib/mymindSync";
 import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
 import { parseBackup } from "./lib/backupValidation";
-import { normalizeFacetSchema } from "./lib/facetSchema";
+import { norm } from "./lib/ruleEngine";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
 import type { FacetField } from "./types";
@@ -69,6 +69,7 @@ export default function App() {
       collections: s.collections,
       selectedView: s.selectedView,
       tagGroups: s.tagGroups,
+      roles: s.roles,
       typeFilter: s.typeFilter,
       searchQuery: s.searchQuery,
       facetTags: s.facetTags,
@@ -148,15 +149,28 @@ export default function App() {
     [state.objects]
   );
 
-  // Facet columns only make sense inside a single manual collection with a
-  // defined schema — an object can belong to several collections with
-  // different (or no) schemas, so "All items" has nothing consistent to show.
+  // Fields travel with each object's item type now (issue #84), not with
+  // the collection — so the table's columns are the union of the field
+  // packages for every role present in the current view. Works in any
+  // view, "All items" included; deduped case-insensitively since two roles
+  // can legitimately share a field (e.g. Author on both Book and Photo).
   const facetColumns: FacetField[] = useMemo(() => {
-    if (state.selectedView.kind !== "collection") return [];
-    const collection = state.collections[state.selectedView.collectionId];
-    if (!collection || collection.type !== "manual") return [];
-    return normalizeFacetSchema(collection);
-  }, [state.selectedView, state.collections]);
+    const seen = new Set<string>();
+    const columns: FacetField[] = [];
+    for (const obj of baseObjects) {
+      if (!obj.role) continue;
+      const def = state.roles[norm(obj.role)];
+      if (!def) continue;
+      for (const field of def.fields) {
+        const key = field.name.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          columns.push(field);
+        }
+      }
+    }
+    return columns;
+  }, [baseObjects, state.roles]);
 
   // Identifies the logical view (not the filtered results) — Grid resets
   // its progressive-reveal render count only when THIS changes, not on

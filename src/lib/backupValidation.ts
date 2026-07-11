@@ -1,4 +1,4 @@
-import type { Collection, DesignObject, TagGroups } from "../types";
+import type { Collection, DesignObject, RoleDefinition, TagGroups } from "../types";
 
 /** Thrown by parseBackup — the message is meant to be shown to the user
  * as-is (see App.tsx's restore flow), so keep it specific and actionable. */
@@ -39,6 +39,10 @@ export type ParsedBackup = {
   objects: DesignObject[];
   collections: Collection[];
   tagGroups: TagGroups;
+  /** Item-type definitions (issue #84). Absent from pre-#84 backups —
+   * defaults to empty (old per-collection schema data restores as inert
+   * legacy fields, no migration — CLAUDE.md prototype-phase rule). */
+  roles: Record<string, RoleDefinition>;
 };
 
 /**
@@ -88,9 +92,22 @@ export function parseBackup(json: string): ParsedBackup {
     throw new BackupValidationError('"tagGroups" is present but not a plain object.');
   }
 
+  const rolesRaw = parsed.roles ?? {};
+  if (!isPlainObject(rolesRaw)) {
+    throw new BackupValidationError('"roles" is present but not a plain object.');
+  }
+  for (const [key, def] of Object.entries(rolesRaw)) {
+    if (!isPlainObject(def) || typeof def.name !== "string" || !Array.isArray(def.fields)) {
+      throw new BackupValidationError(
+        `Role definition "${key}" is missing required fields (name/fields) — the file may be truncated or corrupted.`
+      );
+    }
+  }
+
   return {
     objects: parsed.objects as DesignObject[],
     collections: collectionsRaw as Collection[],
     tagGroups: tagGroupsRaw as TagGroups,
+    roles: rolesRaw as Record<string, RoleDefinition>,
   };
 }

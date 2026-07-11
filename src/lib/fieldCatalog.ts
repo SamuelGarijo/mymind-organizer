@@ -1,31 +1,37 @@
-import type { Collection, DesignObject, FacetField } from "../types";
+import type { Collection, DesignObject, FacetField, RoleDefinition } from "../types";
 import { normalizeFacetSchema } from "./facetSchema";
 
 /**
  * Every distinct field (name+type, deduped case-insensitively) ever
- * defined across all manual collections' facet schemas — derived live from
- * the collections that already exist, not a separately stored/maintained
- * catalog. Powers "reuse this field" suggestions when editing a schema,
- * with no risk of drifting from what's actually in use (same principle
- * this app already applies to tag frequency, object types, etc.).
+ * defined across all role field packages — plus legacy pre-#84 collection
+ * schemas, kept purely as a suggestion source — derived live from what
+ * already exists, not a separately stored/maintained catalog. Powers
+ * "reuse this field" suggestions when editing a role's fields, with no
+ * risk of drifting from what's actually in use (same principle this app
+ * already applies to tag frequency, object types, etc.).
  */
-export function getKnownFields(collections: Record<string, Collection>): FacetField[] {
+export function getKnownFields(
+  collections: Record<string, Collection>,
+  roles: Record<string, RoleDefinition> = {}
+): FacetField[] {
   const byKey = new Map<string, FacetField>();
+  const absorb = (field: FacetField) => {
+    const key = `${field.name.toLowerCase()}::${field.type}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, field);
+    } else if (field.type === "select" && field.options?.length) {
+      // A later definition reusing the same field name should see every
+      // option anyone's ever used for it, not just whichever definition
+      // happened to introduce it first.
+      const options = Array.from(new Set([...(existing.options ?? []), ...field.options]));
+      byKey.set(key, { ...existing, options });
+    }
+  };
+  for (const def of Object.values(roles)) for (const field of def.fields) absorb(field);
   for (const c of Object.values(collections)) {
     if (c.type !== "manual") continue;
-    for (const field of normalizeFacetSchema(c)) {
-      const key = `${field.name.toLowerCase()}::${field.type}`;
-      const existing = byKey.get(key);
-      if (!existing) {
-        byKey.set(key, field);
-      } else if (field.type === "select" && field.options?.length) {
-        // A later collection reusing the same field name should see every
-        // option anyone's ever used for it, not just whichever collection
-        // happened to define it first.
-        const options = Array.from(new Set([...(existing.options ?? []), ...field.options]));
-        byKey.set(key, { ...existing, options });
-      }
-    }
+    for (const field of normalizeFacetSchema(c)) absorb(field);
   }
   return Array.from(byKey.values());
 }
