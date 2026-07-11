@@ -1,4 +1,5 @@
 import type { DesignObject } from "../types";
+import { asFieldString } from "./mymindSync";
 
 /**
  * Rule table: mymind `entityType` + tags → suggested item type (issue
@@ -64,7 +65,7 @@ const RULES: RoleRule[] = [
     role: "Author Photography",
     match: (o, tags) =>
       PHOTOGRAPHY_TAG.test(tags) &&
-      (AUTHORSHIP_TAG.test(tags) || (o.fields.source_url ?? "").includes("instagram.com")),
+      (AUTHORSHIP_TAG.test(tags) || asFieldString(o.fields.source_url).includes("instagram.com")),
   },
   // Fallback for anything with a photography signal that didn't clear the
   // authorship bar above — sits below it on purpose (ordering IS the
@@ -75,7 +76,7 @@ const RULES: RoleRule[] = [
   // nothing more specific above matched.
   {
     role: "Article",
-    match: (o) => ["Article", "WebPage"].includes(o.fields.entity_type ?? ""),
+    match: (o) => ["Article", "WebPage"].includes(asFieldString(o.fields.entity_type)),
   },
   { role: "Album", match: (o) => o.fields.entity_type === "MusicAlbum" },
 ];

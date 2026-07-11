@@ -10,6 +10,7 @@ import {
   MYMIND_OWNED_FIELD_KEYS,
   NOTE_CONTENT_KEY,
   NOTE_ID_KEY,
+  asFieldString,
 } from "../lib/mymindSync";
 import {
   addMymindTag,
@@ -43,6 +44,14 @@ function isSafeHref(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Plain-text display for a metadata entry that might be a multi-select
+ * field's array (issue #99) — e.g. an orphaned value left behind after a
+ * role's field package drops that field. mymind's own metadata is always a
+ * plain string already, so this is a no-op for every other caller. */
+function formatFieldValue(value: string | string[]): string {
+  return Array.isArray(value) ? value.join(", ") : value;
 }
 
 export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: () => void }) {
@@ -195,7 +204,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   // a blob). Only Notes are writable back to mymind (PUT /objects/:id/content
   // 422s for any other type), so this shows read-only for everything else.
   const hasRealContent = !!object.fields[NOTE_CONTENT_KEY];
-  const blobType = object.fields[BLOB_TYPE_KEY];
+  const blobType = asFieldString(object.fields[BLOB_TYPE_KEY]);
   const blobTypeParam = blobType ? `?type=${encodeURIComponent(blobType)}` : "";
   const detailImageSrc =
     object.source === "mymind"
@@ -245,8 +254,29 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     state.removeObjectTag(object.id, tag);
   }
 
-  function setFieldValue(key: string, value: string) {
+  function setFieldValue(key: string, value: string | string[]) {
+    // A multi-select field that's lost its last value goes back to being
+    // absent rather than an explicit [] — keeps every existing "is this
+    // field set?" falsy check (below, and in store.ts) working unchanged
+    // for both select's "" and multi-select's array.
+    if (Array.isArray(value) && value.length === 0) {
+      const { [key]: _removed, ...rest } = object.fields;
+      state.updateObject(object.id, { fields: rest });
+      return;
+    }
     state.updateObject(object.id, { fields: { ...object.fields, [key]: value } });
+  }
+
+  /** Click-a-chip path for multi-select facets — toggles one value in/out
+   * of the field's array. Mirrors selectFacetOption's mymind-push timing
+   * (only on the gesture that actually adds a value; removing one doesn't
+   * push anything, same as clearing a select — there's no tag "un-push"). */
+  function toggleMultiSelectOption(field: FacetField, value: string) {
+    const raw = object.fields[field.name];
+    const values = Array.isArray(raw) ? raw : [];
+    const adding = !values.includes(value);
+    setFieldValue(field.name, adding ? [...values, value] : values.filter((v) => v !== value));
+    if (adding) void maybePushFacetTag(field.name, value);
   }
 
   /**
@@ -281,7 +311,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
    * event is captured here explicitly before overwriting it. Same push
    * semantics as blur: only fires when the value actually changed. */
   function selectFacetOption(field: FacetField, value: string) {
-    focusValues.current[field.name] = object.fields[field.name] ?? "";
+    focusValues.current[field.name] = asFieldString(object.fields[field.name]);
     setFieldValue(field.name, value);
     void maybePushFacetTag(field.name, value);
   }
@@ -300,7 +330,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     if (newValue === priorValue) return;
 
     try {
-      const noteId = object.fields[NOTE_ID_KEY];
+      const noteId = asFieldString(object.fields[NOTE_ID_KEY]);
       const created = noteId
         ? await updateMymindNote(object.id, noteId, newValue)
         : await createMymindNote(object.id, newValue);
@@ -332,12 +362,15 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     }
   }
 
-  /** A field only accepts a dropped tag while it's empty — dropping onto an
-   * already-filled field would silently overwrite it, so it's a no-op
-   * instead. Date fields never accept one: a raw tag string is essentially
-   * never a valid date, so there's no realistic match to offer. */
+  /** A select field only accepts a dropped tag while it's empty — dropping
+   * onto an already-filled one would silently overwrite it, so it's a
+   * no-op instead. Multi-select always accepts one (it appends). Date
+   * fields never accept one: a raw tag string is essentially never a valid
+   * date, so there's no realistic match to offer. */
   function fieldAcceptsDrop(field: FacetField): boolean {
-    return field.type !== "date" && !object.fields[field.name];
+    if (field.type === "date") return false;
+    if (field.type === "multi-select") return true;
+    return !object.fields[field.name];
   }
 
   function handleFieldDrop(field: FacetField, e: React.DragEvent) {
@@ -346,23 +379,29 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     const tag = e.dataTransfer.getData(TAG_DRAG_MIME);
     if (!tag) return;
 
-    if (field.type === "select") {
-      // Only accept a value the schema actually allows — otherwise a
-      // <select> would silently show as blank despite holding that value.
+    if (field.type === "select" || field.type === "multi-select") {
+      // Only accept a value the schema actually allows — otherwise the
+      // field would silently show/gain a value outside its own options.
       const match = (field.options ?? []).find((opt) => norm(opt) === norm(tag));
       if (!match) return;
-      state.moveTagToField(object.id, tag, field.name, match);
+      state.moveTagToField(
+        object.id,
+        tag,
+        field.name,
+        match,
+        field.type === "multi-select" ? "append" : "replace"
+      );
       return;
     }
-    state.moveTagToField(object.id, tag, field.name, tag);
+    state.moveTagToField(object.id, tag, field.name, tag, "replace");
   }
 
-  /** One role-package field, as a select-value pill or a plain input —
-   * extracted so the visible/hidden split above (issue #101) can map over
-   * either list without duplicating this. */
+  /** One role-package field, as a select-value pill, a multi-select chip
+   * row, or a date input — extracted so the visible/hidden split above
+   * (issue #101) can map over either list without duplicating this. */
   function renderRoleField(field: FacetField) {
     const acceptsDrop = fieldAcceptsDrop(field);
-    const value = object.fields[field.name] ?? "";
+    const rawValue = object.fields[field.name];
     const dropHandlers = {
       onDragOver: acceptsDrop
         ? (e: React.DragEvent) => {
@@ -380,6 +419,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
       // One fluid pill: the field itself, expanding in place on hover/focus
       // to offer its options as chips — no separate dropdown-open step.
       // Long option lists cap at a few chips with a "+N more" toggle.
+      const value = typeof rawValue === "string" ? rawValue : "";
       const options = field.options ?? [];
       const expanded = expandedOptionsField === field.name;
       const VISIBLE_OPTIONS = 6;
@@ -433,20 +473,76 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
       );
     }
 
+    if (field.type === "multi-select") {
+      // Same fluid-pill language as select, but every chosen value stays
+      // visible (not just one) and each is its own toggle-off button;
+      // unselected options appear on hover to toggle on, same "+N more" cap.
+      const values = Array.isArray(rawValue) ? rawValue : [];
+      const options = field.options ?? [];
+      const unselected = options.filter((opt) => !values.includes(opt));
+      const expanded = expandedOptionsField === field.name;
+      const VISIBLE_OPTIONS = 6;
+      const shownUnselected = expanded ? unselected : unselected.slice(0, VISIBLE_OPTIONS);
+      const hiddenCount = unselected.length - shownUnselected.length;
+      return (
+        <div key={field.name} {...dropHandlers} className={["group/facetrow rounded-lg", dropRing].join(" ")}>
+          <div className="flex flex-wrap items-center gap-1">
+            <span
+              className="tag-chip cursor-default"
+              title={acceptsDrop ? "Drop a tag here to add it to this field" : field.name}
+            >
+              {field.name}
+            </span>
+            {values.map((v) => (
+              <button
+                key={v}
+                onClick={() => toggleMultiSelectOption(field, v)}
+                className="tag-chip gap-1 border-accent/40 bg-accent/5 text-ink"
+                title="Remove this value"
+              >
+                {v} ×
+              </button>
+            ))}
+            <div className="hidden group-hover/facetrow:contents group-focus-within/facetrow:contents">
+              {shownUnselected.map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => toggleMultiSelectOption(field, opt)}
+                  className="tag-chip hover:border-accent hover:text-ink"
+                >
+                  {opt}
+                </button>
+              ))}
+              {(hiddenCount > 0 || expanded) && (
+                <button
+                  onClick={() => setExpandedOptionsField(expanded ? null : field.name)}
+                  className="tag-chip text-muted hover:text-ink"
+                >
+                  {expanded ? "less" : `+${hiddenCount} more`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Only "date" is left — select/multi-select/date are the only role
+    // field types (#99's closed decision), and both of those return above.
+    const value = typeof rawValue === "string" ? rawValue : "";
     return (
       <div key={field.name} {...dropHandlers} className={["flex items-center gap-1.5 rounded-lg", dropRing].join(" ")}>
         <span className="text-[12px] text-muted w-24 shrink-0 truncate" title={field.name}>
           {field.name}
         </span>
         <input
-          type={field.type === "date" ? "date" : "text"}
+          type="date"
           value={value}
           onChange={(e) => setFieldValue(field.name, e.target.value)}
           onFocus={(e) => {
             focusValues.current[field.name] = e.target.value;
           }}
           onBlur={(e) => void maybePushFacetTag(field.name, e.target.value)}
-          placeholder={field.type === "date" ? undefined : "—"}
           className="flex-1 rounded-lg border border-line px-2.5 py-1 text-sm outline-none focus:border-accent"
         />
       </div>
@@ -831,8 +927,8 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                     <span className="text-muted w-24 shrink-0 truncate" title={key}>
                       {key}
                     </span>
-                    <span className="text-ink/80 truncate min-w-0" title={value}>
-                      {value}
+                    <span className="text-ink/80 truncate min-w-0" title={formatFieldValue(value)}>
+                      {formatFieldValue(value)}
                     </span>
                   </div>
                 ))}
@@ -851,7 +947,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                     <span className="text-muted w-20 shrink-0 truncate" title={key}>
                       {key}
                     </span>
-                    {key === "source_url" && isSafeHref(value) ? (
+                    {key === "source_url" && !Array.isArray(value) && isSafeHref(value) ? (
                       <a
                         href={value}
                         target="_blank"
@@ -862,8 +958,8 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                         {value}
                       </a>
                     ) : (
-                      <span className="text-ink/80 truncate min-w-0" title={value}>
-                        {value}
+                      <span className="text-ink/80 truncate min-w-0" title={formatFieldValue(value)}>
+                        {formatFieldValue(value)}
                       </span>
                     )}
                   </div>

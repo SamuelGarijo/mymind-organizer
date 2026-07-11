@@ -74,6 +74,16 @@ export const NOTE_CONTENT_KEY = "mymind_note_content";
  * synced before this field existed (falls back to a square-ish default). */
 export const BLOB_ASPECT_KEY = "mymind_blob_aspect";
 
+/** Reads a field this module itself populates (entity_type, summary,
+ * source_url, the *_KEY constants above, etc.) — always a plain string,
+ * since `mapMymindObjectToDesignObject` below only ever writes strings into
+ * `fields`. Only a role/facet field (issue #99) can hold a string[]
+ * instead, and none of those live under a mymind-owned key, so this narrows
+ * safely for every call site that reads one of them. */
+export function asFieldString(value: string | string[] | undefined): string {
+  return typeof value === "string" ? value : "";
+}
+
 /**
  * entityTypes empirically confirmed to have NO working image endpoint at
  * all in mymind's API — `/objects/:id/thumbnail` returns 404 for every

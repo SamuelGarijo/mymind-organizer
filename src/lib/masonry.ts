@@ -1,5 +1,5 @@
 import type { DesignObject } from "../types";
-import { BLOB_ASPECT_KEY, NOTE_CONTENT_KEY } from "./mymindSync";
+import { BLOB_ASPECT_KEY, NOTE_CONTENT_KEY, asFieldString } from "./mymindSync";
 
 /** Matches `.masonry`'s old `column-gap`/`margin-bottom` in index.css —
  * kept in sync manually since both now express the same visual gap, one in
@@ -70,7 +70,9 @@ function estimateTextLines(text: string, columnWidth: number): number {
 /** Estimates a card's total rendered height (image/text + metadata),
  * mirroring Card.tsx's own branching (showImage / isTextOnly / fallback). */
 export function estimateCardHeight(object: DesignObject, columnWidth: number): number {
-  const textPreview = (object.fields[NOTE_CONTENT_KEY] || object.fields.summary)?.trim();
+  const textPreview = (
+    asFieldString(object.fields[NOTE_CONTENT_KEY]) || asFieldString(object.fields.summary)
+  ).trim();
   const showImage = !!object.imageUrl;
 
   if (showImage) {

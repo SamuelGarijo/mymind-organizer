@@ -2,11 +2,18 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DesignObject, FacetField } from "../types";
 import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
+import { asFieldString } from "../lib/mymindSync";
 
 const ROW_HEIGHT = 44;
 const GROUP_HEADER_HEIGHT = 32;
 const VISIBLE_TAG_LIMIT = 4;
 const UNGROUPED_LABEL = "—";
+
+/** Plain-text display for a facet cell — a multi-select field's value
+ * (issue #99) is an array; every other field is already a string. */
+function displayFieldValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value.join(", ") : value ?? "";
+}
 
 /** Sentinel group-by key for the object's item type (`object.role`, issue
  * #84) — deliberately not a valid field name, so it can never collide with
@@ -31,11 +38,20 @@ function buildFlatRows(
   if (!groupByField) return objects.map((object) => ({ kind: "item", object }));
 
   const groups = new Map<string, DesignObject[]>();
-  for (const object of objects) {
-    const value =
-      (groupByField === ITEM_TYPE_GROUP ? object.role : object.fields[groupByField]) ||
-      UNGROUPED_LABEL;
+  const addToGroup = (value: string, object: DesignObject) => {
     (groups.get(value) ?? groups.set(value, []).get(value)!).push(object);
+  };
+  for (const object of objects) {
+    const raw = groupByField === ITEM_TYPE_GROUP ? object.role : object.fields[groupByField];
+    if (Array.isArray(raw)) {
+      // Multi-select (issue #99): an object with several values shows up
+      // under each of its groups — same multi-membership every other
+      // tag-like grouping in this app already has, not confined to one.
+      if (raw.length === 0) addToGroup(UNGROUPED_LABEL, object);
+      else for (const value of raw) addToGroup(value, object);
+    } else {
+      addToGroup(raw || UNGROUPED_LABEL, object);
+    }
   }
 
   const definedOrder = facetColumns.find((f) => f.name === groupByField)?.options ?? [];
@@ -94,9 +110,9 @@ const TableRow = memo(function TableRow({
       </span>
       <span
         className="w-32 shrink-0 truncate text-muted"
-        title={object.fields.entity_type ?? ""}
+        title={asFieldString(object.fields.entity_type)}
       >
-        {object.fields.entity_type || "—"}
+        {asFieldString(object.fields.entity_type) || "—"}
       </span>
       <span className="w-56 shrink-0 truncate text-muted" title={object.tags.join(", ")}>
         {pickDistinctiveTags(object.tags, tagFrequency, VISIBLE_TAG_LIMIT)
@@ -107,8 +123,8 @@ const TableRow = memo(function TableRow({
         // Empty cells render blank, not a "—" placeholder (issue #101) —
         // this object may simply not carry this column's role, or hasn't
         // had the field filled in yet.
-        <span key={f.name} className="w-28 shrink-0 truncate" title={object.fields[f.name] ?? ""}>
-          {object.fields[f.name] ?? ""}
+        <span key={f.name} className="w-28 shrink-0 truncate" title={displayFieldValue(object.fields[f.name])}>
+          {displayFieldValue(object.fields[f.name])}
         </span>
       ))}
     </div>

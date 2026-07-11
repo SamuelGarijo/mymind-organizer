@@ -50,7 +50,12 @@ export function getKnownValuesForField(
   const values = new Set<string>();
   for (const obj of Object.values(objects)) {
     for (const [key, value] of Object.entries(obj.fields)) {
-      if (key.toLowerCase() === target && value) values.add(value);
+      if (key.toLowerCase() !== target) continue;
+      if (Array.isArray(value)) {
+        for (const one of value) values.add(one);
+      } else if (value) {
+        values.add(value);
+      }
     }
   }
   return Array.from(values).sort();

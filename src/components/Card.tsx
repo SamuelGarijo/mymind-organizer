@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
-import { NOTE_CONTENT_KEY } from "../lib/mymindSync";
+import { NOTE_CONTENT_KEY, asFieldString } from "../lib/mymindSync";
 
 const VISIBLE_TAG_LIMIT = 4;
 
@@ -50,7 +50,9 @@ export const Card = memo(function Card({
   // gets the white/rounded "paper" card treatment — it floats as its own
   // shape, decoupled from the metadata below, which stays identical to
   // every other card's (no special background or padding).
-  const textPreview = (object.fields[NOTE_CONTENT_KEY] || object.fields.summary)?.trim();
+  const textPreview = (
+    asFieldString(object.fields[NOTE_CONTENT_KEY]) || asFieldString(object.fields.summary)
+  ).trim();
   const isTextOnly = !showImage && !!textPreview;
 
   return (

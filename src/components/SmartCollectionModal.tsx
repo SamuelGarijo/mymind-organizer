@@ -56,7 +56,11 @@ function valuesForField(objects: DesignObject[], field: string, tagGroups: TagGr
   } else {
     for (const obj of objects) {
       const v = obj.fields[field];
-      if (v) set.add(v);
+      if (Array.isArray(v)) {
+        for (const one of v) set.add(one);
+      } else if (v) {
+        set.add(v);
+      }
     }
   }
   return Array.from(set).sort((a, b) => a.localeCompare(b));

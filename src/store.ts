@@ -183,11 +183,19 @@ type State = {
   ) => void;
   assignToManualCollection: (objectId: string, collectionId: string) => void;
   removeFromManualCollection: (objectId: string, collectionId: string) => void;
-  /** Atomically moves a plain tag onto a facet field: sets `fields[fieldName]`
-   * to `value` and removes `tag` from the object's tags. Used by the
-   * DetailPanel drag interaction — one store update, not two, so there's no
-   * risk of a half-applied state if a caller reads it back mid-way. */
-  moveTagToField: (objectId: string, tag: string, fieldName: string, value: string) => void;
+  /** Atomically moves a plain tag onto a facet field, removing `tag` from
+   * the object's tags either way — one store update, not two, so there's
+   * no risk of a half-applied state if a caller reads it back mid-way.
+   * mode "replace" sets `fields[fieldName]` to `value` (select/date);
+   * "append" adds `value` into that field's array instead, creating it if
+   * absent and no-op if already present (multi-select, issue #99). */
+  moveTagToField: (
+    objectId: string,
+    tag: string,
+    fieldName: string,
+    value: string,
+    mode: "replace" | "append"
+  ) => void;
 
   exportDataString: () => string;
   /** Full restore from a backup produced by exportDataString — replaces
@@ -252,13 +260,26 @@ function applyRoleToObject(
   const fields = { ...obj.fields };
   const movedTags: string[] = [];
   for (const field of def.fields) {
-    if (field.type !== "select" || fields[field.name] || !field.options?.length) continue;
+    if (field.type === "date" || fields[field.name] || !field.options?.length) continue;
     const matches = tags.filter((t) => field.options!.some((opt) => norm(opt) === norm(t)));
-    if (matches.length !== 1) continue;
-    const [tag] = matches;
-    fields[field.name] = field.options.find((opt) => norm(opt) === norm(tag))!;
-    tags = tags.filter((t) => t !== tag);
-    movedTags.push(tag);
+    if (field.type === "select") {
+      // Exactly one match or skip — an object with two candidate tags for a
+      // single-value field is ambiguous, left for manual resolution.
+      if (matches.length !== 1) continue;
+      const [tag] = matches;
+      fields[field.name] = field.options.find((opt) => norm(opt) === norm(tag))!;
+      tags = tags.filter((t) => t !== tag);
+      movedTags.push(tag);
+    } else {
+      // multi-select: no ambiguity concept — an object can legitimately
+      // carry more than one value here, so every matching tag moves in.
+      if (matches.length === 0) continue;
+      fields[field.name] = matches.map(
+        (tag) => field.options!.find((opt) => norm(opt) === norm(tag))!
+      );
+      tags = tags.filter((t) => !matches.includes(t));
+      movedTags.push(...matches);
+    }
   }
 
   return { object: { ...obj, role: def.name, tags, fields }, roles: nextRoles, movedTags };
@@ -673,18 +694,26 @@ export const useStore = create<State>()(
           };
         }),
 
-      moveTagToField: (objectId, tag, fieldName, value) =>
+      moveTagToField: (objectId, tag, fieldName, value, mode) =>
         set((s) => {
           const existing = s.objects[objectId];
           if (!existing) return {};
           const removals = s.localTagRemovals[objectId] ?? [];
+          const nextValue: string | string[] =
+            mode === "append"
+              ? (() => {
+                  const current = existing.fields[fieldName];
+                  const arr = Array.isArray(current) ? current : [];
+                  return arr.includes(value) ? arr : [...arr, value];
+                })()
+              : value;
           return {
             objects: {
               ...s.objects,
               [objectId]: {
                 ...existing,
                 tags: existing.tags.filter((t) => t !== tag),
-                fields: { ...existing.fields, [fieldName]: value },
+                fields: { ...existing.fields, [fieldName]: nextValue },
                 updatedAt: new Date().toISOString(),
               },
             },

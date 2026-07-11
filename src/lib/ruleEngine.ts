@@ -25,9 +25,8 @@ export function norm(s: string): string {
 }
 
 export function searchableText(obj: DesignObject): string {
-  return [obj.title, obj.tags.join(" "), Object.values(obj.fields).join(" ")]
-    .join(" ")
-    .toLowerCase();
+  const fieldValues = Object.values(obj.fields).flatMap((v) => (Array.isArray(v) ? v : [v]));
+  return [obj.title, obj.tags.join(" "), fieldValues.join(" ")].join(" ").toLowerCase();
 }
 
 /** Every field a condition could target on this object that actually holds
@@ -56,7 +55,8 @@ export function fieldsContainingValue(
   }
 
   for (const [key, val] of Object.entries(obj.fields)) {
-    if (norm(val) === v) hits.push(key);
+    const values = Array.isArray(val) ? val : [val];
+    if (values.some((one) => norm(one) === v)) hits.push(key);
   }
   return hits;
 }
@@ -90,19 +90,23 @@ export function evaluateCondition(
     }
   }
 
-  // Custom field (arbitrary key/value metadata, unrelated to tags)
-  const fieldValue = norm(obj.fields[condition.field] ?? "");
+  // Custom field (arbitrary key/value metadata, unrelated to tags) — a
+  // multi-select field's value is an array (issue #99); treat a single
+  // string the same way a select/date field always has, as a one-element
+  // list, so every operator below checks "any held value" either way.
+  const raw = obj.fields[condition.field];
+  const fieldValues = (Array.isArray(raw) ? raw : [raw ?? ""]).map(norm);
   switch (condition.operator) {
     case "equals":
-      return fieldValue === value;
+      return fieldValues.includes(value);
     case "notEquals":
-      return fieldValue !== value;
+      return !fieldValues.includes(value);
     case "contains":
-      return fieldValue.includes(value);
+      return fieldValues.some((v) => v.includes(value));
     case "includes":
-      return fieldValue === value;
+      return fieldValues.includes(value);
     default:
-      return fieldValue === value;
+      return fieldValues.includes(value);
   }
 }
 

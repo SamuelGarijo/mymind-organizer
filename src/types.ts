@@ -7,7 +7,12 @@ export type DesignObject = {
   title: string;
   imageUrl: string;
   tags: string[];
-  fields: Record<string, string>;
+  /** A value is a plain string for every mymind-owned key and for `select`/
+   * `date` role fields; `multi-select` role fields (issue #99) hold a
+   * non-empty string[] instead — the empty-array case is never stored, the
+   * key is just absent, so existing falsy "is this set?" checks keep
+   * working unchanged for both shapes. */
+  fields: Record<string, string | string[]>;
   /** Manual collection ids this object has been curated into. Lives on our
    * side only — never written back to mymind. */
   manualCollectionIds: string[];
@@ -67,12 +72,12 @@ export type SmartCollection = {
   createdAt: string;
 };
 
-export type FacetFieldType = "text" | "date" | "select";
+export type FacetFieldType = "date" | "select" | "multi-select";
 
 export type FacetField = {
   name: string;
   type: FacetFieldType;
-  /** Only meaningful when type === "select" — the fixed choice list. */
+  /** Meaningful for "select" and "multi-select" — the fixed choice list. */
   options?: string[];
 };
 
@@ -80,9 +85,9 @@ export type FacetField = {
  * object carrying it gets, in every collection it appears in (issue #84 —
  * schema ownership lives here, not on collections). Editing `fields` is
  * retroactive: it changes what renders for every object with this role.
- * Classification fields only — select/date (multi-select pending #99),
- * never free text (that's what the description is for). Keyed in the
- * store's `roles` map by norm(name); `name` keeps display casing. */
+ * Classification fields only — select/multi-select/date, never free text
+ * (that's what the description is for). Keyed in the store's `roles` map
+ * by norm(name); `name` keeps display casing. */
 export type RoleDefinition = {
   name: string;
   fields: FacetField[];
@@ -94,7 +99,7 @@ export type ManualCollection = {
   name: string;
   createdAt: string;
   /** Facet schema for this collection: a fixed, ordered set of typed fields
-   * (e.g. [{name:"author",type:"text"}, {name:"fact-check",type:"select",
+   * (e.g. [{name:"fact-check",type:"select",
    * options:["unverified","verified","false"]}]) defined once per
    * collection. Every member item gets inputs for exactly these fields in
    * its detail panel — structured metadata per collection, never invented

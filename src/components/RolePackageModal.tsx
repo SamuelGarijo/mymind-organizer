@@ -6,10 +6,10 @@ import { getKnownFields } from "../lib/fieldCatalog";
 import type { FacetField, FacetFieldType } from "../types";
 
 /** Classification field types only (issue #84's closed decision) — no free
- * text (that's what an object's description is for), and multi-select is
- * pending its own data-shape work (#99). */
+ * text (that's what an object's description is for). */
 const TYPE_LABELS: Partial<Record<FacetFieldType, string>> = {
   select: "Select",
+  "multi-select": "Multi-select",
   date: "Date",
 };
 const ALLOWED_TYPES = Object.keys(TYPE_LABELS) as FacetFieldType[];
@@ -38,13 +38,8 @@ export function RolePackageModal({
   const [optionsDraft, setOptionsDraft] = useState("");
 
   // Derived live from every role package (and legacy collection schemas),
-  // never a stored catalog — see lib/fieldCatalog.ts. Text-type legacy
-  // fields are excluded: suggesting one here would smuggle a forbidden
-  // type into a package.
-  const knownFields = useMemo(
-    () => getKnownFields(collections, roles).filter((f) => f.type !== "text"),
-    [collections, roles]
-  );
+  // never a stored catalog — see lib/fieldCatalog.ts.
+  const knownFields = useMemo(() => getKnownFields(collections, roles), [collections, roles]);
 
   function addField() {
     const value = nameDraft.trim();
@@ -54,7 +49,7 @@ export function RolePackageModal({
       return;
     }
     const options =
-      typeDraft === "select"
+      typeDraft === "select" || typeDraft === "multi-select"
         ? optionsDraft
             .split(",")
             .map((o) => o.trim())
@@ -87,7 +82,7 @@ export function RolePackageModal({
               <span className="tag-chip flex-1 justify-start gap-1.5">
                 {field.name}
                 <span className="text-muted">· {TYPE_LABELS[field.type] ?? field.type}</span>
-                {field.type === "select" && field.options && (
+                {(field.type === "select" || field.type === "multi-select") && field.options && (
                   <span className="text-muted/70 truncate">({field.options.join(", ")})</span>
                 )}
               </span>
@@ -118,7 +113,12 @@ export function RolePackageModal({
                   setOptionsDraft(known.options?.join(", ") ?? "");
                 }
               }}
-              onKeyDown={(e) => e.key === "Enter" && typeDraft !== "select" && addField()}
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                typeDraft !== "select" &&
+                typeDraft !== "multi-select" &&
+                addField()
+              }
               placeholder="Field name…"
               className="flex-1 rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
             />
@@ -139,7 +139,7 @@ export function RolePackageModal({
               ))}
             </select>
           </div>
-          {typeDraft === "select" && (
+          {(typeDraft === "select" || typeDraft === "multi-select") && (
             <input
               value={optionsDraft}
               onChange={(e) => setOptionsDraft(e.target.value)}

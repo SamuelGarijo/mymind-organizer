@@ -1,5 +1,6 @@
 import type { DesignObject } from "../types";
 import { norm } from "./ruleEngine";
+import { asFieldString } from "./mymindSync";
 
 export type FacetMode = "AND" | "OR";
 
@@ -30,7 +31,7 @@ export function computeTopTags(objects: DesignObject[], limit = 30): TagFrequenc
 export function computeObjectTypes(objects: DesignObject[]): TypeFrequency[] {
   const counts = new Map<string, number>();
   for (const obj of objects) {
-    const type = obj.fields.entity_type || UNKNOWN_TYPE_LABEL;
+    const type = asFieldString(obj.fields.entity_type) || UNKNOWN_TYPE_LABEL;
     counts.set(type, (counts.get(type) ?? 0) + 1);
   }
   return Array.from(counts.entries())
@@ -41,7 +42,9 @@ export function computeObjectTypes(objects: DesignObject[]): TypeFrequency[] {
 /** Object-type filter only — a dropdown, not part of the free-text query. */
 export function applyTypeFilter(objects: DesignObject[], typeFilter: string): DesignObject[] {
   if (typeFilter === "") return objects;
-  return objects.filter((obj) => (obj.fields.entity_type || UNKNOWN_TYPE_LABEL) === typeFilter);
+  return objects.filter(
+    (obj) => (asFieldString(obj.fields.entity_type) || UNKNOWN_TYPE_LABEL) === typeFilter
+  );
 }
 
 /** Selected-tag filter only, combined per facetMode. */

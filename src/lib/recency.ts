@@ -1,4 +1,5 @@
 import type { DesignObject } from "../types";
+import { asFieldString } from "./mymindSync";
 
 /**
  * "Most recently added to the library" — prefers mymind's own `bumped`
@@ -8,7 +9,11 @@ import type { DesignObject } from "../types";
  */
 export function recencyTimestamp(obj: DesignObject): number {
   const iso =
-    obj.fields.bumped || obj.fields.modified || obj.fields.created || obj.updatedAt || obj.createdAt;
+    asFieldString(obj.fields.bumped) ||
+    asFieldString(obj.fields.modified) ||
+    asFieldString(obj.fields.created) ||
+    obj.updatedAt ||
+    obj.createdAt;
   const ms = iso ? Date.parse(iso) : 0;
   return Number.isNaN(ms) ? 0 : ms;
 }
