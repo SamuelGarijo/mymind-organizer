@@ -93,8 +93,12 @@ function NavRow({
         if (!isDropTarget) return;
         e.preventDefault();
         setDragOver(false);
-        const id = e.dataTransfer.getData(DRAG_MIME);
-        if (id) onDrop(id);
+        const raw = e.dataTransfer.getData(DRAG_MIME);
+        if (!raw) return;
+        // Payload is always a JSON array of ids (issue #103) — one id for a
+        // lone card, the whole selection for a multi-select drag.
+        const ids: string[] = JSON.parse(raw);
+        for (const id of ids) onDrop(id);
       }}
       className={[
         "group flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] cursor-pointer select-none",

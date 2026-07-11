@@ -17,12 +17,24 @@ export const Card = memo(function Card({
   object,
   tagFrequency,
   onOpen,
+  onCardClick,
 }: {
   object: DesignObject;
   tagFrequency: Map<string, number>;
   onOpen: (id: string) => void;
+  /** Reports every click along with its modifier keys — Grid.tsx owns the
+   * actual Finder-style selection logic (plain click opens + clears
+   * selection, Shift ranges, Cmd/Ctrl toggles), since that needs the full
+   * ordered list of currently-mounted cards that only Grid has (issue
+   * #103). Card stays a dumb reporter so it doesn't need its siblings. */
+  onCardClick: (id: string, e: React.MouseEvent) => void;
 }) {
   const tagGroups = useStore((s) => s.tagGroups);
+  // Scoped selector: only cards whose OWN membership actually flips
+  // re-render on a selection change (zustand bails out on an unchanged
+  // selector result), which matters here since marquee drag fires this at
+  // mousemove frequency over however many cards are mounted.
+  const isSelected = useStore((s) => s.selectedObjectIds.has(object.id));
   // Rarer tags are more specific to this object than generic, high-frequency
   // ones — see lib/tagDistinctiveness for the (deliberately simple) ranking.
   const visibleTags = pickDistinctiveTags(object.tags, tagFrequency, VISIBLE_TAG_LIMIT);
@@ -45,18 +57,30 @@ export const Card = memo(function Card({
     <div
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.setData(DRAG_MIME, object.id);
-        e.dataTransfer.effectAllowed = "copy";
         // Imperative getState() read, not a reactive subscription — this
         // fires per-drag, not per-render, so it doesn't cost every one of
         // the thousands of mounted cards a re-render subscription just for
         // an event that only ever touches one of them at a time.
-        const { sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
+        const { selectedObjectIds, sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
+        // Dragging a card that's part of an active multi-selection carries
+        // the whole group; dragging anything else (nothing selected, or
+        // only this card) carries just itself — same single-id shape as
+        // before #103 for the common case.
+        const ids =
+          selectedObjectIds.has(object.id) && selectedObjectIds.size > 1
+            ? Array.from(selectedObjectIds)
+            : [object.id];
+        e.dataTransfer.setData(DRAG_MIME, JSON.stringify(ids));
+        e.dataTransfer.effectAllowed = "copy";
         if (sidebarCollapsed) setDragRevealSidebar(true);
       }}
       onDragEnd={() => useStore.getState().setDragRevealSidebar(false)}
-      onClick={() => onOpen(object.id)}
-      className="active:cursor-grabbing"
+      onClick={(e) => onCardClick(object.id, e)}
+      className={[
+        "active:cursor-grabbing rounded-card",
+        isSelected ? "ring-2 ring-accent ring-offset-2" : "",
+      ].join(" ")}
+      data-object-id={object.id}
     >
       {isTextOnly ? (
         <div className="w-full bg-panel rounded-card shadow-card p-3.5">

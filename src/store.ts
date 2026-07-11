@@ -146,6 +146,26 @@ type State = {
   dragRevealSidebar: boolean;
   setDragRevealSidebar: (reveal: boolean) => void;
 
+  /** Current multi-object selection in the Grid (issue #103) — Finder-style:
+   * rectangle marquee, Shift-click range, Cmd/Ctrl-click toggle, all
+   * combinable. Transient UI state: never persisted, cleared whenever the
+   * view changes (Grid.tsx) since a range/marquee only makes sense against
+   * the visual order of the objects currently on screen. Dragging any
+   * selected card carries the whole set (Card.tsx); dragging an unselected
+   * one carries just itself. */
+  selectedObjectIds: Set<string>;
+  /** The pivot for Shift-click range selection — the id of the last card
+   * touched by a plain or Cmd-click. Shift-clicking again re-ranges from
+   * this same anchor rather than the most recent Shift target, matching
+   * Finder. Null once nothing has been individually clicked yet (e.g. right
+   * after a marquee, or after clearing). */
+  selectionAnchorId: string | null;
+  /** Replaces the selection wholesale — used by marquee (recomputed every
+   * mousemove), Shift-click (recomputed range), Cmd-click (toggled set),
+   * and clearing (empty set + null anchor). No business logic here by
+   * design; callers (Grid.tsx, Card.tsx) compute the new set. */
+  setSelection: (ids: Set<string>, anchorId: string | null) => void;
+
   setSelectedView: (view: ViewSelection) => void;
   openDetail: (id: string) => void;
   closeDetail: () => void;
@@ -274,6 +294,10 @@ export const useStore = create<State>()(
 
       dragRevealSidebar: false,
       setDragRevealSidebar: (reveal) => set({ dragRevealSidebar: reveal }),
+
+      selectedObjectIds: new Set(),
+      selectionAnchorId: null,
+      setSelection: (ids, anchorId) => set({ selectedObjectIds: ids, selectionAnchorId: anchorId }),
 
       importObjects: (objs, tagGroupHints) =>
         set((s) => {
