@@ -196,6 +196,25 @@ type State = {
     value: string,
     mode: "replace" | "append"
   ) => void;
+  /** Bucket-drag write path (issue #102): sets/appends a facet field's
+   * value for one or more objects in one atomic update. `value === ""`
+   * clears the field entirely regardless of mode — the "drag onto
+   * Unassigned" case. Skips any objectId that no longer exists; unlike
+   * moveTagToField this never touches tags, since a bucket drag doesn't
+   * originate from a tag pill. */
+  assignFieldValue: (
+    objectIds: string[],
+    fieldName: string,
+    value: string,
+    mode: "replace" | "append"
+  ) => void;
+  /** Adds a new option to every role's field definition sharing this exact
+   * name (case-insensitive) — field names are shared vocabulary across
+   * roles (issue #96), so a value created via one role's grouped view
+   * (issue #102's "drop onto a new bucket") is available from every other
+   * role reusing that field name too, not just wherever the drop happened
+   * to originate. No-op if the option already exists on a given field. */
+  addFieldOption: (fieldName: string, option: string) => void;
 
   exportDataString: () => string;
   /** Full restore from a backup produced by exportDataString — replaces
@@ -723,6 +742,57 @@ export const useStore = create<State>()(
               ? s.localTagRemovals
               : { ...s.localTagRemovals, [objectId]: [...removals, tag] },
           };
+        }),
+
+      assignFieldValue: (objectIds, fieldName, value, mode) =>
+        set((s) => {
+          const objects = { ...s.objects };
+          let changed = false;
+          for (const id of objectIds) {
+            const existing = objects[id];
+            if (!existing) continue;
+            changed = true;
+            if (value === "") {
+              const { [fieldName]: _removed, ...rest } = existing.fields;
+              objects[id] = { ...existing, fields: rest, updatedAt: new Date().toISOString() };
+              continue;
+            }
+            const nextValue: string | string[] =
+              mode === "append"
+                ? (() => {
+                    const current = existing.fields[fieldName];
+                    const arr = Array.isArray(current) ? current : [];
+                    return arr.includes(value) ? arr : [...arr, value];
+                  })()
+                : value;
+            objects[id] = {
+              ...existing,
+              fields: { ...existing.fields, [fieldName]: nextValue },
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return changed ? { objects } : {};
+        }),
+
+      addFieldOption: (fieldName, option) =>
+        set((s) => {
+          const key = fieldName.toLowerCase();
+          const trimmed = option.trim();
+          if (!trimmed) return {};
+          let changed = false;
+          const roles = { ...s.roles };
+          for (const [roleKey, def] of Object.entries(s.roles)) {
+            const fieldIdx = def.fields.findIndex((f) => f.name.toLowerCase() === key);
+            if (fieldIdx === -1) continue;
+            const field = def.fields[fieldIdx];
+            const options = field.options ?? [];
+            if (options.some((o) => o.toLowerCase() === trimmed.toLowerCase())) continue;
+            const fields = [...def.fields];
+            fields[fieldIdx] = { ...field, options: [...options, trimmed] };
+            roles[roleKey] = { ...def, fields };
+            changed = true;
+          }
+          return changed ? { roles } : {};
         }),
 
       exportDataString: () => {
