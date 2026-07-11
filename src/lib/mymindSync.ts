@@ -213,8 +213,18 @@ export function mapMymindObjectToDesignObject(raw: RawMymindObject): DesignObjec
 
   for (const t of raw.tags ?? []) {
     if (!t?.name) continue;
-    tags.push(t.name);
-    tagFlags[t.name.trim().toLowerCase()] = t.flags ?? 0;
+    // mymind can legitimately list the same tag name twice as distinct tag
+    // objects (e.g. AI-suggested and manually confirmed) — confirmed
+    // empirically against the real backup (10+ objects hit this in a
+    // partial scan). Left undeduped, the repeated string broke every place
+    // that keys off a tag's name (React list keys in Card/DetailPanel,
+    // `tags.includes()` checks elsewhere) — dedupe here once, at the
+    // source, rather than patching every consumer.
+    if (!tags.includes(t.name)) tags.push(t.name);
+    // Combine flags across duplicate entries (bitwise OR) instead of
+    // letting whichever one is last silently win.
+    const key = t.name.trim().toLowerCase();
+    tagFlags[key] = (tagFlags[key] ?? 0) | (t.flags ?? 0);
   }
 
   const sourceUrl = raw.source?.url;
