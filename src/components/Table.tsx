@@ -5,11 +5,14 @@ import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
 import { asFieldString } from "../lib/mymindSync";
 import { useStore } from "../store";
 import { DRAG_MIME } from "./Sidebar";
+import { GroupBySelect } from "./GroupBySelect";
+import { groupObjects, ITEM_TYPE_GROUP, UNGROUPED_LABEL } from "../lib/grouping";
+
+export { ITEM_TYPE_GROUP };
 
 const ROW_HEIGHT = 44;
 const GROUP_HEADER_HEIGHT = 32;
 const VISIBLE_TAG_LIMIT = 4;
-const UNGROUPED_LABEL = "—";
 /** Sentinel dragOverGroup value for the trailing "+ new value" row — not a
  * real group label, so it can't collide with one. */
 const NEW_VALUE_DROP_KEY = "__new_value__";
@@ -20,24 +23,15 @@ function displayFieldValue(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value.join(", ") : value ?? "";
 }
 
-/** Sentinel group-by key for the object's item type (`object.role`, issue
- * #84) — deliberately not a valid field name, so it can never collide with
- * a real facet field called "role" or "Item type". */
-export const ITEM_TYPE_GROUP = "__item_type__";
-
 type FlatRow =
   | { kind: "header"; label: string; count: number }
   | { kind: "item"; object: DesignObject }
   | { kind: "newValue" };
 
-/** Partitions objects by their value for `groupByField` (or by item type,
- * for the ITEM_TYPE_GROUP sentinel), preserving each object's existing
- * relative order within its group (the caller's list is already
- * recency-sorted). Groups are ordered by the field's own defined `options`
- * order when it's a select field — anything else (item types included)
- * falls back to alphabetical. Grouping by a real facet field (not item
- * type) appends a trailing "+ new value" row — the drop target that
- * creates a bucket that doesn't exist yet (issue #102). */
+/** Flattens the shared grouped partition (lib/grouping.ts) into Table's own
+ * header/item/newValue row shape for its linear virtualizer. Grouping by a
+ * real facet field (not item type) appends a trailing "+ new value" row —
+ * the drop target that creates a bucket that doesn't exist yet (#102). */
 function buildFlatRows(
   objects: DesignObject[],
   groupByField: string | null,
@@ -45,37 +39,10 @@ function buildFlatRows(
 ): FlatRow[] {
   if (!groupByField) return objects.map((object) => ({ kind: "item", object }));
 
-  const groups = new Map<string, DesignObject[]>();
-  const addToGroup = (value: string, object: DesignObject) => {
-    (groups.get(value) ?? groups.set(value, []).get(value)!).push(object);
-  };
-  for (const object of objects) {
-    const raw = groupByField === ITEM_TYPE_GROUP ? object.role : object.fields[groupByField];
-    if (Array.isArray(raw)) {
-      // Multi-select (issue #99): an object with several values shows up
-      // under each of its groups — same multi-membership every other
-      // tag-like grouping in this app already has, not confined to one.
-      if (raw.length === 0) addToGroup(UNGROUPED_LABEL, object);
-      else for (const value of raw) addToGroup(value, object);
-    } else {
-      addToGroup(raw || UNGROUPED_LABEL, object);
-    }
-  }
-
-  const definedOrder = facetColumns.find((f) => f.name === groupByField)?.options ?? [];
-  const groupKeys = Array.from(groups.keys()).sort((a, b) => {
-    const ai = definedOrder.indexOf(a);
-    const bi = definedOrder.indexOf(b);
-    if (ai !== -1 && bi !== -1) return ai - bi;
-    if (ai !== -1) return -1;
-    if (bi !== -1) return 1;
-    return a.localeCompare(b);
-  });
-
+  const groups = groupObjects(objects, groupByField, facetColumns);
   const rows: FlatRow[] = [];
-  for (const key of groupKeys) {
-    const members = groups.get(key)!;
-    rows.push({ kind: "header", label: key, count: members.length });
+  for (const { label, objects: members } of groups) {
+    rows.push({ kind: "header", label, count: members.length });
     for (const object of members) rows.push({ kind: "item", object });
   }
   if (groupByField !== ITEM_TYPE_GROUP) rows.push({ kind: "newValue" });
@@ -341,24 +308,12 @@ export function Table({
 
   return (
     <div className="h-full flex flex-col">
-      {(facetColumns.length > 0 || hasRoles) && (
-        <div className="shrink-0 flex items-center gap-1.5 mb-2 text-[12px]">
-          <span className="text-muted">Group by</span>
-          <select
-            value={groupByField ?? ""}
-            onChange={(e) => setGroupByField(e.target.value || null)}
-            className="rounded-lg border border-line px-2 py-1 text-[12px] bg-panel outline-none focus:border-accent"
-          >
-            <option value="">None</option>
-            {hasRoles && <option value={ITEM_TYPE_GROUP}>Item type</option>}
-            {facetColumns.map((f) => (
-              <option key={f.name} value={f.name}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <GroupBySelect
+        value={groupByField}
+        onChange={setGroupByField}
+        hasRoles={hasRoles}
+        facetColumns={facetColumns}
+      />
       <div
         ref={parentRef}
         className="flex-1 min-h-0 overflow-auto border border-line rounded-card bg-panel"

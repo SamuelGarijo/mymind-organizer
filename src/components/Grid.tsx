@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesignObject } from "../types";
+import type { DesignObject, FacetField } from "../types";
 import { Card } from "./Card";
 import { useStore } from "../store";
 import { assignMasonryColumns, columnsForWidth, GRID_GAP } from "../lib/masonry";
+import { groupObjects, ITEM_TYPE_GROUP } from "../lib/grouping";
+import { GroupBySelect } from "./GroupBySelect";
 
 const INITIAL_COUNT = 80;
 const BATCH_SIZE = 120;
@@ -40,12 +42,16 @@ function useContainerWidth(ref: React.RefObject<HTMLElement>): number {
 
 export function Grid({
   objects,
+  facetColumns,
   tagFrequency,
   viewKey,
   onOpen,
   emptyLabel,
 }: {
   objects: DesignObject[];
+  /** Role field packages present in the current view — same prop Table
+   * already takes, needed here too now that Grid can group (issue #98). */
+  facetColumns: FacetField[];
   tagFrequency: Map<string, number>;
   /** Identifies the logical view (e.g. JSON.stringify(selectedView)) — reset
    * keys off this, not `objects` itself. `objects` gets a new array identity
@@ -65,18 +71,24 @@ export function Grid({
   const containerRef = useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(containerRef);
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
+  const [groupByField, setGroupByField] = useState<string | null>(null);
 
   useEffect(() => {
     setRenderCount(INITIAL_COUNT);
   }, [viewKey]);
 
+  useEffect(() => {
+    setGroupByField(null);
+  }, [viewKey]);
+
   // A range/marquee selection is only meaningful against the objects
-  // currently on screen — switching views (or reloading the same view with
-  // a different filter) drops any leftover selection rather than carrying
-  // it somewhere it no longer visually corresponds to.
+  // currently on screen — switching views, or regrouping (which reshuffles
+  // visual order into sections), drops any leftover selection rather than
+  // carrying it somewhere it no longer visually corresponds to (same
+  // reasoning as Table's identical effect, issue #98).
   useEffect(() => {
     useStore.getState().setSelection(new Set(), null);
-  }, [viewKey]);
+  }, [viewKey, groupByField]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -109,34 +121,60 @@ export function Grid({
 
   // Greedy shortest-column placement (see lib/masonry.ts) — a pure function
   // of the ordered prefix, so loading more items via the sentinel below
-  // extends this without reshuffling anything already on screen.
+  // extends this without reshuffling anything already on screen. Ungrouped
+  // path: one flat masonry over everything currently revealed, exactly as
+  // before #98.
   const columns = useMemo(
-    () => assignMasonryColumns(visible, columnCount, columnWidth),
-    [visible, columnCount, columnWidth]
+    () => (groupByField ? null : assignMasonryColumns(visible, columnCount, columnWidth)),
+    [visible, columnCount, columnWidth, groupByField]
+  );
+
+  // Grouped path (issue #98): the same placement run separately per group,
+  // sharing the exact partition/order logic Table's grouping already uses
+  // (lib/grouping.ts) so both views group identically. Progressive reveal
+  // stays global — it grows the shared `visible` prefix, not a per-section
+  // one — so a section's count reflects "how much of it has been revealed
+  // so far", same thing the page's own "Showing X of Y" sentinel already
+  // communicates below. A per-section reveal would need a separate
+  // IntersectionObserver (and renderCount) per group, which buys accurate
+  // per-group counts at real complexity cost for something the issue itself
+  // flagged as an open implementation question, not a firm requirement.
+  const sections = useMemo(() => {
+    if (!groupByField) return null;
+    return groupObjects(visible, groupByField, facetColumns).map((group) => ({
+      ...group,
+      columns: assignMasonryColumns(group.objects, columnCount, columnWidth),
+    }));
+  }, [visible, groupByField, facetColumns, columnCount, columnWidth]);
+
+  // Shift-click range order (issue #103) follows whatever's actually on
+  // screen top-to-bottom: `visible`'s own reading order when ungrouped,
+  // or each section's objects back-to-back when grouped — same convention
+  // Table's grouped shift-range already uses (#102).
+  const orderedIds = useMemo(
+    () => (sections ? sections.flatMap((s) => s.objects.map((o) => o.id)) : visible.map((o) => o.id)),
+    [sections, visible]
   );
 
   // Finder-style click handling (issue #103): plain click opens the object
   // and drops any selection; Shift ranges from the last plain/Cmd-clicked
-  // anchor to this card, in `visible`'s order (reading order, not masonry's
-  // column-interleaved visual order — the same convention as most masonry
-  // UIs, since column placement is a packing detail, not the list's real
-  // order); Cmd/Ctrl toggles just this card in/out without touching the
-  // rest. Card itself stays modifier-agnostic and just forwards the event.
+  // anchor to this card in `orderedIds`; Cmd/Ctrl toggles just this card
+  // in/out without touching the rest. Card itself stays modifier-agnostic
+  // and just forwards the event.
   const handleCardClick = useCallback(
     (id: string, e: React.MouseEvent) => {
       const { selectedObjectIds, selectionAnchorId, setSelection } = useStore.getState();
       if (e.shiftKey) {
-        const ids = visible.map((o) => o.id);
         const anchor = selectionAnchorId ?? id;
-        const anchorIdx = ids.indexOf(anchor);
-        const targetIdx = ids.indexOf(id);
+        const anchorIdx = orderedIds.indexOf(anchor);
+        const targetIdx = orderedIds.indexOf(id);
         if (anchorIdx === -1 || targetIdx === -1) {
           setSelection(new Set([id]), id);
           return;
         }
         const [start, end] =
           anchorIdx <= targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx];
-        setSelection(new Set(ids.slice(start, end + 1)), anchor);
+        setSelection(new Set(orderedIds.slice(start, end + 1)), anchor);
         return;
       }
       if (e.metaKey || e.ctrlKey) {
@@ -149,7 +187,7 @@ export function Grid({
       setSelection(new Set(), null);
       onOpen(id);
     },
-    [visible, onOpen]
+    [orderedIds, onOpen]
   );
 
   // Rectangle multi-select over empty grid background (issue #103). Global
@@ -204,27 +242,66 @@ export function Grid({
     );
   }
 
+  const hasRoles = objects.some((o) => o.role);
+
   return (
     <>
-      <div
-        ref={containerRef}
-        className="flex items-start"
-        style={{ gap: GRID_GAP }}
-        onMouseDown={handleMarqueeMouseDown}
-      >
-        {columns.map((column, i) => (
-          <div key={i} className="flex-1 min-w-0 flex flex-col" style={{ gap: GRID_GAP }}>
-            {column.map((obj) => (
-              <Card
-                key={obj.id}
-                object={obj}
-                tagFrequency={tagFrequency}
-                onOpen={onOpen}
-                onCardClick={handleCardClick}
-              />
+      <GroupBySelect
+        value={groupByField}
+        onChange={setGroupByField}
+        hasRoles={hasRoles}
+        facetColumns={facetColumns}
+      />
+      <div ref={containerRef} onMouseDown={handleMarqueeMouseDown}>
+        {sections ? (
+          <div className="space-y-6">
+            {sections.map((section) => (
+              <div key={section.label}>
+                <div className="mb-2 flex items-center text-[11px] font-medium uppercase tracking-wide text-muted">
+                  {section.label}
+                  <span className="ml-1.5 text-muted/70 normal-case">
+                    ({section.objects.length})
+                  </span>
+                </div>
+                <div className="flex items-start" style={{ gap: GRID_GAP }}>
+                  {section.columns.map((column, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 min-w-0 flex flex-col"
+                      style={{ gap: GRID_GAP }}
+                    >
+                      {column.map((obj) => (
+                        <Card
+                          key={obj.id}
+                          object={obj}
+                          tagFrequency={tagFrequency}
+                          onOpen={onOpen}
+                          onCardClick={handleCardClick}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
-        ))}
+        ) : (
+          <div className="flex items-start" style={{ gap: GRID_GAP }}>
+            {columns!.map((column, i) => (
+              <div key={i} className="flex-1 min-w-0 flex flex-col" style={{ gap: GRID_GAP }}>
+                {column.map((obj) => (
+                  <Card
+                    key={obj.id}
+                    object={obj}
+                    tagFrequency={tagFrequency}
+                    onOpen={onOpen}
+                    onCardClick={handleCardClick}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       {renderCount < objects.length && (
         <div ref={sentinelRef} className="py-6 text-center text-[12px] text-muted">

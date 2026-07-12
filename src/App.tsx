@@ -680,6 +680,7 @@ export default function App() {
             <div className="h-full overflow-y-auto p-5">
               <Grid
                 objects={visibleObjects}
+                facetColumns={facetColumns}
                 tagFrequency={tagFrequency}
                 viewKey={viewKey}
                 onOpen={state.openDetail}
