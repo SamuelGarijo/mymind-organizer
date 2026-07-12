@@ -70,6 +70,13 @@ export type SmartCollection = {
   name: string;
   rule: FilterGroup;
   createdAt: string;
+  /** Channel-style framing for a collection (issue #87) — an Are.na-like
+   * optional blurb shown in the collection header. Collection-layer only;
+   * never touches an object or mymind. */
+  description?: string;
+  /** An existing object's id (never a new upload) used as the header's
+   * hero image (issue #87). */
+  heroImageObjectId?: string;
 };
 
 export type FacetFieldType = "date" | "select" | "multi-select";
@@ -98,6 +105,13 @@ export type ManualCollection = {
   type: "manual";
   name: string;
   createdAt: string;
+  /** Channel-style framing for a collection (issue #87) — an Are.na-like
+   * optional blurb shown in the collection header. Collection-layer only;
+   * never touches an object or mymind. */
+  description?: string;
+  /** An existing object's id (never a new upload) used as the header's
+   * hero image (issue #87). */
+  heroImageObjectId?: string;
   /** Facet schema for this collection: a fixed, ordered set of typed fields
    * (e.g. [{name:"fact-check",type:"select",
    * options:["unverified","verified","false"]}]) defined once per

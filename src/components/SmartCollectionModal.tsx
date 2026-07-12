@@ -80,6 +80,13 @@ export function SmartCollectionModal({
       : undefined;
 
   const [name, setName] = useState(existing?.type === "smart" ? existing.name : "");
+  const [description, setDescription] = useState(existing?.description ?? "");
+  const [heroImageObjectId, setHeroImageObjectId] = useState<string | null>(
+    existing?.heroImageObjectId ?? null
+  );
+  const [heroTitleDraft, setHeroTitleDraft] = useState(
+    existing?.heroImageObjectId ? state.objects[existing.heroImageObjectId]?.title ?? "" : ""
+  );
   const [combinator, setCombinator] = useState<"AND" | "OR">(
     existing?.type === "smart" ? existing.rule.combinator : "AND"
   );
@@ -109,10 +116,14 @@ export function SmartCollectionModal({
     return Array.from(set);
   }, [allObjects]);
 
-  const previewCount = useMemo(() => {
+  // Also doubles as the hero-image picker's candidate list (issue #87) — a
+  // smart collection's "members" are whatever currently matches the rule
+  // being edited, so that's the same live computation as the match preview.
+  const matchingObjects = useMemo(() => {
     const group = { kind: "group" as const, id: "preview", combinator, children: rows };
-    return allObjects.filter((obj) => evaluateGroup(group, obj, tagGroups)).length;
+    return allObjects.filter((obj) => evaluateGroup(group, obj, tagGroups));
   }, [rows, combinator, allObjects, tagGroups]);
+  const previewCount = matchingObjects.length;
 
   /** Per-row: how many objects match this single condition, and — if zero —
    * where else (which field/group) that exact value actually appears. */
@@ -156,12 +167,15 @@ export function SmartCollectionModal({
     if (!trimmedName) return;
     const cleanRows = rows.filter((r) => r.value.trim() !== "");
     const rule = { kind: "group" as const, id: makeId("group"), combinator, children: cleanRows };
+    let id: string;
     if (existing) {
       state.updateSmartCollection(existing.id, trimmedName, rule);
+      id = existing.id;
     } else {
-      const id = state.addSmartCollection(trimmedName, rule);
+      id = state.addSmartCollection(trimmedName, rule);
       state.setSelectedView({ kind: "collection", collectionId: id });
     }
+    state.updateCollectionMeta(id, { description, heroImageObjectId });
     onClose();
   }
 
@@ -183,6 +197,36 @@ export function SmartCollectionModal({
           placeholder="e.g. Swiss serif posters"
           className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
         />
+
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Description (optional) — shown at the top of this collection, like an Are.na channel"
+          rows={2}
+          className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent resize-y"
+        />
+
+        {matchingObjects.length > 0 && (
+          <div className="mt-2">
+            <input
+              list="smart-hero-candidates"
+              value={heroTitleDraft}
+              onChange={(e) => {
+                const value = e.target.value;
+                setHeroTitleDraft(value);
+                const match = matchingObjects.find((o) => o.title === value);
+                setHeroImageObjectId(match ? match.id : null);
+              }}
+              placeholder="Hero image (optional) — pick an item currently matching this search"
+              className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <datalist id="smart-hero-candidates">
+              {matchingObjects.map((o) => (
+                <option key={o.id} value={o.title} />
+              ))}
+            </datalist>
+          </div>
+        )}
 
         <div className="mt-4 flex items-center gap-2 text-[12px]">
           <span className="text-muted">Match</span>

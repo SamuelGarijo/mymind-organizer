@@ -229,6 +229,14 @@ export default function App() {
   }, [prefsOpen]);
 
   const view = state.selectedView;
+  // Channel-style framing for the current collection, if any (issue #87) —
+  // description/hero image are collection metadata, not tied to smart vs.
+  // manual, so this reads the same way for either type.
+  const currentCollection =
+    view.kind === "collection" ? state.collections[view.collectionId] : undefined;
+  const heroObject = currentCollection?.heroImageObjectId
+    ? state.objects[currentCollection.heroImageObjectId]
+    : undefined;
   // Matches the debounced value the results are actually computed from, so
   // this message never flashes out of sync with what's on screen.
   const isQuickFiltering = debouncedSearchQuery.trim() !== "" || state.facetTags.length > 0;
@@ -580,6 +588,23 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {currentCollection && (currentCollection.description || heroObject?.imageUrl) && (
+          <div className="shrink-0 border-b border-line bg-panel px-5 py-3 flex items-start gap-3">
+            {heroObject?.imageUrl && (
+              <img
+                src={heroObject.imageUrl}
+                alt=""
+                className="w-16 h-16 rounded-lg object-cover shrink-0"
+              />
+            )}
+            {currentCollection.description && (
+              <p className="text-[13px] text-ink/80 leading-relaxed">
+                {currentCollection.description}
+              </p>
+            )}
+          </div>
+        )}
 
         {restoreNotice && (
           <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-[12px] text-emerald-800 flex items-center justify-between gap-3">

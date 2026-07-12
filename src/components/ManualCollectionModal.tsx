@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "../store";
 
 /** Collections are just named folders now — classification fields belong
@@ -18,16 +18,34 @@ export function ManualCollectionModal({
       : undefined;
 
   const [name, setName] = useState(existing?.type === "manual" ? existing.name : "");
+  const [description, setDescription] = useState(existing?.description ?? "");
+  const [heroImageObjectId, setHeroImageObjectId] = useState<string | null>(
+    existing?.heroImageObjectId ?? null
+  );
+  const [heroTitleDraft, setHeroTitleDraft] = useState(
+    existing?.heroImageObjectId ? state.objects[existing.heroImageObjectId]?.title ?? "" : ""
+  );
+
+  // Hero image is a reference to an object already curated into this
+  // collection, never a new upload (issue #87) — only meaningful once the
+  // collection actually has members to pick from.
+  const memberObjects = useMemo(() => {
+    if (!existing) return [];
+    return Object.values(state.objects).filter((o) => o.manualCollectionIds.includes(existing.id));
+  }, [state.objects, existing]);
 
   function save() {
     const trimmed = name.trim();
     if (!trimmed) return;
+    let id: string;
     if (existing) {
       state.updateManualCollection(existing.id, { name: trimmed });
+      id = existing.id;
     } else {
-      const id = state.addManualCollection(trimmed);
+      id = state.addManualCollection(trimmed);
       state.setSelectedView({ kind: "collection", collectionId: id });
     }
+    state.updateCollectionMeta(id, { description, heroImageObjectId });
     onClose();
   }
 
@@ -51,6 +69,36 @@ export function ManualCollectionModal({
           placeholder="e.g. Journalism"
           className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
         />
+
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Description (optional) — shown at the top of this collection, like an Are.na channel"
+          rows={2}
+          className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent resize-y"
+        />
+
+        {memberObjects.length > 0 && (
+          <div className="mt-2">
+            <input
+              list="manual-hero-candidates"
+              value={heroTitleDraft}
+              onChange={(e) => {
+                const value = e.target.value;
+                setHeroTitleDraft(value);
+                const match = memberObjects.find((o) => o.title === value);
+                setHeroImageObjectId(match ? match.id : null);
+              }}
+              placeholder="Hero image (optional) — pick an item already in this collection"
+              className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <datalist id="manual-hero-candidates">
+              {memberObjects.map((o) => (
+                <option key={o.id} value={o.title} />
+              ))}
+            </datalist>
+          </div>
+        )}
 
         <div className="mt-4 flex justify-end gap-2">
           <button

@@ -124,6 +124,15 @@ type State = {
    * pick the change up everywhere immediately. */
   updateRoleFields: (roleName: string, fields: FacetField[]) => void;
   renameCollection: (id: string, name: string) => void;
+  /** Updates a collection's optional channel-style metadata (issue #87) —
+   * shared by both collection types, since description/hero image aren't
+   * tied to the smart-vs-manual distinction. Collection-layer only, no
+   * effect on objects or sync. Empty description collapses to unset;
+   * `heroImageObjectId: null` explicitly clears the hero image. */
+  updateCollectionMeta: (
+    id: string,
+    meta: { description: string; heroImageObjectId: string | null }
+  ) => void;
   deleteCollection: (id: string) => void;
 
   /** Timestamp of the last successful auto-backup write, shown in the
@@ -622,6 +631,22 @@ export const useStore = create<State>()(
           const existing = s.collections[id];
           if (!existing) return {};
           return { collections: { ...s.collections, [id]: { ...existing, name } } };
+        }),
+
+      updateCollectionMeta: (id, meta) =>
+        set((s) => {
+          const existing = s.collections[id];
+          if (!existing) return {};
+          return {
+            collections: {
+              ...s.collections,
+              [id]: {
+                ...existing,
+                description: meta.description.trim() || undefined,
+                heroImageObjectId: meta.heroImageObjectId ?? undefined,
+              },
+            },
+          };
         }),
 
       deleteCollection: (id) =>
