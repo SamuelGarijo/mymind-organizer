@@ -9,7 +9,14 @@ import { DetailPanel } from "./components/DetailPanel";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { FilterBar } from "./components/FilterBar";
-import { applyFacetTags, applyTypeFilter, computeObjectTypes, computeTopTags } from "./lib/quickFilter";
+import {
+  applyExcludedTags,
+  applyFacetFieldFilter,
+  applyFacetTags,
+  applyTypeFilter,
+  computeObjectTypes,
+  computeTopTags,
+} from "./lib/quickFilter";
 import { buildSearchIndex, searchObjects } from "./lib/search";
 import { describeMymindError, fetchAllMymindIds, syncFull, syncIncremental } from "./lib/mymindSync";
 import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
@@ -75,6 +82,8 @@ export default function App() {
       searchQuery: s.searchQuery,
       facetTags: s.facetTags,
       facetMode: s.facetMode,
+      excludedTags: s.excludedTags,
+      facetFieldFilter: s.facetFieldFilter,
       viewMode: s.viewMode,
       detailObjectId: s.detailObjectId,
       syncMymindObjects: s.syncMymindObjects,
@@ -137,9 +146,17 @@ export default function App() {
   );
   const topTags = useMemo(() => computeTopTags(topTagsSource), [topTagsSource]);
 
-  const visibleObjects = useMemo(
+  const facetFiltered = useMemo(
     () => applyFacetTags(searchFiltered, state.facetTags, state.facetMode),
     [searchFiltered, state.facetTags, state.facetMode]
+  );
+  const excludeFiltered = useMemo(
+    () => applyExcludedTags(facetFiltered, state.excludedTags),
+    [facetFiltered, state.excludedTags]
+  );
+  const visibleObjects = useMemo(
+    () => applyFacetFieldFilter(excludeFiltered, state.facetFieldFilter),
+    [excludeFiltered, state.facetFieldFilter]
   );
 
   // Library-wide, not view-scoped — "distinctive" means rare across
@@ -239,7 +256,11 @@ export default function App() {
     : undefined;
   // Matches the debounced value the results are actually computed from, so
   // this message never flashes out of sync with what's on screen.
-  const isQuickFiltering = debouncedSearchQuery.trim() !== "" || state.facetTags.length > 0;
+  const isQuickFiltering =
+    debouncedSearchQuery.trim() !== "" ||
+    state.facetTags.length > 0 ||
+    state.excludedTags.length > 0 ||
+    state.facetFieldFilter !== null;
   const emptyLabel = isQuickFiltering
     ? "Nothing matches your search/tag filters in this view."
     : view.kind === "unclassified"
@@ -662,7 +683,12 @@ export default function App() {
           </div>
         )}
 
-        <FilterBar topTags={topTags} objectTypes={objectTypes} />
+        <FilterBar
+          topTags={topTags}
+          objectTypes={objectTypes}
+          facetColumns={facetColumns}
+          fieldFilterPool={excludeFiltered}
+        />
 
         <div className="flex-1 overflow-hidden">
           {state.viewMode === "table" ? (

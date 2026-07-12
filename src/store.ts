@@ -41,6 +41,12 @@ type State = {
   searchQuery: string;
   facetTags: string[];
   facetMode: FacetMode;
+  /** Tags that must NOT be present — a separate set from facetTags so a tag
+   * can be excluded without ever having been an include filter. */
+  excludedTags: string[];
+  /** Facet/role field value filter, e.g. { field: "Genre", value: "Portrait" } —
+   * null means no filter. Independent of tag filtering; combines with it (AND). */
+  facetFieldFilter: { field: string; value: string } | null;
   /** mymind's entityType (fields.entity_type), e.g. "Image"/"Article" — "" means
    * no filter. A separate control from the free-text search box. */
   typeFilter: string;
@@ -183,6 +189,9 @@ type State = {
   toggleFacetTag: (tag: string) => void;
   setFacetMode: (mode: FacetMode) => void;
   clearFacetTags: () => void;
+  toggleExcludeTag: (tag: string) => void;
+  clearExcludedTags: () => void;
+  setFacetFieldFilter: (filter: { field: string; value: string } | null) => void;
   setTypeFilter: (type: string) => void;
   setViewMode: (mode: ViewMode) => void;
 
@@ -329,6 +338,8 @@ export const useStore = create<State>()(
       searchQuery: "",
       facetTags: [],
       facetMode: "AND",
+      excludedTags: [],
+      facetFieldFilter: null,
       typeFilter: "",
       viewMode: "grid",
 
@@ -675,7 +686,8 @@ export const useStore = create<State>()(
           };
         }),
 
-      setSelectedView: (view) => set({ selectedView: view, facetTags: [] }),
+      setSelectedView: (view) =>
+        set({ selectedView: view, facetTags: [], excludedTags: [], facetFieldFilter: null }),
       openDetail: (id) => set({ detailObjectId: id }),
       closeDetail: () => set({ detailObjectId: null }),
 
@@ -685,9 +697,20 @@ export const useStore = create<State>()(
           facetTags: s.facetTags.includes(tag)
             ? s.facetTags.filter((t) => t !== tag)
             : [...s.facetTags, tag],
+          // A tag can't be both an include and an exclude filter at once.
+          excludedTags: s.excludedTags.filter((t) => t !== tag),
         })),
       setFacetMode: (mode) => set({ facetMode: mode }),
       clearFacetTags: () => set({ facetTags: [] }),
+      toggleExcludeTag: (tag) =>
+        set((s) => ({
+          excludedTags: s.excludedTags.includes(tag)
+            ? s.excludedTags.filter((t) => t !== tag)
+            : [...s.excludedTags, tag],
+          facetTags: s.facetTags.filter((t) => t !== tag),
+        })),
+      clearExcludedTags: () => set({ excludedTags: [] }),
+      setFacetFieldFilter: (filter) => set({ facetFieldFilter: filter }),
       setTypeFilter: (type) => set({ typeFilter: type }),
       setViewMode: (mode) => set({ viewMode: mode }),
 

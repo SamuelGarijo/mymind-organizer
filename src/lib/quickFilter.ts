@@ -2,6 +2,8 @@ import type { DesignObject } from "../types";
 import { norm } from "./ruleEngine";
 import { asFieldString } from "./mymindSync";
 
+export type FacetFieldFilter = { field: string; value: string };
+
 export type FacetMode = "AND" | "OR";
 
 export type TagFrequency = { tag: string; count: number };
@@ -61,4 +63,54 @@ export function applyFacetTags(
       ? wanted.every((t) => tags.includes(t))
       : wanted.some((t) => tags.includes(t));
   });
+}
+
+/** Drops any object carrying one of the excluded tags — independent of (and
+ * combined with, via AND) the include-tag facet filter above. */
+export function applyExcludedTags(
+  objects: DesignObject[],
+  excludedTags: string[]
+): DesignObject[] {
+  if (excludedTags.length === 0) return objects;
+  const excluded = excludedTags.map(norm);
+  return objects.filter((obj) => {
+    const tags = obj.tags.map(norm);
+    return !excluded.some((t) => tags.includes(t));
+  });
+}
+
+/** Facet/role field value filter — same array-or-single convention as
+ * ruleEngine's custom-field matching, so a multi-select field matches if the
+ * value is anywhere in it. */
+export function applyFacetFieldFilter(
+  objects: DesignObject[],
+  filter: FacetFieldFilter | null
+): DesignObject[] {
+  if (!filter) return objects;
+  const wanted = norm(filter.value);
+  return objects.filter((obj) => {
+    const raw = obj.fields[filter.field];
+    const fieldValues = (Array.isArray(raw) ? raw : [raw ?? ""]).map(norm);
+    return fieldValues.includes(wanted);
+  });
+}
+
+/** Distinct values for one facet field among the given objects, most
+ * frequent first — powers the field-value dropdown once a field is picked. */
+export function computeFieldValueFrequency(
+  objects: DesignObject[],
+  field: string
+): TagFrequency[] {
+  const counts = new Map<string, number>();
+  for (const obj of objects) {
+    const raw = obj.fields[field];
+    const values = Array.isArray(raw) ? raw : [raw ?? ""];
+    for (const value of values) {
+      if (!value) continue;
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 }
