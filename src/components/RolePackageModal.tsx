@@ -104,11 +104,24 @@ export function RolePackageModal({
         <div className="space-y-1">
           {fields.map((field) => (
             <div key={field.name} className="flex items-center gap-1.5">
-              <span className="tag-chip flex-1 justify-start gap-1.5">
-                {field.name}
-                <span className="text-muted">· {TYPE_LABELS[field.type] ?? field.type}</span>
+              <span className="tag-chip flex-1 min-w-0 justify-start gap-1.5">
+                {/* A long name (e.g. "Draws me in by") used to wrap onto a
+                 * second line with nothing stopping it, which squeezed the
+                 * type badge into the wrap and threw off row height/
+                 * alignment (issue #109) — truncating it to one line (full
+                 * name still available via title) and marking the type
+                 * badge shrink-0 keeps every row the same height regardless
+                 * of label length. */}
+                <span className="shrink-0 truncate max-w-[40%]" title={field.name}>
+                  {field.name}
+                </span>
+                <span className="text-muted shrink-0 whitespace-nowrap">
+                  · {TYPE_LABELS[field.type] ?? field.type}
+                </span>
                 {(field.type === "select" || field.type === "multi-select") && field.options && (
-                  <span className="text-muted/70 truncate">({field.options.join(", ")})</span>
+                  <span className="text-muted/70 truncate min-w-0" title={field.options.join(", ")}>
+                    ({field.options.join(", ")})
+                  </span>
                 )}
               </span>
               <select

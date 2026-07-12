@@ -733,7 +733,12 @@ export function DetailPanel({
           <img
             src={detailImageSrc}
             alt={object.title}
-            className="w-full h-auto"
+            // A tall portrait-oriented photo at its native aspect ratio can
+            // run well past the viewport height (issue #107) — capping the
+            // height and using object-contain (not object-cover, which
+            // would crop) lets a tall image shrink to fit while a wide one
+            // still uses the full panel width, same as before.
+            className="w-full max-h-[70vh] object-contain bg-line/10"
             onError={() => {
               if (!blobFailed) setBlobFailed(true);
               else if (!defaultThumbFailed) setDefaultThumbFailed(true);

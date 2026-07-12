@@ -79,7 +79,13 @@ export const Card = memo(function Card({
       onDragEnd={() => useStore.getState().setDragRevealSidebar(false)}
       onClick={(e) => onCardClick(object.id, e)}
       className={[
-        "active:cursor-grabbing rounded-card",
+        // `overflow-hidden` is what actually makes `rounded-card` visible on
+        // the image/text preview below — without it, nothing clips to that
+        // radius, so the image's own hard square corners peek out from
+        // inside the rounded selection ring (issue #110). Radius now comes
+        // from one shared token (rounded-card) instead of the ring drawing
+        // a curve nothing else honors, so it holds at any card size.
+        "active:cursor-grabbing rounded-card overflow-hidden",
         isSelected ? "ring-2 ring-accent ring-offset-2" : "",
       ].join(" ")}
       data-object-id={object.id}
