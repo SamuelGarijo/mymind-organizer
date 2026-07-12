@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BLOB_TYPE_KEY, asFieldString } from "../lib/mymindSync";
 import type { DesignObject } from "../types";
 
 const SWIPE_THRESHOLD_PX = 60;
@@ -38,11 +39,21 @@ export function DetailCarousel({
   // every navigation since "zoomed into the last image" carrying over to
   // a brand new one would be surprising.
   const [zoom, setZoom] = useState(1);
+  // Full width (issue #123) — drops the height cap so the image fills the
+  // viewport's width instead of fitting inside it; a persisted-for-the-
+  // session preference (unlike zoom), since liking wide framing doesn't
+  // reset per image.
+  const [fullWidth, setFullWidth] = useState(false);
+  // Hi-res original (issue #123) — falls back to the same thumbnail this
+  // always used if the object has no real uploaded blob, or mymind 422s
+  // fetching it (a saved webpage, a blob mymind can't serve at all).
+  const [hiResFailed, setHiResFailed] = useState(false);
   const dragStartX = useRef<number | null>(null);
   const wheelCooldown = useRef(false);
 
   useEffect(() => setIndex(startIndex), [startIndex]);
   useEffect(() => setZoom(1), [index]);
+  useEffect(() => setHiResFailed(false), [index]);
 
   const goPrev = () => setIndex((i) => Math.max(0, i - 1));
   const goNext = () => setIndex((i) => Math.min(imageObjects.length - 1, i + 1));
@@ -75,10 +86,16 @@ export function DetailCarousel({
   }
 
   const object = imageObjects[index];
+  const blobType = asFieldString(object.fields[BLOB_TYPE_KEY]);
+  const hasImageBlob = object.source === "mymind" && blobType.startsWith("image/");
+  const imgSrc =
+    hasImageBlob && !hiResFailed
+      ? `/api/mymind/blob/${object.id}?type=${encodeURIComponent(blobType)}`
+      : object.imageUrl;
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center select-none"
+      className="group fixed inset-0 z-50 bg-black/90 flex items-center justify-center select-none overflow-auto"
       onPointerDown={(e) => {
         dragStartX.current = e.clientX;
       }}
@@ -133,18 +150,28 @@ export function DetailCarousel({
 
       <img
         key={object.id}
-        src={object.imageUrl}
+        src={imgSrc}
         alt={object.title}
         draggable={false}
-        // Uses nearly the full viewport (issue follow-up: "100% of the
-        // viewport height") — a hair short of 100 so the close/arrow
-        // controls above never get fully covered. `zoom` scales further on
-        // top of that fit-to-viewport size.
+        onError={() => {
+          if (hasImageBlob && !hiResFailed) setHiResFailed(true);
+        }}
+        // Uses nearly the full viewport by default (issue follow-up: "100%
+        // of the viewport height") — a hair short of 100 so the close/arrow
+        // controls above never get fully covered. Full-width mode (#123)
+        // drops the height cap instead, so a tall image can run past the
+        // viewport (the outer container scrolls). `zoom` scales further on
+        // top of whichever base size is active.
         style={{ transform: `scale(${zoom})` }}
-        className="max-w-[98vw] max-h-[96vh] object-contain pointer-events-none transition-transform"
+        className={[
+          "object-contain pointer-events-none transition-transform",
+          fullWidth ? "w-[98vw] h-auto" : "max-w-[98vw] max-h-[96vh]",
+        ].join(" ")}
       />
 
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-1 bg-black/40 rounded-lg px-1 py-1">
+      {/* Zoom + full-width controls (issue #123) — hidden until you hover
+          the carousel, so they don't sit on top of the image at rest. */}
+      <div className="absolute top-4 left-4 z-10 flex items-center gap-1 bg-black/40 rounded-lg px-1 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={zoomOut}
           disabled={zoom <= ZOOM_MIN}
@@ -161,6 +188,17 @@ export function DetailCarousel({
           aria-label="Zoom in"
         >
           +
+        </button>
+        <button
+          onClick={() => setFullWidth((v) => !v)}
+          className={[
+            "w-7 h-7 text-[13px] leading-none rounded",
+            fullWidth ? "bg-white/20 text-white" : "text-white/80 hover:text-white",
+          ].join(" ")}
+          aria-label="Toggle full width"
+          title="Use the full viewport width"
+        >
+          ⇔
         </button>
       </div>
 
