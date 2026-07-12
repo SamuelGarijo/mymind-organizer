@@ -118,10 +118,29 @@ export default function App() {
     [state.objects, state.collections, state.selectedView, state.tagGroups]
   );
 
-  // Type/role options always reflect the current view before their own
-  // filtering, so picking one option doesn't hide the others.
-  const objectTypes = useMemo(() => computeObjectTypes(baseObjects), [baseObjects]);
-  const roleTypes = useMemo(() => computeRoleFrequency(baseObjects), [baseObjects]);
+  // Cascading facet options (the "getFacetedUniqueValues" idea from the
+  // TanStack Table research, #119): each dropdown reflects every OTHER
+  // active filter (role/tags/exclude/field) but never itself, so picking
+  // Type=Article then opening Item type only offers item types that
+  // actually exist among Articles — not an option that would return zero
+  // results. Deliberately doesn't also fold in the free-text search (that
+  // would mean rebuilding a second Fuse index per keystroke just for two
+  // dropdowns — not worth the cost for a value that changes that often).
+  const objectTypesPool = useMemo(() => {
+    let pool = applyRoleFilter(baseObjects, state.roleFilter);
+    pool = applyFacetTags(pool, state.facetTags, state.facetMode);
+    pool = applyExcludedTags(pool, state.excludedTags);
+    return applyFacetFieldFilter(pool, state.facetFieldFilter);
+  }, [baseObjects, state.roleFilter, state.facetTags, state.facetMode, state.excludedTags, state.facetFieldFilter]);
+  const objectTypes = useMemo(() => computeObjectTypes(objectTypesPool), [objectTypesPool]);
+
+  const roleTypesPool = useMemo(() => {
+    let pool = applyTypeFilter(baseObjects, state.typeFilter);
+    pool = applyFacetTags(pool, state.facetTags, state.facetMode);
+    pool = applyExcludedTags(pool, state.excludedTags);
+    return applyFacetFieldFilter(pool, state.facetFieldFilter);
+  }, [baseObjects, state.typeFilter, state.facetTags, state.facetMode, state.excludedTags, state.facetFieldFilter]);
+  const roleTypes = useMemo(() => computeRoleFrequency(roleTypesPool), [roleTypesPool]);
 
   const typeFiltered = useMemo(
     () => applyTypeFilter(baseObjects, state.typeFilter),

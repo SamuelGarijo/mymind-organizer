@@ -6,7 +6,14 @@ import { asFieldString } from "../lib/mymindSync";
 import { useStore } from "../store";
 import { DRAG_MIME } from "./Sidebar";
 import { GroupBySelect } from "./GroupBySelect";
-import { groupObjects, ITEM_TYPE_GROUP, UNGROUPED_LABEL } from "../lib/grouping";
+import {
+  groupObjects,
+  ITEM_TYPE_GROUP,
+  SORT_BY_TITLE,
+  sortObjects,
+  UNGROUPED_LABEL,
+  type SortRule,
+} from "../lib/grouping";
 
 export { ITEM_TYPE_GROUP };
 
@@ -54,12 +61,19 @@ function buildFlatRows(
 const TableRow = memo(function TableRow({
   object,
   facetColumns,
+  showType,
+  showTags,
   tagFrequency,
   onOpen,
   onRowClick,
 }: {
   object: DesignObject;
+  /** Already filtered down to visible-only columns (issue #119's column
+   * show/hide) — Table itself decides what's hidden, this just renders
+   * whatever it's given. */
   facetColumns: FacetField[];
+  showType: boolean;
+  showTags: boolean;
   tagFrequency: Map<string, number>;
   onOpen: (id: string) => void;
   /** Reports every click along with its modifier keys — the parent Table
@@ -112,17 +126,21 @@ const TableRow = memo(function TableRow({
       <span className="flex-1 min-w-[180px] truncate font-medium" title={object.title}>
         {object.title}
       </span>
-      <span
-        className="w-32 shrink-0 truncate text-muted"
-        title={asFieldString(object.fields.entity_type)}
-      >
-        {asFieldString(object.fields.entity_type) || "—"}
-      </span>
-      <span className="w-56 shrink-0 truncate text-muted" title={object.tags.join(", ")}>
-        {pickDistinctiveTags(object.tags, tagFrequency, VISIBLE_TAG_LIMIT)
-          .map((t) => `#${t}`)
-          .join(" ") || "—"}
-      </span>
+      {showType && (
+        <span
+          className="w-32 shrink-0 truncate text-muted"
+          title={asFieldString(object.fields.entity_type)}
+        >
+          {asFieldString(object.fields.entity_type) || "—"}
+        </span>
+      )}
+      {showTags && (
+        <span className="w-56 shrink-0 truncate text-muted" title={object.tags.join(", ")}>
+          {pickDistinctiveTags(object.tags, tagFrequency, VISIBLE_TAG_LIMIT)
+            .map((t) => `#${t}`)
+            .join(" ") || "—"}
+        </span>
+      )}
       {facetColumns.map((f) => (
         // Empty cells render blank, not a "—" placeholder (issue #101) —
         // this object may simply not carry this column's role, or hasn't
@@ -170,9 +188,33 @@ export function Table({
   // — these hold that in-progress state (issue #102).
   const [pendingNewValueIds, setPendingNewValueIds] = useState<string[] | null>(null);
   const [newValueDraft, setNewValueDraft] = useState("");
+  // Multi-sort (issue #119) — a primary field plus an optional tiebreaker,
+  // both resettable per-view like groupByField. Not persisted to the store:
+  // this is view-local presentation state, same footing as grouping.
+  const [sortRules, setSortRules] = useState<SortRule[]>([]);
+  // Column show/hide (issue #119) — keys are "type"/"tags" for the two
+  // built-in columns or a facet field's own name.
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const controlsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sortMenuOpen && !columnsMenuOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (controlsRef.current && !controlsRef.current.contains(e.target as Node)) {
+        setSortMenuOpen(false);
+        setColumnsMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [sortMenuOpen, columnsMenuOpen]);
 
   useEffect(() => {
     setGroupByField(null);
+    setSortRules([]);
+    setHiddenColumns(new Set());
   }, [viewKey]);
 
   // A range/selection only makes sense against what's currently on screen —
@@ -205,9 +247,11 @@ export function Table({
     setNewValueDraft("");
   }, [groupByField]);
 
+  const sortedObjects = useMemo(() => sortObjects(objects, sortRules), [objects, sortRules]);
+
   const flatRows = useMemo(
-    () => buildFlatRows(objects, groupByField, facetColumns),
-    [objects, groupByField, facetColumns]
+    () => buildFlatRows(sortedObjects, groupByField, facetColumns),
+    [sortedObjects, groupByField, facetColumns]
   );
 
   // Finder-style click handling (issue #102, mirroring Grid's #103
@@ -314,23 +358,141 @@ export function Table({
     );
   }
 
+  const showType = !hiddenColumns.has("type");
+  const showTags = !hiddenColumns.has("tags");
+  const visibleFacetColumns = facetColumns.filter((f) => !hiddenColumns.has(f.name));
+
   // Fixed-width columns (type/tags/facets) plus a title that needs real
   // room to be readable — on a narrow window that adds up to more than the
   // viewport, so this scrolls horizontally instead of squeezing the title
   // into a couple of characters.
-  const minWidth = 220 + 128 + 224 + facetColumns.length * 112 + 36;
+  const minWidth =
+    220 + (showType ? 128 : 0) + (showTags ? 224 : 0) + visibleFacetColumns.length * 112 + 36;
 
   const hasRoles = objects.some((o) => o.role);
 
+  const sortableFields = [{ name: "Title", key: SORT_BY_TITLE }, ...facetColumns.map((f) => ({ name: f.name, key: f.name }))];
+
   return (
     <div className="h-full flex flex-col">
-      <GroupBySelect
-        value={groupByField}
-        onChange={setGroupByField}
-        hasRoles={hasRoles}
-        facetColumns={facetColumns}
-        objects={objects}
-      />
+      <div className="flex items-center gap-3 flex-wrap" ref={controlsRef}>
+        <GroupBySelect
+          value={groupByField}
+          onChange={setGroupByField}
+          hasRoles={hasRoles}
+          facetColumns={facetColumns}
+          objects={objects}
+        />
+
+        <div className="relative mb-2">
+          <button
+            onClick={() => {
+              setSortMenuOpen((v) => !v);
+              setColumnsMenuOpen(false);
+            }}
+            className="text-[12px] rounded-lg border border-line px-2 py-1 bg-panel hover:bg-line/40"
+          >
+            Sort{sortRules.length > 0 ? ` (${sortRules.length})` : ""}
+          </button>
+          {sortMenuOpen && (
+            <div className="absolute z-20 top-full mt-1 left-0 w-64 rounded-lg border border-line bg-panel shadow-lg p-2 text-[12px]">
+              {sortableFields.length === 0 ? (
+                <p className="text-muted">No sortable fields.</p>
+              ) : (
+                [0, 1].map((i) => {
+                  const rule = sortRules[i];
+                  if (i > 0 && !sortRules[0]) return null;
+                  const usedKey = sortRules[i - 1]?.field;
+                  return (
+                    <div key={i} className="flex items-center gap-1 mb-1">
+                      <span className="text-muted shrink-0">{i === 0 ? "Sort by" : "then by"}</span>
+                      <select
+                        value={rule?.field ?? ""}
+                        onChange={(e) => {
+                          const field = e.target.value;
+                          setSortRules((rules) => {
+                            const next = rules.slice(0, i);
+                            if (field) next[i] = { field, direction: rule?.direction ?? "asc" };
+                            return next;
+                          });
+                        }}
+                        className="flex-1 rounded border border-line px-1 py-0.5 bg-panel outline-none"
+                      >
+                        <option value="">{i === 0 ? "None" : "—"}</option>
+                        {sortableFields
+                          .filter((f) => f.key !== usedKey)
+                          .map((f) => (
+                            <option key={f.key} value={f.key}>
+                              {f.name}
+                            </option>
+                          ))}
+                      </select>
+                      {rule && (
+                        <button
+                          onClick={() =>
+                            setSortRules((rules) =>
+                              rules.map((r, ri) =>
+                                ri === i ? { ...r, direction: r.direction === "asc" ? "desc" : "asc" } : r
+                              )
+                            )
+                          }
+                          className="shrink-0 text-muted hover:text-ink px-1"
+                          title="Toggle sort direction"
+                        >
+                          {rule.direction === "asc" ? "↑" : "↓"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+              {sortRules.length > 0 && (
+                <button
+                  onClick={() => setSortRules([])}
+                  className="text-muted hover:text-ink underline decoration-dotted"
+                >
+                  clear sort
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="relative mb-2">
+          <button
+            onClick={() => {
+              setColumnsMenuOpen((v) => !v);
+              setSortMenuOpen(false);
+            }}
+            className="text-[12px] rounded-lg border border-line px-2 py-1 bg-panel hover:bg-line/40"
+          >
+            Columns
+          </button>
+          {columnsMenuOpen && (
+            <div className="absolute z-20 top-full mt-1 left-0 w-48 rounded-lg border border-line bg-panel shadow-lg p-2 text-[12px] flex flex-col gap-1">
+              {[{ key: "type", name: "Type" }, { key: "tags", name: "Tags" }, ...facetColumns.map((f) => ({ key: f.name, name: f.name }))].map(
+                ({ key, name }) => (
+                  <label key={key} className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!hiddenColumns.has(key)}
+                      onChange={() =>
+                        setHiddenColumns((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key);
+                          else next.add(key);
+                          return next;
+                        })
+                      }
+                    />
+                    {name}
+                  </label>
+                )
+              )}
+            </div>
+          )}
+        </div>
+      </div>
       <div
         ref={parentRef}
         className="flex-1 min-h-0 overflow-auto border border-line rounded-card bg-panel"
@@ -339,9 +501,9 @@ export function Table({
           <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-panel px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted">
             <span className="w-9 shrink-0" />
             <span className="flex-1 min-w-[180px]">Title</span>
-            <span className="w-32 shrink-0">Type</span>
-            <span className="w-56 shrink-0">Tags</span>
-            {facetColumns.map((f) => (
+            {showType && <span className="w-32 shrink-0">Type</span>}
+            {showTags && <span className="w-56 shrink-0">Tags</span>}
+            {visibleFacetColumns.map((f) => (
               <span key={f.name} className="w-28 shrink-0 truncate" title={f.name}>
                 {f.name}
               </span>
@@ -447,7 +609,9 @@ export function Table({
                   ) : (
                     <TableRow
                       object={row.object}
-                      facetColumns={facetColumns}
+                      facetColumns={visibleFacetColumns}
+                      showType={showType}
+                      showTags={showTags}
                       tagFrequency={tagFrequency}
                       onOpen={onOpen}
                       onRowClick={handleRowClick}

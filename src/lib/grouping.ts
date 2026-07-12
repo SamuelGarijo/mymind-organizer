@@ -55,6 +55,36 @@ export function groupObjects(
   return labels.map((label) => ({ label, objects: groups.get(label)! }));
 }
 
+/** Sentinel sort-field key for the object's own title — same reasoning as
+ * ITEM_TYPE_GROUP, so it can't collide with a real field called "title". */
+export const SORT_BY_TITLE = "__title__";
+
+export type SortRule = { field: string; direction: "asc" | "desc" };
+
+function sortableValue(object: DesignObject, field: string): string {
+  const raw = field === SORT_BY_TITLE ? object.title : object.fields[field];
+  return Array.isArray(raw) ? raw.join(", ") : raw ?? "";
+}
+
+/**
+ * Multi-sort (issue #119's own ask — sort by one field, then a tiebreaker):
+ * applies rules in priority order, first rule wins unless it ties, then
+ * falls through to the next. A stable sort (Array.prototype.sort is
+ * guaranteed stable since ES2019), so ties beyond the last rule keep
+ * whatever order the caller already had (recency, by default) rather than
+ * shuffling arbitrarily.
+ */
+export function sortObjects(objects: DesignObject[], rules: SortRule[]): DesignObject[] {
+  if (rules.length === 0) return objects;
+  return [...objects].sort((a, b) => {
+    for (const { field, direction } of rules) {
+      const cmp = sortableValue(a, field).localeCompare(sortableValue(b, field));
+      if (cmp !== 0) return direction === "asc" ? cmp : -cmp;
+    }
+    return 0;
+  });
+}
+
 /**
  * Facet columns worth offering as a "Group by" option, most impactful
  * first — a field nobody has actually set a value for yet produces one
