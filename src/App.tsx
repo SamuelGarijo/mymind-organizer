@@ -804,6 +804,7 @@ export default function App() {
           objectId={state.detailObjectId}
           onClose={state.closeDetail}
           layout={state.detailViewMode}
+          contextObjects={baseObjects}
         />
       )}
 

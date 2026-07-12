@@ -20,7 +20,7 @@ import {
 } from "../lib/mymindWrite";
 import { buildDownloadFilename } from "../lib/downloadFilename";
 import { RolePackageModal } from "./RolePackageModal";
-import type { FacetField, ManualCollection } from "../types";
+import type { DesignObject, FacetField, ManualCollection } from "../types";
 
 /** Drag payload for "drag a tag onto an empty facet field" — distinct from
  * Sidebar's DRAG_MIME (which carries an object id), since this drag never
@@ -58,6 +58,7 @@ export function DetailPanel({
   objectId,
   onClose,
   layout = "side",
+  contextObjects = [],
 }: {
   objectId: string;
   onClose: () => void;
@@ -66,6 +67,13 @@ export function DetailPanel({
    * larger, centered modal instead, so the image gets more room. A user
    * preference (Preferences menu), not per-item state. */
   layout?: "side" | "centered";
+  /** The current view's own object pool (App.tsx's baseObjects) — already
+   * scoped to whatever collection is active, or the whole library in the
+   * All-items/Unclassified views. Powers the "more from {dominant tag}"
+   * row (issue #89): the tag counted here is whichever of this object's
+   * own tags is most common among the OTHER objects in this same scope,
+   * so the suggestion is always contextual to what's already on screen. */
+  contextObjects?: DesignObject[];
 }) {
   // Shallow-selected — while a detail panel is open, typing in the main
   // search box (or anything else touching unrelated store fields) shouldn't
@@ -83,6 +91,9 @@ export function DetailPanel({
       setTagGroup: s.setTagGroup,
       setObjectRole: s.setObjectRole,
       setSelectedView: s.setSelectedView,
+      setFacetFieldFilter: s.setFacetFieldFilter,
+      clearFacetTags: s.clearFacetTags,
+      toggleFacetTag: s.toggleFacetTag,
       removeFromManualCollection: s.removeFromManualCollection,
       deleteObjectLocally: s.deleteObjectLocally,
     }))
@@ -181,6 +192,40 @@ export function DetailPanel({
       .map((id) => state.collections[id])
       .filter((c): c is ManualCollection => c?.type === "manual");
   }, [state.collections, object]);
+
+  /** "More from {dominant tag}" (issue #89) — whichever of this object's
+   * own tags is most common among the OTHER objects already in view
+   * (contextObjects is App.tsx's own view-scoped pool, so this is the
+   * collection's other members when inside a collection, or the whole
+   * library in the All-items/Unclassified views — no separate "am I in a
+   * collection" branch needed, the scoping already happened upstream). */
+  const dominantTag = useMemo(() => {
+    if (!object || object.tags.length === 0) return null;
+    const ownTags = new Set(object.tags.map(norm));
+    const counts = new Map<string, number>();
+    for (const other of contextObjects) {
+      if (other.id === object.id) continue;
+      for (const t of other.tags) {
+        if (ownTags.has(norm(t))) counts.set(t, (counts.get(t) ?? 0) + 1);
+      }
+    }
+    let best: { tag: string; count: number } | null = null;
+    for (const [tag, count] of counts) {
+      if (count > 0 && (!best || count > best.count)) best = { tag, count };
+    }
+    return best;
+  }, [contextObjects, object]);
+
+  /** Filters the current view down to just this tag (replacing any other
+   * tag filters) and closes the panel so the filtered results are visible
+   * right away — a cheaper, in-place cousin of #86's "temporary view"
+   * (that one switches to All-items and a field value; this one stays in
+   * whatever view is already open and uses a tag). */
+  function viewMoreOfTag(tag: string) {
+    state.clearFacetTags();
+    state.toggleFacetTag(tag);
+    onClose();
+  }
 
   /** The object's item-type field package (issue #84) — fields come from
    * the role, not from any collection the object happens to sit in. */
@@ -491,6 +536,18 @@ export function DetailPanel({
     state.moveTagToField(object.id, tag, field.name, tag, "replace");
   }
 
+  /** Clicking a populated facet value opens a temporary filtered view of
+   * every object with that value (issue #86) — no new entity, just the
+   * same facetFieldFilter the FilterBar's own "Field" picker already
+   * applies (#111/#112). Switches to the All-items view since the filter
+   * is a library-wide concept, not scoped to whatever collection this
+   * object happened to be opened from. */
+  function viewAllWithValue(fieldName: string, value: string) {
+    state.setSelectedView({ kind: "all" });
+    state.setFacetFieldFilter({ field: fieldName, value });
+    onClose();
+  }
+
   /** One role-package field, as a select-value pill, a multi-select chip
    * row, or a date input — extracted so the visible/hidden split above
    * (issue #101) can map over either list without duplicating this. */
@@ -531,7 +588,18 @@ export function DetailPanel({
               title={acceptsDrop ? "Drop a tag here to use it as this field's value" : field.name}
             >
               {field.name}
-              {value && <span className="font-medium">· {value}</span>}
+              {value && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    viewAllWithValue(field.name, value);
+                  }}
+                  className="font-medium hover:underline"
+                  title={`Show every item where ${field.name} = ${value}`}
+                >
+                  · {value}
+                </button>
+              )}
             </span>
             <div className="hidden group-hover/facetrow:contents group-focus-within/facetrow:contents">
               {value && (
@@ -617,9 +685,9 @@ export function DetailPanel({
             {values.map((v) => (
               <button
                 key={v}
-                onClick={() => toggleMultiSelectOption(field, v)}
+                onClick={(e) => (e.altKey ? viewAllWithValue(field.name, v) : toggleMultiSelectOption(field, v))}
                 className="tag-chip gap-1 border-accent/40 bg-accent/5 text-ink"
-                title="Remove this value"
+                title="Click to remove this value, option/alt-click to see every item with it"
               >
                 {v} ×
               </button>
@@ -927,6 +995,16 @@ export function DetailPanel({
                 Add
               </button>
             </div>
+
+            {dominantTag && (
+              <button
+                onClick={() => viewMoreOfTag(dominantTag.tag)}
+                className="mt-2 text-[12px] text-accent hover:underline"
+                title={`Filter this view down to items tagged #${dominantTag.tag}`}
+              >
+                More #{dominantTag.tag} ({dominantTag.count} more)
+              </button>
+            )}
           </div>
 
           <div>
