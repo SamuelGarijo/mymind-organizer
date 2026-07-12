@@ -177,6 +177,14 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     return state.roles[norm(object.role)]?.fields ?? [];
   }, [object, state.roles]);
 
+  /** Fields a raw tag could actually become a value of (issue #80's
+   * "promote a category/value tag to a facet" ask) — date excluded, same
+   * reasoning as fieldAcceptsDrop: a tag string is never a realistic date. */
+  const promotableFields = useMemo(
+    () => rolePackageFields.filter((f) => f.type !== "date"),
+    [rolePackageFields]
+  );
+
   /** Every known item type, for the picker — display names, sorted. */
   const knownRoles = useMemo(
     () => Object.values(state.roles).map((d) => d.name).sort((a, b) => a.localeCompare(b)),
@@ -321,6 +329,26 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
    * as an option on the role's field package (so it shows up as a chip for
    * every object with this role from now on) and assigns it here, same as
    * picking an existing chip would. */
+  /** Sends a tag into a role field as its value (issue #80's "promote a
+   * raw tag to a facet value" ask) — a discoverable, click-driven sibling
+   * to the existing drag-a-tag-onto-a-field gesture (handleFieldDrop),
+   * which only works today if the tag string happens to already match one
+   * of that field's predefined options and otherwise silently no-ops. This
+   * registers the tag as a real option first (same as the "+ new" select
+   * path), so promoting always works instead of depending on a pre-existing
+   * option string matching exactly. */
+  function promoteTagToField(tag: string, field: FacetField) {
+    useStore.getState().addFieldOption(field.name, tag);
+    state.moveTagToField(
+      object.id,
+      tag,
+      field.name,
+      tag,
+      field.type === "multi-select" ? "append" : "replace"
+    );
+    setActiveTag(null);
+  }
+
   function confirmNewOption(field: FacetField) {
     const trimmed = newOptionDraft.trim();
     if (!trimmed) return;
@@ -767,7 +795,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
           <div>
             <label
               className="text-[11px] uppercase tracking-wide text-muted"
-              title='Click a tag to group or remove it. Grouping (e.g. "dog/caniche") tints the tag and enables group filtering in smart collections — groups are local to this app, not mymind. Drag a tag onto an empty field below to move it there.'
+              title='Click a tag to merge it as a synonym, send it to a field, or remove it. Merging (e.g. "caniche" under "dog") is spelling/vocabulary cleanup only — local to this app, never synced to mymind. If a tag is really a field value in disguise (e.g. this tag literally means Style: vintage), use "→ field" instead of merging it.'
             >
               Tags
             </label>
@@ -808,11 +836,29 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                   defaultValue={state.tagGroups[norm(activeTag)] ?? ""}
                   onBlur={(e) => state.setTagGroup(activeTag, e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                  placeholder="group…"
+                  placeholder="merge as…"
                   list="known-groups"
                   className="flex-1 min-w-0 rounded border border-line bg-panel px-1.5 py-0.5 outline-none focus:border-accent"
-                  title="Assign this tag to a group — local to this app, never synced to mymind"
+                  title="Treat this tag as a synonym of another (e.g. typeface merged under typography) — local normalization only, never synced to mymind, and unrelated to this role's facet fields below. If this tag IS really a field value (e.g. it literally means Style: vintage), use the field picker instead of merging it."
                 />
+                {promotableFields.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const field = promotableFields.find((f) => f.name === e.target.value);
+                      if (field) promoteTagToField(activeTag, field);
+                    }}
+                    className="shrink-0 rounded border border-line bg-panel px-1 py-0.5 outline-none focus:border-accent"
+                    title="This tag's real meaning is a field value, not raw material — send it into a role field instead of leaving it as a plain tag"
+                  >
+                    <option value="">→ field</option>
+                    {promotableFields.map((f) => (
+                      <option key={f.name} value={f.name}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={() => {
                     removeTag(activeTag);
