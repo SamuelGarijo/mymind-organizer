@@ -18,7 +18,7 @@ import type { ColorFilter } from "./lib/colorSearch";
 import { createIdbStorage } from "./lib/idbStorage";
 import { loadEmbeddings, saveEmbeddings } from "./lib/embeddingsStorage";
 import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
-import { rankBySimilarity } from "./lib/similarity";
+import { rankByHybridSimilarity } from "./lib/hybridSimilarity";
 import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
 import { parseBackup } from "./lib/backupValidation";
@@ -1024,18 +1024,14 @@ export function getVisibleObjects(state: VisibilityState): DesignObject[] {
 
   if (view.kind === "similar") {
     // Deliberately NOT recency-sorted — similarity rank IS the order here.
+    // Issue #23: local hybrid score (tags/palette/facets/keywords), not
+    // mymind's embedding — that gated this on a field most objects never
+    // have (opt-in, rarely fetched), returning empty most of the time.
+    // Works for any object regardless of source (mymind/Are.na/personal).
     const target = state.objects[view.objectId];
-    if (!target?.embedding) return [];
-    // mymind-sourced only, per spec — no cross-source embedding comparison
-    // this phase, and obviously excludes the object itself.
-    const candidates = all.filter(
-      (o) => o.id !== target.id && o.source === "mymind" && o.embedding
-    );
-    const ranked = rankBySimilarity(
-      target.embedding,
-      candidates.map((o) => ({ id: o.id, embedding: o.embedding! })),
-      60
-    );
+    if (!target) return [];
+    const candidates = all.filter((o) => o.id !== target.id);
+    const ranked = rankByHybridSimilarity(target, candidates, all, 60);
     const byId = new Map(all.map((o) => [o.id, o]));
     return ranked.map((r) => byId.get(r.id)).filter((o): o is DesignObject => !!o);
   }

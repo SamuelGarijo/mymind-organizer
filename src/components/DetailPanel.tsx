@@ -829,20 +829,18 @@ export function DetailPanel({
           </div>
         )}
 
-        {object.source === "mymind" && object.embedding && (
-          <div className="px-4 pt-4">
-            <button
-              onClick={() => {
-                state.setSelectedView({ kind: "similar", objectId: object.id });
-                onClose();
-              }}
-              className="w-full text-sm px-3 py-1.5 rounded-lg border border-line hover:bg-line/40"
-              title="Ranks your library by mymind embedding similarity — computed locally, no network call"
-            >
-              ✦ Similar to this
-            </button>
-          </div>
-        )}
+        <div className="px-4 pt-4">
+          <button
+            onClick={() => {
+              state.setSelectedView({ kind: "similar", objectId: object.id });
+              onClose();
+            }}
+            className="w-full text-sm px-3 py-1.5 rounded-lg border border-line hover:bg-line/40"
+            title="Ranks your library by a local hybrid score (tags, color palette, matching facet fields, keywords) — no mymind embedding needed, works for any object regardless of source"
+          >
+            ✦ Similar to this
+          </button>
+        </div>
 
         <div className="p-4 space-y-5">
           <div>
