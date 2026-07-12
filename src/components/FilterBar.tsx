@@ -1,10 +1,24 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
-import { computeFieldValueFrequency, type TagFrequency, type TypeFrequency } from "../lib/quickFilter";
+import {
+  computeFieldValueFrequency,
+  searchTags,
+  type TagFrequency,
+  type TypeFrequency,
+} from "../lib/quickFilter";
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import type { DesignObject, FacetField } from "../types";
+
+type Category = "tag" | "type" | "role" | "field";
+
+/** One active filter, regardless of which underlying store slice it comes
+ * from — the whole point of this redesign (issue #120) is that every
+ * condition reads as one combinable list ("Type: Article", "NOT: agua",
+ * "Genre: Environmental") instead of living in 4 separate, disconnected
+ * controls the way it did before. */
+type Pill = { key: string; label: string; tone: "include" | "exclude"; onRemove: () => void };
 
 export function FilterBar({
   topTags,
@@ -63,17 +77,115 @@ export function FilterBar({
     }))
   );
 
-  // The field picker and its value picker are two dependent selects — kept
-  // as local UI state distinct from the committed store filter so picking a
-  // field doesn't itself filter anything until a value is also chosen.
-  const [pendingField, setPendingField] = useState(facetFieldFilter?.field ?? "");
-  const fieldValueOptions = pendingField
-    ? computeFieldValueFrequency(fieldFilterPool, pendingField)
-    : [];
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [category, setCategory] = useState<Category>("tag");
+  const [query, setQuery] = useState("");
+  // Field category is a two-step pick (field, then value) — kept separate
+  // from the committed store filter so choosing a field doesn't filter
+  // anything until a value is also chosen.
+  const [pendingField, setPendingField] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  function closeMenu() {
+    setMenuOpen(false);
+    setQuery("");
+    setPendingField(null);
+  }
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) closeMenu();
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeMenu();
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [menuOpen]);
+
+  const pills: Pill[] = [];
+  if (typeFilter) {
+    pills.push({
+      key: "type",
+      label: `Type: ${typeFilter}`,
+      tone: "include",
+      onRemove: () => setTypeFilter(""),
+    });
+  }
+  if (roleFilter) {
+    pills.push({
+      key: "role",
+      label: `Item type: ${roleFilter}`,
+      tone: "include",
+      onRemove: () => setRoleFilter(""),
+    });
+  }
+  if (facetFieldFilter) {
+    pills.push({
+      key: "field",
+      label: `${facetFieldFilter.field}: ${facetFieldFilter.value}`,
+      tone: "include",
+      onRemove: () => setFacetFieldFilter(null),
+    });
+  }
+  for (const tag of facetTags) {
+    pills.push({ key: `tag:${tag}`, label: tag, tone: "include", onRemove: () => toggleFacetTag(tag) });
+  }
+  for (const tag of excludedTags) {
+    pills.push({
+      key: `exclude:${tag}`,
+      label: `NOT: ${tag}`,
+      tone: "exclude",
+      onRemove: () => toggleExcludeTag(tag),
+    });
+  }
+
+  const hasAnyFilter = pills.length > 0;
+  const inactiveSuggestions = topTags.filter(
+    ({ tag }) => !facetTags.includes(tag) && !excludedTags.includes(tag)
+  );
+  const fieldValueOptions = pendingField ? computeFieldValueFrequency(fieldFilterPool, pendingField) : [];
+  const tagResults = category === "tag" ? searchTags(fieldFilterPool, query) : [];
+
+  function renderPill({ key, label, tone, onRemove }: Pill) {
+    const group = tone === "include" ? tagGroups[norm(label)] : undefined;
+    const color = group ? colorForGroup(group) : null;
+    return (
+      <span
+        key={key}
+        className="tag-chip gap-1"
+        style={
+          tone === "exclude"
+            ? {
+                backgroundColor: "rgba(220, 38, 38, 0.08)",
+                borderColor: "rgba(220, 38, 38, 0.3)",
+                color: "#dc2626",
+              }
+            : color
+            ? { backgroundColor: color.bg, borderColor: color.border, color: color.text }
+            : {
+                backgroundColor: "rgba(106, 92, 255, 0.1)",
+                borderColor: "rgba(106, 92, 255, 0.3)",
+                color: "#6a5cff",
+              }
+        }
+      >
+        {label}
+        <button onClick={onRemove} className="opacity-60 hover:opacity-100" aria-label={`Remove filter: ${label}`}>
+          ×
+        </button>
+      </span>
+    );
+  }
 
   return (
     <div className="border-b border-line bg-panel">
-      <div className="px-5 py-3 flex flex-wrap items-center gap-3">
+      <div className="px-5 py-3 flex flex-wrap items-center gap-2">
         <div className="relative">
           <input
             value={searchQuery}
@@ -93,133 +205,208 @@ export function FilterBar({
           )}
         </div>
 
-        {objectTypes.length > 0 && (
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            title="Filter by mymind's own object type (Image, Article, etc.)"
-            className="rounded-lg border border-line px-2 py-1.5 text-[13px] bg-panel outline-none focus:border-accent"
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="rounded-lg border border-line px-2.5 py-1.5 text-[13px] bg-panel hover:bg-line/40"
           >
-            <option value="">All types</option>
-            {objectTypes.map(({ type, count }) => (
-              <option key={type} value={type}>
-                {type} ({count})
-              </option>
-            ))}
-          </select>
-        )}
-
-        {roleTypes.length > 0 && (
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            title="Filter by item type — our own role, independent of mymind's object type"
-            className="rounded-lg border border-line px-2 py-1.5 text-[13px] bg-panel outline-none focus:border-accent"
-          >
-            <option value="">All item types</option>
-            {roleTypes.map(({ type, count }) => (
-              <option key={type} value={type}>
-                {type} ({count})
-              </option>
-            ))}
-          </select>
-        )}
-
-        {facetColumns.length > 0 && (
-          <>
-            <div className="h-4 w-px bg-line" />
-            <div className="flex items-center gap-1 text-[11px]">
-              <select
-                value={pendingField}
-                onChange={(e) => {
-                  const field = e.target.value;
-                  setPendingField(field);
-                  setFacetFieldFilter(null);
-                }}
-                title="Filter by an item-type field's value, e.g. Author or Genre"
-                className="rounded-lg border border-line px-2 py-1 text-[12px] bg-panel outline-none focus:border-accent"
-              >
-                <option value="">Any field</option>
-                {facetColumns.map((f) => (
-                  <option key={f.name} value={f.name}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-              {pendingField && (
-                <select
-                  value={facetFieldFilter?.field === pendingField ? facetFieldFilter.value : ""}
-                  onChange={(e) =>
-                    setFacetFieldFilter(e.target.value ? { field: pendingField, value: e.target.value } : null)
-                  }
-                  className="rounded-lg border border-line px-2 py-1 text-[12px] bg-panel outline-none focus:border-accent"
-                >
-                  <option value="">Any value</option>
-                  {fieldValueOptions.map(({ tag: value, count }) => (
-                    <option key={value} value={value}>
-                      {value} ({count})
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </>
-        )}
-
-        {topTags.length > 0 && (
-          <>
-            <div className="h-4 w-px bg-line" />
-
-            <div className="flex items-center gap-1 text-[11px]">
-              <span className="text-muted mr-0.5">Match</span>
-              <div className="inline-flex rounded-lg border border-line overflow-hidden">
-                {(["AND", "OR"] as const).map((m) => (
+            + Filter
+          </button>
+          {menuOpen && (
+            <div className="absolute z-20 top-full mt-1 left-0 w-64 rounded-lg border border-line bg-panel shadow-lg overflow-hidden">
+              <div className="flex border-b border-line text-[11px]">
+                {(
+                  [
+                    ["tag", "Tag"],
+                    ["type", "Type"],
+                    ["role", "Item type"],
+                    ["field", "Field"],
+                  ] as const
+                ).map(([c, label]) => (
                   <button
-                    key={m}
-                    onClick={() => setFacetMode(m)}
+                    key={c}
+                    onClick={() => {
+                      setCategory(c);
+                      setQuery("");
+                      setPendingField(null);
+                    }}
                     className={[
-                      "px-2 py-0.5",
-                      facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
+                      "flex-1 px-2 py-1.5",
+                      category === c ? "bg-ink text-white" : "hover:bg-line/40",
                     ].join(" ")}
-                    title={m === "AND" ? "Must have all selected tags" : "Match any selected tag"}
                   >
-                    {m === "AND" ? "all" : "any"}
+                    {label}
                   </button>
                 ))}
               </div>
-            </div>
 
-            {(facetTags.length > 0 || excludedTags.length > 0) && (
-              <button
-                onClick={() => {
-                  clearFacetTags();
-                  clearExcludedTags();
-                }}
-                className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
-              >
-                clear ({facetTags.length + excludedTags.length})
-              </button>
-            )}
-          </>
+              {category === "tag" && (
+                <div className="p-2">
+                  <input
+                    autoFocus
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search any tag…"
+                    className="w-full rounded-lg border border-line px-2 py-1 text-[12px] outline-none focus:border-accent mb-1.5"
+                  />
+                  <div className="max-h-48 overflow-y-auto flex flex-col gap-0.5">
+                    {query === "" && (
+                      <p className="text-[11px] text-muted px-1 py-1">Type to search every tag in this view.</p>
+                    )}
+                    {tagResults.map(({ tag, count }) => (
+                      <div key={tag} className="flex items-center justify-between gap-1 px-1 py-0.5 rounded hover:bg-line/40">
+                        <span className="text-[12px] truncate">
+                          {tag} <span className="text-muted">{count}</span>
+                        </span>
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={() => {
+                              toggleFacetTag(tag);
+                              closeMenu();
+                            }}
+                            className="text-[11px] text-accent hover:underline"
+                            title="Include this tag"
+                          >
+                            include
+                          </button>
+                          <button
+                            onClick={() => {
+                              toggleExcludeTag(tag);
+                              closeMenu();
+                            }}
+                            className="text-[11px] text-red-600 hover:underline"
+                            title="Exclude this tag"
+                          >
+                            exclude
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {category === "type" && (
+                <div className="max-h-56 overflow-y-auto p-1">
+                  {objectTypes
+                    .filter(({ type }) => norm(type).includes(norm(query)))
+                    .map(({ type, count }) => (
+                      <button
+                        key={type}
+                        onClick={() => {
+                          setTypeFilter(type);
+                          closeMenu();
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                      >
+                        {type} <span className="text-muted">{count}</span>
+                      </button>
+                    ))}
+                </div>
+              )}
+
+              {category === "role" && (
+                <div className="max-h-56 overflow-y-auto p-1">
+                  {roleTypes
+                    .filter(({ type }) => norm(type).includes(norm(query)))
+                    .map(({ type, count }) => (
+                      <button
+                        key={type}
+                        onClick={() => {
+                          setRoleFilter(type);
+                          closeMenu();
+                        }}
+                        className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                      >
+                        {type} <span className="text-muted">{count}</span>
+                      </button>
+                    ))}
+                </div>
+              )}
+
+              {category === "field" &&
+                (!pendingField ? (
+                  <div className="max-h-56 overflow-y-auto p-1">
+                    {facetColumns.map((f) => (
+                      <button
+                        key={f.name}
+                        onClick={() => setPendingField(f.name)}
+                        className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                      >
+                        {f.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-1">
+                    <button
+                      onClick={() => setPendingField(null)}
+                      className="text-[11px] text-muted hover:text-ink px-1 py-0.5"
+                    >
+                      ← {pendingField}
+                    </button>
+                    <div className="max-h-48 overflow-y-auto">
+                      {fieldValueOptions.map(({ tag: value, count }) => (
+                        <button
+                          key={value}
+                          onClick={() => {
+                            setFacetFieldFilter({ field: pendingField, value });
+                            closeMenu();
+                          }}
+                          className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                        >
+                          {value} <span className="text-muted">{count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        {pills.map(renderPill)}
+
+        {facetTags.length > 1 && (
+          <div className="flex items-center gap-1 text-[11px]">
+            <span className="text-muted">Match</span>
+            <div className="inline-flex rounded-lg border border-line overflow-hidden">
+              {(["AND", "OR"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setFacetMode(m)}
+                  className={[
+                    "px-2 py-0.5",
+                    facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
+                  ].join(" ")}
+                  title={m === "AND" ? "Must have all included tags" : "Match any included tag"}
+                >
+                  {m === "AND" ? "all" : "any"}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {hasAnyFilter && (
+          <button
+            onClick={() => {
+              setTypeFilter("");
+              setRoleFilter("");
+              setFacetFieldFilter(null);
+              clearFacetTags();
+              clearExcludedTags();
+            }}
+            className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
+          >
+            clear all
+          </button>
         )}
       </div>
 
-      {topTags.length > 0 &&
-        (() => {
-          // Active/excluded tags render outside the scrollable region,
-          // pinned to the left — otherwise a selected tag can scroll
-          // partway out of view (half-clipped at the edge, looking broken)
-          // while browsing the rest of the row, with no indication it's
-          // still applied.
-          const activeTags = topTags.filter(({ tag }) => facetTags.includes(tag));
-          const excludedChips = topTags.filter(({ tag }) => excludedTags.includes(tag));
-          const inactiveTags = topTags.filter(
-            ({ tag }) => !facetTags.includes(tag) && !excludedTags.includes(tag)
-          );
-
-          function renderChip({ tag, count }: TagFrequency) {
-            const active = facetTags.includes(tag);
-            const excluded = excludedTags.includes(tag);
+      {inactiveSuggestions.length > 0 && (
+        <div className="px-5 pb-3 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+          {inactiveSuggestions.map(({ tag, count }) => {
             const group = tagGroups[norm(tag)];
             const color = group ? colorForGroup(group) : null;
             return (
@@ -227,54 +414,19 @@ export function FilterBar({
                 key={tag}
                 onClick={(e) => (e.altKey ? toggleExcludeTag(tag) : toggleFacetTag(tag))}
                 className="tag-chip gap-1 shrink-0"
-                style={
-                  excluded
-                    ? {
-                        backgroundColor: "rgba(220, 38, 38, 0.08)",
-                        borderColor: "rgba(220, 38, 38, 0.3)",
-                        color: "#dc2626",
-                        textDecoration: "line-through",
-                      }
-                    : active
-                    ? color
-                      ? { backgroundColor: color.bg, borderColor: color.border, color: color.text }
-                      : {
-                          backgroundColor: "rgba(106, 92, 255, 0.1)",
-                          borderColor: "rgba(106, 92, 255, 0.3)",
-                          color: "#6a5cff",
-                        }
-                    : undefined
-                }
+                style={color ? { borderColor: color.border } : undefined}
                 title={
                   (group ? `${tag} · ${group} — ` : `${tag} — `) +
                   "click to filter, option/alt-click to exclude"
                 }
               >
                 {tag}
-                <span className={active || excluded ? "opacity-60" : "text-muted"}>{count}</span>
+                <span className="text-muted">{count}</span>
               </button>
             );
-          }
-
-          return (
-            <div className="px-5 pb-3 flex items-center gap-1.5">
-              {(activeTags.length > 0 || excludedChips.length > 0) && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {activeTags.map(renderChip)}
-                  {excludedChips.map(renderChip)}
-                </div>
-              )}
-              {(activeTags.length > 0 || excludedChips.length > 0) && inactiveTags.length > 0 && (
-                <div className="h-4 w-px bg-line shrink-0" />
-              )}
-              {inactiveTags.length > 0 && (
-                <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap min-w-0">
-                  {inactiveTags.map(renderChip)}
-                </div>
-              )}
-            </div>
-          );
-        })()}
+          })}
+        </div>
+      )}
     </div>
   );
 }
