@@ -49,6 +49,28 @@ export function applyTypeFilter(objects: DesignObject[], typeFilter: string): De
   );
 }
 
+const UNSPECIFIED_ROLE_LABEL = "Unspecified";
+
+/** Distinct item-types/roles (object.role) present, most frequent first —
+ * powers the role filter dropdown, independent of mymind's own entity_type. */
+export function computeRoleFrequency(objects: DesignObject[]): TypeFrequency[] {
+  const counts = new Map<string, number>();
+  for (const obj of objects) {
+    const role = obj.role || UNSPECIFIED_ROLE_LABEL;
+    counts.set(role, (counts.get(role) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => a.type.localeCompare(b.type));
+}
+
+/** Item-type/role filter only — separate dropdown from the mymind
+ * entity_type filter above, since a role can span several entity_types. */
+export function applyRoleFilter(objects: DesignObject[], roleFilter: string): DesignObject[] {
+  if (roleFilter === "") return objects;
+  return objects.filter((obj) => (obj.role || UNSPECIFIED_ROLE_LABEL) === roleFilter);
+}
+
 /** Selected-tag filter only, combined per facetMode. */
 export function applyFacetTags(
   objects: DesignObject[],

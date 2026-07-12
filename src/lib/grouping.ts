@@ -54,3 +54,30 @@ export function groupObjects(
 
   return labels.map((label) => ({ label, objects: groups.get(label)! }));
 }
+
+/**
+ * Facet columns worth offering as a "Group by" option, most impactful
+ * first — a field nobody has actually set a value for yet produces one
+ * giant "—" bucket, which isn't a grouping at all, so it's dropped rather
+ * than cluttering the list with no-op choices. "Impact" here is just
+ * coverage: how many of the given objects hold a non-empty value for that
+ * field, since that's what determines how much the grouping actually splits
+ * the pool up.
+ */
+export function rankableFacetColumns(
+  objects: DesignObject[],
+  facetColumns: FacetField[]
+): FacetField[] {
+  return facetColumns
+    .map((field) => {
+      const coverage = objects.reduce((count, object) => {
+        const raw = object.fields[field.name];
+        const hasValue = Array.isArray(raw) ? raw.length > 0 : Boolean(raw);
+        return hasValue ? count + 1 : count;
+      }, 0);
+      return { field, coverage };
+    })
+    .filter(({ coverage }) => coverage > 0)
+    .sort((a, b) => b.coverage - a.coverage)
+    .map(({ field }) => field);
+}

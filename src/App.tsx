@@ -13,8 +13,10 @@ import {
   applyExcludedTags,
   applyFacetFieldFilter,
   applyFacetTags,
+  applyRoleFilter,
   applyTypeFilter,
   computeObjectTypes,
+  computeRoleFrequency,
   computeTopTags,
 } from "./lib/quickFilter";
 import { buildSearchIndex, searchObjects } from "./lib/search";
@@ -79,6 +81,9 @@ export default function App() {
       tagGroups: s.tagGroups,
       roles: s.roles,
       typeFilter: s.typeFilter,
+      roleFilter: s.roleFilter,
+      gridZoom: s.gridZoom,
+      setGridZoom: s.setGridZoom,
       searchQuery: s.searchQuery,
       facetTags: s.facetTags,
       facetMode: s.facetMode,
@@ -113,22 +118,27 @@ export default function App() {
     [state.objects, state.collections, state.selectedView, state.tagGroups]
   );
 
-  // Type options always reflect the current view before type-filtering
-  // itself, so picking one option doesn't hide the others.
+  // Type/role options always reflect the current view before their own
+  // filtering, so picking one option doesn't hide the others.
   const objectTypes = useMemo(() => computeObjectTypes(baseObjects), [baseObjects]);
+  const roleTypes = useMemo(() => computeRoleFrequency(baseObjects), [baseObjects]);
 
   const typeFiltered = useMemo(
     () => applyTypeFilter(baseObjects, state.typeFilter),
     [baseObjects, state.typeFilter]
   );
+  const roleFiltered = useMemo(
+    () => applyRoleFilter(typeFiltered, state.roleFilter),
+    [typeFiltered, state.roleFilter]
+  );
 
   // Fuse indexing (~8000 objects) is real work — rebuild only when the
   // candidate pool changes, not on every keystroke. Search always narrows
   // the pool first, regardless of facet mode.
-  const searchIndex = useMemo(() => buildSearchIndex(typeFiltered), [typeFiltered]);
+  const searchIndex = useMemo(() => buildSearchIndex(roleFiltered), [roleFiltered]);
   const searchFiltered = useMemo(
-    () => searchObjects(searchIndex, debouncedSearchQuery, typeFiltered),
-    [searchIndex, debouncedSearchQuery, typeFiltered]
+    () => searchObjects(searchIndex, debouncedSearchQuery, roleFiltered),
+    [searchIndex, debouncedSearchQuery, roleFiltered]
   );
 
   // The facet bar's own tag list is asymmetric on purpose: in "all" (AND)
@@ -490,6 +500,26 @@ export default function App() {
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {state.viewMode === "grid" && (
+              <div className="inline-flex rounded-lg border border-line overflow-hidden text-[12px]">
+                <button
+                  onClick={() => state.setGridZoom(state.gridZoom - 1)}
+                  disabled={state.gridZoom <= -2}
+                  className="px-2 py-1.5 hover:bg-line/40 disabled:opacity-30 disabled:hover:bg-transparent"
+                  title="Bigger cards"
+                >
+                  −
+                </button>
+                <button
+                  onClick={() => state.setGridZoom(state.gridZoom + 1)}
+                  disabled={state.gridZoom >= 3}
+                  className="px-2 py-1.5 hover:bg-line/40 disabled:opacity-30 disabled:hover:bg-transparent border-l border-line"
+                  title="Smaller cards"
+                >
+                  +
+                </button>
+              </div>
+            )}
             <div className="inline-flex rounded-lg border border-line overflow-hidden text-[12px]">
               {(["grid", "table"] as const).map((mode) => (
                 <button
@@ -686,6 +716,7 @@ export default function App() {
         <FilterBar
           topTags={topTags}
           objectTypes={objectTypes}
+          roleTypes={roleTypes}
           facetColumns={facetColumns}
           fieldFilterPool={excludeFiltered}
         />
@@ -711,6 +742,7 @@ export default function App() {
                 viewKey={viewKey}
                 onOpen={state.openDetail}
                 emptyLabel={emptyLabel}
+                zoom={state.gridZoom}
               />
             </div>
           )}

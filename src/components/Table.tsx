@@ -313,6 +313,7 @@ export function Table({
         onChange={setGroupByField}
         hasRoles={hasRoles}
         facetColumns={facetColumns}
+        objects={objects}
       />
       <div
         ref={parentRef}

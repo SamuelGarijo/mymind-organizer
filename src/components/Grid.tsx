@@ -47,6 +47,7 @@ export function Grid({
   viewKey,
   onOpen,
   emptyLabel,
+  zoom = 0,
 }: {
   objects: DesignObject[];
   /** Role field packages present in the current view — same prop Table
@@ -61,6 +62,10 @@ export function Grid({
   viewKey: string;
   onOpen: (id: string) => void;
   emptyLabel?: string;
+  /** Item-size control (App.tsx header +/−) — a delta on top of the
+   * container-width breakpoint column count, not an absolute value, so
+   * resizing the window/sidebar still adapts around whatever zoom is set. */
+  zoom?: number;
 }) {
   // With a full mymind library (~8000 objects) mounting every card at once
   // makes the whole app crawl. Render in batches instead: the sentinel div
@@ -116,7 +121,7 @@ export function Grid({
     () => (renderCount < objects.length ? objects.slice(0, renderCount) : objects),
     [objects, renderCount]
   );
-  const columnCount = columnsForWidth(containerWidth);
+  const columnCount = Math.max(1, Math.min(8, columnsForWidth(containerWidth) + zoom));
   const columnWidth = (containerWidth - (columnCount - 1) * GRID_GAP) / columnCount;
 
   // Greedy shortest-column placement (see lib/masonry.ts) — a pure function
@@ -251,6 +256,7 @@ export function Grid({
         onChange={setGroupByField}
         hasRoles={hasRoles}
         facetColumns={facetColumns}
+        objects={objects}
       />
       <div ref={containerRef} onMouseDown={handleMarqueeMouseDown}>
         {sections ? (

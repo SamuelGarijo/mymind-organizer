@@ -9,11 +9,13 @@ import type { DesignObject, FacetField } from "../types";
 export function FilterBar({
   topTags,
   objectTypes,
+  roleTypes,
   facetColumns,
   fieldFilterPool,
 }: {
   topTags: TagFrequency[];
   objectTypes: TypeFrequency[];
+  roleTypes: TypeFrequency[];
   facetColumns: FacetField[];
   fieldFilterPool: DesignObject[];
 }) {
@@ -28,6 +30,7 @@ export function FilterBar({
     excludedTags,
     facetFieldFilter,
     typeFilter,
+    roleFilter,
     tagGroups,
     setSearchQuery,
     toggleFacetTag,
@@ -37,6 +40,7 @@ export function FilterBar({
     clearExcludedTags,
     setFacetFieldFilter,
     setTypeFilter,
+    setRoleFilter,
   } = useStore(
     useShallow((s) => ({
       searchQuery: s.searchQuery,
@@ -45,6 +49,7 @@ export function FilterBar({
       excludedTags: s.excludedTags,
       facetFieldFilter: s.facetFieldFilter,
       typeFilter: s.typeFilter,
+      roleFilter: s.roleFilter,
       tagGroups: s.tagGroups,
       setSearchQuery: s.setSearchQuery,
       toggleFacetTag: s.toggleFacetTag,
@@ -54,6 +59,7 @@ export function FilterBar({
       clearExcludedTags: s.clearExcludedTags,
       setFacetFieldFilter: s.setFacetFieldFilter,
       setTypeFilter: s.setTypeFilter,
+      setRoleFilter: s.setRoleFilter,
     }))
   );
 
@@ -91,11 +97,27 @@ export function FilterBar({
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            title="Filter by object type — separate from the text search above"
+            title="Filter by mymind's own object type (Image, Article, etc.)"
             className="rounded-lg border border-line px-2 py-1.5 text-[13px] bg-panel outline-none focus:border-accent"
           >
             <option value="">All types</option>
             {objectTypes.map(({ type, count }) => (
+              <option key={type} value={type}>
+                {type} ({count})
+              </option>
+            ))}
+          </select>
+        )}
+
+        {roleTypes.length > 0 && (
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            title="Filter by item type — our own role, independent of mymind's object type"
+            className="rounded-lg border border-line px-2 py-1.5 text-[13px] bg-panel outline-none focus:border-accent"
+          >
+            <option value="">All item types</option>
+            {roleTypes.map(({ type, count }) => (
               <option key={type} value={type}>
                 {type} ({count})
               </option>

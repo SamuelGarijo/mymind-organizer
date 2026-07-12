@@ -50,6 +50,15 @@ type State = {
   /** mymind's entityType (fields.entity_type), e.g. "Image"/"Article" — "" means
    * no filter. A separate control from the free-text search box. */
   typeFilter: string;
+  /** Our own item-type/role (object.role, issue #84) — independent of
+   * mymind's entity_type above (an "Author Photography" role can span
+   * multiple entity_types). "" means no filter. */
+  roleFilter: string;
+  /** Grid view's item-size control — a delta applied on top of the
+   * container-width-based column count (lib/masonry.ts's columnsForWidth),
+   * not an absolute column count, so it still adapts as the window/sidebar
+   * resizes. Positive = smaller cards (more columns), negative = bigger. */
+  gridZoom: number;
 
   /** Masonry grid vs. virtualized table — same filtered/sorted dataset. */
   viewMode: ViewMode;
@@ -193,6 +202,8 @@ type State = {
   clearExcludedTags: () => void;
   setFacetFieldFilter: (filter: { field: string; value: string } | null) => void;
   setTypeFilter: (type: string) => void;
+  setRoleFilter: (role: string) => void;
+  setGridZoom: (zoom: number) => void;
   setViewMode: (mode: ViewMode) => void;
 
   updateObject: (
@@ -341,6 +352,8 @@ export const useStore = create<State>()(
       excludedTags: [],
       facetFieldFilter: null,
       typeFilter: "",
+      roleFilter: "",
+      gridZoom: 0,
       viewMode: "grid",
 
       deletedMymindIds: [],
@@ -712,6 +725,8 @@ export const useStore = create<State>()(
       clearExcludedTags: () => set({ excludedTags: [] }),
       setFacetFieldFilter: (filter) => set({ facetFieldFilter: filter }),
       setTypeFilter: (type) => set({ typeFilter: type }),
+      setRoleFilter: (role) => set({ roleFilter: role }),
+      setGridZoom: (zoom) => set({ gridZoom: Math.max(-2, Math.min(3, zoom)) }),
       setViewMode: (mode) => set({ viewMode: mode }),
 
       updateObject: (id, patch) =>

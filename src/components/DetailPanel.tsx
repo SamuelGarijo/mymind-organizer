@@ -86,6 +86,12 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   // cap ("see more") — reset when switching objects.
   const [expandedOptionsField, setExpandedOptionsField] = useState<string | null>(null);
   const [dragOverField, setDragOverField] = useState<string | null>(null);
+  // "Add new option" draft for a select/multi-select facet — lets a field
+  // with zero (or incomplete) predefined options still work like a select,
+  // not a bare text box: type a value, it becomes a real option going
+  // forward for every object with this role.
+  const [newOptionField, setNewOptionField] = useState<string | null>(null);
+  const [newOptionDraft, setNewOptionDraft] = useState("");
   // "New type…" input draft in the item-type picker, and whether the
   // role's field-package editor modal is open.
   const [roleDraft, setRoleDraft] = useState("");
@@ -279,6 +285,24 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     if (adding) void maybePushFacetTag(field.name, value);
   }
 
+  /** Typed-in-a-new-option path — a select/multi-select field works like a
+   * real select even with zero predefined options: this registers the value
+   * as an option on the role's field package (so it shows up as a chip for
+   * every object with this role from now on) and assigns it here, same as
+   * picking an existing chip would. */
+  function confirmNewOption(field: FacetField) {
+    const trimmed = newOptionDraft.trim();
+    if (!trimmed) return;
+    useStore.getState().addFieldOption(field.name, trimmed);
+    if (field.type === "multi-select") {
+      toggleMultiSelectOption(field, trimmed);
+    } else {
+      selectFacetOption(field, trimmed);
+    }
+    setNewOptionField(null);
+    setNewOptionDraft("");
+  }
+
   /**
    * Pushes a facet value to mymind as a plain manual tag — the one write
    * operation this app performs, and only on blur (see lib/mymindWrite.ts):
@@ -467,6 +491,31 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                   {expanded ? "less" : `+${hiddenCount} more`}
                 </button>
               )}
+              {newOptionField === field.name ? (
+                <input
+                  autoFocus
+                  value={newOptionDraft}
+                  onChange={(e) => setNewOptionDraft(e.target.value)}
+                  onBlur={() => confirmNewOption(field)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmNewOption(field);
+                    if (e.key === "Escape") {
+                      setNewOptionField(null);
+                      setNewOptionDraft("");
+                    }
+                  }}
+                  placeholder="New option…"
+                  className="tag-chip w-24 outline-none focus:border-accent"
+                />
+              ) : (
+                <button
+                  onClick={() => setNewOptionField(field.name)}
+                  className="tag-chip text-muted hover:text-ink"
+                  title="Type a value not yet in this field's options"
+                >
+                  + new
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -519,6 +568,31 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                   className="tag-chip text-muted hover:text-ink"
                 >
                   {expanded ? "less" : `+${hiddenCount} more`}
+                </button>
+              )}
+              {newOptionField === field.name ? (
+                <input
+                  autoFocus
+                  value={newOptionDraft}
+                  onChange={(e) => setNewOptionDraft(e.target.value)}
+                  onBlur={() => confirmNewOption(field)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmNewOption(field);
+                    if (e.key === "Escape") {
+                      setNewOptionField(null);
+                      setNewOptionDraft("");
+                    }
+                  }}
+                  placeholder="New option…"
+                  className="tag-chip w-24 outline-none focus:border-accent"
+                />
+              ) : (
+                <button
+                  onClick={() => setNewOptionField(field.name)}
+                  className="tag-chip text-muted hover:text-ink"
+                  title="Type a value not yet in this field's options"
+                >
+                  + new
                 </button>
               )}
             </div>
