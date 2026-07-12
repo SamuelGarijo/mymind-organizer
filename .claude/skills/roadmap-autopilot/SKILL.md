@@ -34,18 +34,28 @@ between cycles.
      itself, *not* a GitHub label (there's no literal "Mode: X" label anywhere in this repo;
      `gh issue view`'s `labels` only ever shows things like `enhancement`/`question`). Read it
      via `gh project item-list`, which returns it as `"mode"` on each item. Observed values:
-     `Claude Code`, `Developer`, `Designer`, `User`, `Research`. Only `Claude Code` means
-     pre-authorized to build without asking — every other value means a human (Samuel himself,
-     specifically, not "a developer" generically) needs to make a product/design/curation call
-     first, no matter how small or mechanical the change looks from the outside. This was
-     gotten wrong once already (issue #87 was built under `mode: Developer`, mistakenly
-     believing that label-shaped text meant something else) — treat this bullet as load-bearing,
-     not a formality.
-   - It is entirely normal, some cycles, for **zero** issues to be both `Ready` and
-     `mode: Claude Code` — every issue that clears that bar tends to get built quickly once
-     it's unblocked, so the remaining `Ready` backlog at any given moment skews toward
-     Developer/Designer/User/Research issues that are waiting on Samuel, not on more building.
-     Finding nothing to pick is a correct, expected outcome, not a sign to loosen the bar.
+     `Claude Code`, `Developer`, `Designer`, `User`, `Research`.
+   - **As of 2026-07-12, Samuel has explicitly extended standing authorization to `Developer`
+     and `Designer` mode too** ("keep going with the developer and design mode issues, and if
+     you may have a blocking question, just ask here") — so all three (`Claude Code`,
+     `Developer`, `Designer`) are fair game to pick autonomously now. `User` mode (Samuel's own
+     personal curation exercises, not code tasks) and `Research` mode (investigation, not
+     building) stay off-limits regardless — those aren't things to build at all, authorized or
+     not. This replaces an earlier, narrower version of this rule from the same day, when
+     `Claude Code` was briefly believed to be the only authorized value (issue #87 was built
+     under `mode: Developer` before that narrower rule even existed, which is what surfaced the
+     mode-field distinction in the first place).
+   - Because a live chat channel now exists for exactly this, a genuine blocking
+     question — a real product/design decision the issue's own brief doesn't resolve, the kind
+     that would previously have been a skip-with-a-comment — should instead be *asked directly
+     in the conversation* (a plain message, not a GitHub comment) and the loop should pause
+     there rather than moving on to the next candidate, since Samuel said to ask rather than
+     skip. Still don't guess. Still don't force a decision that isn't yours to make. The
+     difference now is where the question goes and whether the loop waits for an answer instead
+     of self-resolving by skipping.
+   - It is entirely normal, some cycles, for zero issues to clear the bar even with the wider
+     mode set — finding nothing to pick is a correct, expected outcome, not a sign to loosen it
+     further (`User`/`Research` mode issues are never fair game, no matter how idle the loop is).
    - Every issue/dependency it lists as a blocker is actually closed. Read the issue's own body
      for "Depends on" / "Bloqueado por" / sequencing notes — issues in this project frequently
      carry hand-written blocking notes that supersede the plain Status field.
@@ -94,11 +104,15 @@ between cycles.
      Samuel awake right now to catch a bad call, which makes stopping the safe default, not
      pushing through.
 
-5. **Decide whether to continue.** After finishing (or skipping) a candidate:
+5. **Decide whether to continue.** After finishing a candidate (or skipping one for a reason
+   that doesn't warrant asking — wrong mode, genuinely still blocked by an open dependency):
    - If another safe candidate exists, go straight back to step 1 — always refetch, don't reuse
      the list from the previous cycle, since your own last cycle may have changed what's
      unblocked next.
-   - If nothing left on the board is both `Ready` and unambiguous, stop the loop (see below)
+   - If you hit a real blocking question on an otherwise-authorized issue, ask it in the
+     conversation and stop the loop (see below) until Samuel answers — don't keep cycling
+     through other issues while a question sits unasked, and don't guess just to keep moving.
+   - If nothing left on the board is both `Ready` and safe to pick, stop the loop (see below)
      and leave a short summary of what shipped, what got skipped and why, for Samuel to read
      when he's back.
 
