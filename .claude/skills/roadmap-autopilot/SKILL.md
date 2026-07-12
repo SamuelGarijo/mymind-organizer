@@ -29,18 +29,31 @@ between cycles.
    body content.
 
 2. **Pick the next candidate**, in this order of preference:
-   - Board Status is `Ready` (not `Inbox`, `Wishes-list`, or already `Done`).
-   - A `Mode: Developer` label is a hard skip — that label means Samuel's product judgment is
-     required, full stop, no exceptions, regardless of how simple the issue looks. A
-     `Mode: Claude Code` label is a green light but not a requirement — the real test is the
-     next bullet.
+   - Board Status is `Ready` (not `Inbox`, `Wishes-list`, `Review / Test`, or already `Done`).
+   - Check the project's own **`mode` field** — a custom single-select field on the board item
+     itself, *not* a GitHub label (there's no literal "Mode: X" label anywhere in this repo;
+     `gh issue view`'s `labels` only ever shows things like `enhancement`/`question`). Read it
+     via `gh project item-list`, which returns it as `"mode"` on each item. Observed values:
+     `Claude Code`, `Developer`, `Designer`, `User`, `Research`. Only `Claude Code` means
+     pre-authorized to build without asking — every other value means a human (Samuel himself,
+     specifically, not "a developer" generically) needs to make a product/design/curation call
+     first, no matter how small or mechanical the change looks from the outside. This was
+     gotten wrong once already (issue #87 was built under `mode: Developer`, mistakenly
+     believing that label-shaped text meant something else) — treat this bullet as load-bearing,
+     not a formality.
+   - It is entirely normal, some cycles, for **zero** issues to be both `Ready` and
+     `mode: Claude Code` — every issue that clears that bar tends to get built quickly once
+     it's unblocked, so the remaining `Ready` backlog at any given moment skews toward
+     Developer/Designer/User/Research issues that are waiting on Samuel, not on more building.
+     Finding nothing to pick is a correct, expected outcome, not a sign to loosen the bar.
    - Every issue/dependency it lists as a blocker is actually closed. Read the issue's own body
      for "Depends on" / "Bloqueado por" / sequencing notes — issues in this project frequently
      carry hand-written blocking notes that supersede the plain Status field.
    - You can read the whole brief and see a concrete, unambiguous implementation path — no
      open product/UX/architecture question the issue itself doesn't already answer, and
      nothing that would need Samuel's judgment call the way this session's own #103/#99
-     sequencing did. "Confident to build without asking" is the actual bar, not any label.
+     sequencing did. `mode: Claude Code` is necessary but not sufficient — still read the full
+     issue and bail if it turns out ambiguous even though the mode field cleared it.
    - Prefer smaller, more contained issues over sprawling ones when several are equally
      unblocked — more gets shipped per cycle, and smaller changes are lower-risk unsupervised.
 
@@ -48,7 +61,8 @@ between cycles.
    (a real judgment call, a missing product decision, contradictory notes) — don't guess and
    don't force it. Post a short comment on that issue explaining specifically what's blocking
    it, leave its board Status alone, and move on to the next candidate. Never leave a partial
-   implementation behind for an issue you bailed on.
+   implementation behind for an issue you bailed on. A wrong `mode` value doesn't need a
+   comment, though — it's just not yours to build right now, silently move to the next one.
 
 3. **Execute it** using the exact workflow this project has used all session:
    - Plan the change; if it's a genuine architecture/data-shape decision, that itself is a
