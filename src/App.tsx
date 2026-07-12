@@ -6,6 +6,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Grid } from "./components/Grid";
 import { Table } from "./components/Table";
 import { DetailPanel } from "./components/DetailPanel";
+import { DetailCarousel } from "./components/DetailCarousel";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { FilterBar } from "./components/FilterBar";
@@ -90,6 +91,7 @@ export default function App() {
       excludedTags: s.excludedTags,
       facetFieldFilter: s.facetFieldFilter,
       viewMode: s.viewMode,
+      detailViewMode: s.detailViewMode,
       detailObjectId: s.detailObjectId,
       syncMymindObjects: s.syncMymindObjects,
       reconcileMymindDeletions: s.reconcileMymindDeletions,
@@ -99,6 +101,7 @@ export default function App() {
       openDetail: s.openDetail,
       closeDetail: s.closeDetail,
       setViewMode: s.setViewMode,
+      setDetailViewMode: s.setDetailViewMode,
       bulkAssignRoles: s.bulkAssignRoles,
     }))
   );
@@ -641,6 +644,31 @@ export default function App() {
                   </button>
 
                   <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+                    Detail view
+                  </div>
+                  <div className="flex gap-1 mb-2">
+                    {(["side", "centered", "carousel"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => state.setDetailViewMode(mode)}
+                        className={[
+                          "flex-1 capitalize px-2 py-1.5 rounded-lg border border-line text-[11px]",
+                          state.detailViewMode === mode ? "bg-ink text-white" : "hover:bg-line/40",
+                        ].join(" ")}
+                        title={
+                          mode === "side"
+                            ? "Docked to the right, current default"
+                            : mode === "centered"
+                            ? "Same details, centered and larger"
+                            : "Fullscreen, image-only browsing (arrows, keyboard, drag, trackpad swipe)"
+                        }
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
                     Connection
                   </div>
                   <button
@@ -768,8 +796,15 @@ export default function App() {
         </div>
       </main>
 
-      {state.detailObjectId && (
-        <DetailPanel objectId={state.detailObjectId} onClose={state.closeDetail} />
+      {state.detailObjectId && state.detailViewMode === "carousel" && (
+        <DetailCarousel objects={visibleObjects} currentId={state.detailObjectId} onClose={state.closeDetail} />
+      )}
+      {state.detailObjectId && state.detailViewMode !== "carousel" && (
+        <DetailPanel
+          objectId={state.detailObjectId}
+          onClose={state.closeDetail}
+          layout={state.detailViewMode}
+        />
       )}
 
       {modal?.kind === "smart" && (

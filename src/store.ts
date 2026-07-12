@@ -24,6 +24,7 @@ import { parseBackup } from "./lib/backupValidation";
 import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
 
 export type ViewMode = "grid" | "table";
+export type DetailViewMode = "side" | "centered" | "carousel";
 
 type State = {
   objects: Record<string, DesignObject>;
@@ -62,6 +63,13 @@ type State = {
 
   /** Masonry grid vs. virtualized table — same filtered/sorted dataset. */
   viewMode: ViewMode;
+
+  /** Detail preview display mode (issue #108) — a persistent user
+   * preference (Preferences menu), not per-item state: "side" is the
+   * original docked slide-over (default); "centered" is the same content
+   * in a larger, centered modal; "carousel" is a separate image-only
+   * browsing mode (DetailCarousel.tsx) with no metadata fields at all. */
+  detailViewMode: DetailViewMode;
 
   importObjects: (objs: DesignObject[], tagGroupHints?: TagGroups) => void;
   /** Upserts objects synced from mymind. Unlike importObjects (JSON import,
@@ -205,6 +213,7 @@ type State = {
   setRoleFilter: (role: string) => void;
   setGridZoom: (zoom: number) => void;
   setViewMode: (mode: ViewMode) => void;
+  setDetailViewMode: (mode: DetailViewMode) => void;
 
   updateObject: (
     id: string,
@@ -266,6 +275,7 @@ type PersistedState = Pick<
   | "roles"
   | "lastBackupAt"
   | "viewMode"
+  | "detailViewMode"
   | "deletedMymindIds"
   | "localTagRemovals"
   | "sidebarCollapsed"
@@ -355,6 +365,7 @@ export const useStore = create<State>()(
       roleFilter: "",
       gridZoom: 0,
       viewMode: "grid",
+      detailViewMode: "side",
 
       deletedMymindIds: [],
       localTagRemovals: {},
@@ -728,6 +739,7 @@ export const useStore = create<State>()(
       setRoleFilter: (role) => set({ roleFilter: role }),
       setGridZoom: (zoom) => set({ gridZoom: Math.max(-2, Math.min(3, zoom)) }),
       setViewMode: (mode) => set({ viewMode: mode }),
+      setDetailViewMode: (mode) => set({ detailViewMode: mode }),
 
       updateObject: (id, patch) =>
         set((s) => {
@@ -936,6 +948,7 @@ export const useStore = create<State>()(
         roles: state.roles,
         lastBackupAt: state.lastBackupAt,
         viewMode: state.viewMode,
+        detailViewMode: state.detailViewMode,
         deletedMymindIds: state.deletedMymindIds,
         localTagRemovals: state.localTagRemovals,
         sidebarCollapsed: state.sidebarCollapsed,

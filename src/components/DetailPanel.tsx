@@ -54,7 +54,19 @@ function formatFieldValue(value: string | string[]): string {
   return Array.isArray(value) ? value.join(", ") : value;
 }
 
-export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: () => void }) {
+export function DetailPanel({
+  objectId,
+  onClose,
+  layout = "side",
+}: {
+  objectId: string;
+  onClose: () => void;
+  /** Display mode (issue #108) — "side" keeps the original docked slide-
+   * over as the default; "centered" renders the exact same content in a
+   * larger, centered modal instead, so the image gets more room. A user
+   * preference (Preferences menu), not per-item state. */
+  layout?: "side" | "centered";
+}) {
   // Shallow-selected — while a detail panel is open, typing in the main
   // search box (or anything else touching unrelated store fields) shouldn't
   // re-render it.
@@ -684,8 +696,16 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
     );
   }
 
+  const isCentered = layout === "centered";
+
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
+    <div
+      className={
+        isCentered
+          ? "fixed inset-0 z-40 flex items-center justify-center p-6"
+          : "fixed inset-0 z-40 flex justify-end"
+      }
+    >
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div
         ref={panelRef}
@@ -693,7 +713,11 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
         aria-modal="true"
         aria-label={object.title || "Item details"}
         tabIndex={-1}
-        className="relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto"
+        className={
+          isCentered
+            ? "relative w-full max-w-3xl max-h-[90vh] bg-panel border border-line rounded-2xl shadow-2xl outline-none overflow-y-auto"
+            : "relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto"
+        }
       >
         <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex justify-end">
           <button
