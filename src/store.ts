@@ -904,6 +904,24 @@ export const useStore = create<State>()(
     },
     {
       name: "organizer-store",
+      // Schema-versioning scaffold (issue #118) — zustand's persist already
+      // has a version/migrate mechanism built in, so this needed no new
+      // dependency. Dexie was the library the research pointed at, but its
+      // actual value (per-record indexed tables) doesn't apply here: this
+      // storage layer persists one JSON blob, not multiple tables, so a
+      // table-oriented schema migrator wouldn't have anything to migrate —
+      // it would only pay off after a much bigger restructuring (splitting
+      // this blob into real IndexedDB object stores), which isn't warranted
+      // while every object here is still test data (project's own no-
+      // migration-without-real-data rule). `version` below is a no-op today
+      // (nothing has changed shape) — it's the hook for later: the next
+      // time PersistedState's shape actually changes (a renamed/restructured
+      // field), bump this number and add a branch in `migrate` that
+      // transforms the OLD shape into the new one, so already-persisted
+      // local data survives the change instead of being silently dropped or
+      // misread.
+      version: 1,
+      migrate: (persistedState) => persistedState as PersistedState,
       storage: createIdbStorage<PersistedState>(),
       // Transient UI state has no business surviving a reload, and more
       // importantly: persist's wrapped setState calls partialize+setItem on
