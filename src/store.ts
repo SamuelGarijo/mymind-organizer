@@ -23,6 +23,7 @@ import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
 import { parseBackup } from "./lib/backupValidation";
 import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
+import { addMymindTag } from "./lib/mymindWrite";
 
 export type ViewMode = "grid" | "table";
 export type DetailViewMode = "side" | "centered";
@@ -144,10 +145,15 @@ type State = {
    * so a later re-add (by hand or from mymind) resolves its origin fresh. */
   removeObjectTag: (objectId: string, tag: string) => void;
   setTagGroup: (tagName: string, group: string | null) => void;
-  addSmartCollection: (name: string, rule: FilterGroup) => string;
+  /** `parentId` nests the new collection under a manual collection (issue
+   * #126) — organizational only, omit for a top-level collection. */
+  addSmartCollection: (name: string, rule: FilterGroup, parentId?: string) => string;
   updateSmartCollection: (id: string, name: string, rule: FilterGroup) => void;
-  addManualCollection: (name: string, facetSchema?: FacetField[]) => string;
-  updateManualCollection: (id: string, patch: { name?: string }) => void;
+  addManualCollection: (name: string, facetSchema?: FacetField[], parentId?: string) => string;
+  updateManualCollection: (
+    id: string,
+    patch: { name?: string; autoTags?: string[] }
+  ) => void;
 
   /** Item types (issue #84): role name (normalized via norm()) → its
    * definition, including the field package every object with that role
@@ -596,7 +602,7 @@ export const useStore = create<State>()(
           return { tagGroups: { ...s.tagGroups, [key]: group.trim() } };
         }),
 
-      addSmartCollection: (name, rule) => {
+      addSmartCollection: (name, rule, parentId) => {
         const id = makeId("smart");
         const collection: SmartCollection = {
           id,
@@ -604,6 +610,7 @@ export const useStore = create<State>()(
           name,
           rule,
           createdAt: new Date().toISOString(),
+          ...(parentId ? { parentId } : {}),
         };
         set((s) => ({
           collections: { ...s.collections, [id]: collection },
@@ -620,7 +627,7 @@ export const useStore = create<State>()(
           return { collections: { ...s.collections, [id]: updated } };
         }),
 
-      addManualCollection: (name, facetSchema) => {
+      addManualCollection: (name, facetSchema, parentId) => {
         const id = makeId("manual");
         const collection: ManualCollection = {
           id,
@@ -628,6 +635,7 @@ export const useStore = create<State>()(
           name,
           createdAt: new Date().toISOString(),
           ...(facetSchema && facetSchema.length > 0 ? { facetSchema } : {}),
+          ...(parentId ? { parentId } : {}),
         };
         set((s) => ({
           collections: { ...s.collections, [id]: collection },
@@ -643,6 +651,7 @@ export const useStore = create<State>()(
           const updated: ManualCollection = {
             ...existing,
             ...(patch.name !== undefined ? { name: patch.name } : {}),
+            ...(patch.autoTags !== undefined ? { autoTags: patch.autoTags } : {}),
           };
           return { collections: { ...s.collections, [id]: updated } };
         }),
@@ -804,22 +813,46 @@ export const useStore = create<State>()(
           };
         }),
 
-      assignToManualCollection: (objectId, collectionId) =>
-        set((s) => {
-          const existing = s.objects[objectId];
-          if (!existing) return {};
-          if (existing.manualCollectionIds.includes(collectionId)) return {};
+      // Also applies the collection's autoTags (issue #126), if any — same
+      // treatment as a hand-typed tag (localUserTags + mymind push for a
+      // synced object), computed once via get() here so the async push
+      // fires exactly once per genuinely-new tag, not inside the set()
+      // reducer (which may re-run).
+      assignToManualCollection: (objectId, collectionId) => {
+        const s = get();
+        const existing = s.objects[objectId];
+        if (!existing) return;
+        const alreadyIn = existing.manualCollectionIds.includes(collectionId);
+        const collection = s.collections[collectionId];
+        const autoTags = collection?.type === "manual" ? collection.autoTags ?? [] : [];
+        const newTags = autoTags.filter((t) => !existing.tags.includes(t));
+        if (alreadyIn && newTags.length === 0) return;
+        set((st) => {
+          const cur = st.objects[objectId];
+          if (!cur) return {};
+          const userTags = st.localUserTags[objectId] ?? [];
           return {
             objects: {
-              ...s.objects,
+              ...st.objects,
               [objectId]: {
-                ...existing,
-                manualCollectionIds: [...existing.manualCollectionIds, collectionId],
+                ...cur,
+                manualCollectionIds: cur.manualCollectionIds.includes(collectionId)
+                  ? cur.manualCollectionIds
+                  : [...cur.manualCollectionIds, collectionId],
+                tags: [...cur.tags, ...newTags.filter((t) => !cur.tags.includes(t))],
                 updatedAt: new Date().toISOString(),
               },
             },
+            localUserTags:
+              newTags.length > 0
+                ? { ...st.localUserTags, [objectId]: Array.from(new Set([...userTags, ...newTags])) }
+                : st.localUserTags,
           };
-        }),
+        });
+        if (existing.source === "mymind") {
+          for (const tag of newTags) void addMymindTag(objectId, tag);
+        }
+      },
 
       removeFromManualCollection: (objectId, collectionId) =>
         set((s) => {

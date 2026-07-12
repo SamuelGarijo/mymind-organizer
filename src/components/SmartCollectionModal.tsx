@@ -68,9 +68,13 @@ function valuesForField(objects: DesignObject[], field: string, tagGroups: TagGr
 
 export function SmartCollectionModal({
   collectionId,
+  parentId,
   onClose,
 }: {
   collectionId?: string;
+  /** Nests a freshly-created collection under a manual collection (issue
+   * #126) — ignored when editing an existing one. */
+  parentId?: string;
   onClose: () => void;
 }) {
   const state = useStore();
@@ -177,7 +181,7 @@ export function SmartCollectionModal({
       state.updateSmartCollection(existing.id, trimmedName, rule);
       id = existing.id;
     } else {
-      id = state.addSmartCollection(trimmedName, rule);
+      id = state.addSmartCollection(trimmedName, rule, parentId);
       state.setSelectedView({ kind: "collection", collectionId: id });
     }
     state.updateCollectionMeta(id, { description, heroImageObjectId });
@@ -193,6 +197,9 @@ export function SmartCollectionModal({
         </div>
         <p className="text-[12px] text-muted mb-3">
           A saved search. It fills itself and updates live as tags and fields change.
+          {!existing && parentId && state.collections[parentId] && (
+            <> Nested inside "{state.collections[parentId]!.name}".</>
+          )}
         </p>
 
         <input

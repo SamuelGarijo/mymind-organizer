@@ -4,7 +4,7 @@ import { useStore, isSampleObject } from "../store";
 import { matchesSmartCollection } from "../lib/ruleEngine";
 import { chooseBackupFile, getStoredBackupHandle, isAutoBackupSupported } from "../lib/autoBackup";
 import { makeId } from "../lib/id";
-import type { FilterGroup, ViewSelection } from "../types";
+import type { Collection, FilterGroup, ManualCollection, ViewSelection } from "../types";
 
 function timeSince(iso?: string): string {
   if (!iso) return "never";
@@ -66,6 +66,8 @@ function NavRow({
   onDrop,
   onDelete,
   onEdit,
+  onAddNestedManual,
+  onAddNestedSmart,
   disabled,
 }: {
   active: boolean;
@@ -76,6 +78,12 @@ function NavRow({
   onDrop?: (objectId: string) => void;
   onDelete?: () => void;
   onEdit?: () => void;
+  /** Nesting (issue #126) — only ever offered on a manual collection row,
+   * since only manual collections can hold children. Two separate handlers
+   * (rather than one "add nested" gesture) because a manual collection can
+   * hold either type of child. */
+  onAddNestedManual?: () => void;
+  onAddNestedSmart?: () => void;
   disabled?: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -143,6 +151,38 @@ function NavRow({
           aria-label={`Delete ${label}`}
         >
           ×
+        </button>
+      )}
+      {onAddNestedManual && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddNestedManual();
+          }}
+          className={[
+            "hidden group-hover:inline-flex px-1",
+            active ? "text-white/70 hover:text-white" : "text-muted hover:text-ink",
+          ].join(" ")}
+          aria-label={`New nested manual collection in ${label}`}
+          title="New nested manual collection"
+        >
+          📁+
+        </button>
+      )}
+      {onAddNestedSmart && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddNestedSmart();
+          }}
+          className={[
+            "hidden group-hover:inline-flex px-1",
+            active ? "text-white/70 hover:text-white" : "text-muted hover:text-ink",
+          ].join(" ")}
+          aria-label={`New nested smart collection in ${label}`}
+          title="New nested smart collection"
+        >
+          ⚡+
         </button>
       )}
     </div>
@@ -214,8 +254,10 @@ export function Sidebar({
   onEditSmart,
   onEditManual,
 }: {
-  onNewSmart: () => void;
-  onNewManual: () => void;
+  /** `parentId` (issue #126) nests the new collection under a manual
+   * collection — omitted for a top-level create. */
+  onNewSmart: (parentId?: string) => void;
+  onNewManual: (parentId?: string) => void;
   onEditSmart: (collectionId: string) => void;
   onEditManual: (collectionId: string) => void;
 }) {
@@ -254,30 +296,40 @@ export function Sidebar({
     if (handle) setBackupConfigured(true);
   }
 
-  const smart = useMemo(
-    () =>
-      collectionOrder
-        .map((id) => collections[id])
-        .filter((c): c is Extract<typeof c, { type: "smart" }> => c?.type === "smart"),
+  const allCollections = useMemo(
+    () => collectionOrder.map((id) => collections[id]).filter((c): c is Collection => !!c),
     [collections, collectionOrder]
+  );
+  const smart = useMemo(
+    () => allCollections.filter((c): c is Extract<Collection, { type: "smart" }> => c.type === "smart" && !c.parentId),
+    [allCollections]
   );
   const manual = useMemo(
     () =>
-      collectionOrder
-        .map((id) => collections[id])
-        .filter((c): c is Extract<typeof c, { type: "manual" }> => c?.type === "manual"),
-    [collections, collectionOrder]
+      allCollections.filter(
+        (c): c is Extract<Collection, { type: "manual" }> => c.type === "manual" && !c.parentId
+      ),
+    [allCollections]
   );
+  // Nesting (issue #126) — only a manual collection can hold children, of
+  // either type; no depth limit, so this is just "whoever points at me",
+  // walked recursively by renderNode below rather than precomputed as a
+  // full tree structure (collections are few enough that re-filtering per
+  // node is cheap, and it avoids keeping a second data shape in sync).
+  const childrenOf = (parentId: string) => allCollections.filter((c) => c.parentId === parentId);
 
-  // One pass over the library for all counts, recomputed only when objects
-  // or collections actually change — never on unrelated renders. With ~8000
-  // objects, per-row full scans on every render were a real cost.
+  // One pass over the library for all counts (every collection, nested or
+  // not — a nested collection's count is still just its own direct
+  // members/matches, never an aggregate of its children's), recomputed only
+  // when objects or collections actually change. With ~8000 objects,
+  // per-row full scans on every render were a real cost.
   const counts = useMemo(() => {
     const map = new Map<string, number>();
+    const smartAll = allCollections.filter((c): c is Extract<Collection, { type: "smart" }> => c.type === "smart");
     const objects = Object.values(state.objects);
-    for (const c of [...smart, ...manual]) map.set(c.id, 0);
+    for (const c of allCollections) map.set(c.id, 0);
     for (const obj of objects) {
-      for (const c of smart) {
+      for (const c of smartAll) {
         if (matchesSmartCollection(c, obj, state.tagGroups, state.objects)) {
           map.set(c.id, (map.get(c.id) ?? 0) + 1);
         }
@@ -287,7 +339,7 @@ export function Sidebar({
       }
     }
     return map;
-  }, [state.objects, smart, manual, state.tagGroups]);
+  }, [state.objects, allCollections, state.tagGroups]);
 
   const sampleCount = useMemo(
     () => Object.values(state.objects).filter(isSampleObject).length,
@@ -326,6 +378,50 @@ export function Sidebar({
     };
     const id = state.addSmartCollection(`Similar to ${seed.title}`, rule);
     onEditSmart(id);
+  }
+
+  // Recursive tree render (issue #126) — a manual collection's children
+  // (either type, no depth limit) render indented directly beneath it.
+  // Re-filters allCollections per node rather than precomputing a tree
+  // shape — collections are few enough that this is cheap, and it avoids a
+  // second data structure that could drift from `collections` itself.
+  function renderManualNode(c: ManualCollection, depth: number): React.ReactNode {
+    const children = childrenOf(c.id);
+    return (
+      <div key={c.id}>
+        <div style={{ paddingLeft: depth * 14 }}>
+          <NavRow
+            active={isView({ kind: "collection", collectionId: c.id })}
+            onClick={() => setSelectedView({ kind: "collection", collectionId: c.id })}
+            icon={<FolderIcon />}
+            label={c.name}
+            count={counts.get(c.id) ?? 0}
+            onDrop={(objectId) => state.assignToManualCollection(objectId, c.id)}
+            onEdit={() => onEditManual(c.id)}
+            onDelete={() => state.deleteCollection(c.id)}
+            onAddNestedManual={() => onNewManual(c.id)}
+            onAddNestedSmart={() => onNewSmart(c.id)}
+          />
+        </div>
+        {children.map((child) =>
+          child.type === "manual" ? (
+            renderManualNode(child, depth + 1)
+          ) : (
+            <div key={child.id} style={{ paddingLeft: (depth + 1) * 14 }}>
+              <NavRow
+                active={isView({ kind: "collection", collectionId: child.id })}
+                onClick={() => setSelectedView({ kind: "collection", collectionId: child.id })}
+                icon={<SmartIcon />}
+                label={child.name}
+                count={counts.get(child.id) ?? 0}
+                onEdit={() => onEditSmart(child.id)}
+                onDelete={() => state.deleteCollection(child.id)}
+              />
+            </div>
+          )
+        )}
+      </div>
+    );
   }
 
   if (state.sidebarCollapsed && !state.dragRevealSidebar) {
@@ -380,7 +476,7 @@ export function Sidebar({
             Smart collections
           </span>
           <button
-            onClick={onNewSmart}
+            onClick={() => onNewSmart()}
             className="text-muted hover:text-ink text-[15px] leading-none px-1"
             aria-label="New smart collection"
             title="New smart collection"
@@ -415,7 +511,7 @@ export function Sidebar({
             Manual collections
           </span>
           <button
-            onClick={onNewManual}
+            onClick={() => onNewManual()}
             className="text-muted hover:text-ink text-[15px] leading-none px-1"
             aria-label="New manual collection"
             title="New manual collection"
@@ -429,19 +525,7 @@ export function Sidebar({
               None yet — drag items here from the grid.
             </div>
           )}
-          {manual.map((c) => (
-            <NavRow
-              key={c.id}
-              active={isView({ kind: "collection", collectionId: c.id })}
-              onClick={() => setSelectedView({ kind: "collection", collectionId: c.id })}
-              icon={<FolderIcon />}
-              label={c.name}
-              count={counts.get(c.id) ?? 0}
-              onDrop={(objectId) => state.assignToManualCollection(objectId, c.id)}
-              onEdit={() => onEditManual(c.id)}
-              onDelete={() => state.deleteCollection(c.id)}
-            />
-          ))}
+          {manual.map((c) => renderManualNode(c, 0))}
         </div>
         <CreateDropZone onDropManual={handleDropCreateManual} onDropSmart={handleDropCreateSmart} />
       </div>

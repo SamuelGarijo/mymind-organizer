@@ -101,6 +101,13 @@ export type SmartCollection = {
   /** An existing object's id (never a new upload) used as the header's
    * hero image (issue #87). */
   heroImageObjectId?: string;
+  /** Nests this collection under a manual collection (issue #126) — purely
+   * organizational (sidebar tree placement), never limited in depth and
+   * never used for matching: a smart collection's rule still scans the
+   * whole library regardless of where it sits in the tree. Absent for a
+   * top-level collection. Points at a ManualCollection's id — only manual
+   * collections can hold children, per the issue's own scope. */
+  parentId?: string;
 };
 
 export type FacetFieldType = "date" | "select" | "multi-select";
@@ -162,6 +169,18 @@ export type ManualCollection = {
    * CLAUDE.md's prototype-phase rule), and as a suggestion source for
    * lib/fieldCatalog.ts. Never rendered or edited anymore. */
   facetSchema?: FacetField[];
+  /** Nests this collection under another manual collection (issue #126) —
+   * same organizational-only meaning as SmartCollection.parentId; a nested
+   * manual collection's own members/count are still just its own direct
+   * manualCollectionIds membership, never an aggregate of its children's. */
+  parentId?: string;
+  /** Tags auto-assigned to an object the moment it's dropped into this
+   * collection (issue #126) — configured once per collection, applied via
+   * the same addObjectTag path (and mymind push) a hand-typed tag uses, so
+   * they show up as Curated Piles too. Never retroactive: only applied on
+   * the drop/assign gesture itself, not backfilled onto existing members
+   * when the list changes. */
+  autoTags?: string[];
 };
 
 export type Collection = SmartCollection | ManualCollection;

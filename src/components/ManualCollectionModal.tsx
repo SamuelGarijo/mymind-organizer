@@ -6,9 +6,13 @@ import { useStore } from "../store";
  * this modal no longer carries a schema editor. */
 export function ManualCollectionModal({
   collectionId,
+  parentId,
   onClose,
 }: {
   collectionId?: string;
+  /** Nests a freshly-created collection under a manual collection (issue
+   * #126) — ignored when editing an existing one. */
+  parentId?: string;
   onClose: () => void;
 }) {
   const state = useStore();
@@ -25,6 +29,9 @@ export function ManualCollectionModal({
   const [heroTitleDraft, setHeroTitleDraft] = useState(
     existing?.heroImageObjectId ? state.objects[existing.heroImageObjectId]?.title ?? "" : ""
   );
+  const [autoTagsDraft, setAutoTagsDraft] = useState(
+    existing?.type === "manual" ? (existing.autoTags ?? []).join(", ") : ""
+  );
 
   // Hero image is a reference to an object already curated into this
   // collection, never a new upload (issue #87) — only meaningful once the
@@ -37,13 +44,22 @@ export function ManualCollectionModal({
   function save() {
     const trimmed = name.trim();
     if (!trimmed) return;
+    const autoTags = Array.from(
+      new Set(
+        autoTagsDraft
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      )
+    );
     let id: string;
     if (existing) {
-      state.updateManualCollection(existing.id, { name: trimmed });
+      state.updateManualCollection(existing.id, { name: trimmed, autoTags });
       id = existing.id;
     } else {
-      id = state.addManualCollection(trimmed);
+      id = state.addManualCollection(trimmed, undefined, parentId);
       state.setSelectedView({ kind: "collection", collectionId: id });
+      if (autoTags.length > 0) state.updateManualCollection(id, { autoTags });
     }
     state.updateCollectionMeta(id, { description, heroImageObjectId });
     onClose();
@@ -60,6 +76,9 @@ export function ManualCollectionModal({
           A folder you curate yourself. Drag cards from the grid onto it in the sidebar —
           this never changes anything in mymind. Classification fields live on each item's
           type (set it in the item's detail panel), not on the collection.
+          {!existing && parentId && state.collections[parentId] && (
+            <> Nested inside "{state.collections[parentId]!.name}".</>
+          )}
         </p>
         <input
           autoFocus
@@ -76,6 +95,13 @@ export function ManualCollectionModal({
           placeholder="Description (optional) — shown at the top of this collection, like an Are.na channel"
           rows={2}
           className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent resize-y"
+        />
+
+        <input
+          value={autoTagsDraft}
+          onChange={(e) => setAutoTagsDraft(e.target.value)}
+          placeholder="Auto-tags (optional, comma-separated) — added to any item dropped in here"
+          className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
         />
 
         {memberObjects.length > 0 && (

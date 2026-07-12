@@ -39,8 +39,10 @@ import type { FacetField } from "./types";
 const RESTORE_NOTICE_KEY = "organizer_restore_notice";
 
 type Modal =
-  | { kind: "smart"; collectionId?: string }
-  | { kind: "manual"; collectionId?: string }
+  // parentId (issue #126) only matters on a fresh create (no collectionId) —
+  // nests the new collection under a manual collection.
+  | { kind: "smart"; collectionId?: string; parentId?: string }
+  | { kind: "manual"; collectionId?: string; parentId?: string }
   | null;
 
 type SyncStatus =
@@ -530,8 +532,8 @@ export default function App() {
   return (
     <div className="h-screen w-screen flex overflow-hidden">
       <Sidebar
-        onNewSmart={() => setModal({ kind: "smart" })}
-        onNewManual={() => setModal({ kind: "manual" })}
+        onNewSmart={(parentId) => setModal({ kind: "smart", parentId })}
+        onNewManual={(parentId) => setModal({ kind: "manual", parentId })}
         onEditSmart={(collectionId) => setModal({ kind: "smart", collectionId })}
         onEditManual={(collectionId) => setModal({ kind: "manual", collectionId })}
       />
@@ -846,12 +848,14 @@ export default function App() {
       {modal?.kind === "smart" && (
         <SmartCollectionModal
           collectionId={modal.collectionId}
+          parentId={modal.parentId}
           onClose={() => setModal(null)}
         />
       )}
       {modal?.kind === "manual" && (
         <ManualCollectionModal
           collectionId={modal.collectionId}
+          parentId={modal.parentId}
           onClose={() => setModal(null)}
         />
       )}
