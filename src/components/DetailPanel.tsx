@@ -854,14 +854,39 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
               >
                 {object.role} — fields
               </label>
-              <div className="mt-1.5 space-y-1.5">
+              <div className="mt-1.5 space-y-3">
                 {(() => {
+                  // Objective vs subjective (issue #100) is purely how this
+                  // renders — a section header, not a new kind of field.
+                  // Unmarked fields get no header at all, rendering neutrally
+                  // rather than defaulting into either camp.
                   const filled = rolePackageFields.filter((f) => object.fields[f.name]);
                   const empty = rolePackageFields.filter((f) => !object.fields[f.name]);
                   const visible = showEmptyRoleFields ? rolePackageFields : filled;
+                  const objective = visible.filter((f) => f.group === "objective");
+                  const subjective = visible.filter((f) => f.group === "subjective");
+                  const ungrouped = visible.filter((f) => !f.group);
                   return (
                     <>
-                      {visible.map(renderRoleField)}
+                      {objective.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] uppercase tracking-wide text-muted/60">
+                            Objective
+                          </div>
+                          {objective.map(renderRoleField)}
+                        </div>
+                      )}
+                      {subjective.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] uppercase tracking-wide text-muted/60">
+                            Subjective
+                          </div>
+                          {subjective.map(renderRoleField)}
+                        </div>
+                      )}
+                      {ungrouped.length > 0 && (
+                        <div className="space-y-1.5">{ungrouped.map(renderRoleField)}</div>
+                      )}
                       {empty.length > 0 && (
                         <button
                           onClick={() => setShowEmptyRoleFields(!showEmptyRoleFields)}

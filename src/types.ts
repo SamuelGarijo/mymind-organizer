@@ -81,11 +81,20 @@ export type SmartCollection = {
 
 export type FacetFieldType = "date" | "select" | "multi-select";
 
+/** Objective (verifiable data — author, year, ISBN, movement) vs subjective
+ * (the user's own interpretation — why it matters, what draws them to it).
+ * Presentation-layer only (issue #100): purely how the detail view groups
+ * fields visually, never a new field type and never stored on the value. */
+export type FacetFieldGroup = "objective" | "subjective";
+
 export type FacetField = {
   name: string;
   type: FacetFieldType;
   /** Meaningful for "select" and "multi-select" — the fixed choice list. */
   options?: string[];
+  /** Unmarked (undefined) fields render neutrally, outside either section,
+   * until explicitly classified — see FacetFieldGroup. */
+  group?: FacetFieldGroup;
 };
 
 /** One item type (Photo, Author, Book, Album…) and the field package every

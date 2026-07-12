@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { norm } from "../lib/ruleEngine";
 import { getKnownFields } from "../lib/fieldCatalog";
-import type { FacetField, FacetFieldType } from "../types";
+import type { FacetField, FacetFieldGroup, FacetFieldType } from "../types";
 
 /** Classification field types only (issue #84's closed decision) — no free
  * text (that's what an object's description is for). */
@@ -13,6 +13,15 @@ const TYPE_LABELS: Partial<Record<FacetFieldType, string>> = {
   date: "Date",
 };
 const ALLOWED_TYPES = Object.keys(TYPE_LABELS) as FacetFieldType[];
+
+/** Objective vs subjective (issue #100) — purely how the detail view groups
+ * fields visually, so "—" (unmarked) is a real, valid, default choice, not
+ * a placeholder to be filled in later. */
+const GROUP_LABELS: Record<FacetFieldGroup | "", string> = {
+  "": "—",
+  objective: "Objective",
+  subjective: "Subjective",
+};
 
 /** Edits one item type's field package. Retroactive by design: these
  * fields apply to every object carrying this role, in every collection —
@@ -36,6 +45,7 @@ export function RolePackageModal({
   const [nameDraft, setNameDraft] = useState("");
   const [typeDraft, setTypeDraft] = useState<FacetFieldType>("select");
   const [optionsDraft, setOptionsDraft] = useState("");
+  const [groupDraft, setGroupDraft] = useState<FacetFieldGroup | "">("");
 
   // Derived live from every role package (and legacy collection schemas),
   // never a stored catalog — see lib/fieldCatalog.ts.
@@ -55,10 +65,25 @@ export function RolePackageModal({
             .map((o) => o.trim())
             .filter(Boolean)
         : undefined;
-    setFields([...fields, { name: value, type: typeDraft, ...(options ? { options } : {}) }]);
+    setFields([
+      ...fields,
+      {
+        name: value,
+        type: typeDraft,
+        ...(options ? { options } : {}),
+        ...(groupDraft ? { group: groupDraft } : {}),
+      },
+    ]);
     setNameDraft("");
     setOptionsDraft("");
     setTypeDraft("select");
+    setGroupDraft("");
+  }
+
+  function setFieldGroup(fieldName: string, group: FacetFieldGroup | "") {
+    setFields(
+      fields.map((f) => (f.name === fieldName ? { ...f, group: group || undefined } : f))
+    );
   }
 
   function save() {
@@ -86,6 +111,18 @@ export function RolePackageModal({
                   <span className="text-muted/70 truncate">({field.options.join(", ")})</span>
                 )}
               </span>
+              <select
+                value={field.group ?? ""}
+                onChange={(e) => setFieldGroup(field.name, e.target.value as FacetFieldGroup | "")}
+                className="text-[11px] rounded border border-line bg-panel px-1 py-0.5 text-muted shrink-0"
+                title="Objective (verifiable data) vs subjective (your own interpretation) — purely how this field is grouped in the detail view, never a new field type"
+              >
+                {(Object.keys(GROUP_LABELS) as (FacetFieldGroup | "")[]).map((g) => (
+                  <option key={g} value={g}>
+                    {GROUP_LABELS[g]}
+                  </option>
+                ))}
+              </select>
               <button
                 onClick={() => setFields(fields.filter((f) => f.name !== field.name))}
                 className="text-muted hover:text-ink px-1"
@@ -135,6 +172,18 @@ export function RolePackageModal({
               {ALLOWED_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+            <select
+              value={groupDraft}
+              onChange={(e) => setGroupDraft(e.target.value as FacetFieldGroup | "")}
+              className="rounded-lg border border-line px-2 py-1.5 text-sm bg-panel"
+              title="Objective (verifiable data) vs subjective (your own interpretation) — purely how this field is grouped in the detail view"
+            >
+              {(Object.keys(GROUP_LABELS) as (FacetFieldGroup | "")[]).map((g) => (
+                <option key={g} value={g}>
+                  {GROUP_LABELS[g]}
                 </option>
               ))}
             </select>
