@@ -10,12 +10,14 @@ import { DetailCarousel } from "./components/DetailCarousel";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { FilterBar } from "./components/FilterBar";
+import { CuratedPilesBar } from "./components/CuratedPilesBar";
 import {
   applyExcludedTags,
   applyFacetFieldFilter,
   applyFacetTags,
   applyRoleFilter,
   applyTypeFilter,
+  computeCuratedPiles,
   computeObjectTypes,
   computeRoleFrequency,
   computeTopTags,
@@ -82,6 +84,7 @@ export default function App() {
       selectedView: s.selectedView,
       tagGroups: s.tagGroups,
       roles: s.roles,
+      localUserTags: s.localUserTags,
       typeFilter: s.typeFilter,
       roleFilter: s.roleFilter,
       colorFilter: s.colorFilter,
@@ -181,6 +184,16 @@ export default function App() {
         ? applyFacetTags(searchFiltered, state.facetTags, "AND")
         : searchFiltered,
     [searchFiltered, state.facetTags, state.facetMode]
+  );
+
+  // Curated Piles (user-created tags only) — deliberately computed from
+  // baseObjects, not the further-narrowed topTagsSource: piles are a stable
+  // set of buttons for this view/collection, not a self-narrowing facet
+  // browser, so clicking one filters the grid without other piles
+  // disappearing from the bar itself.
+  const curatedPiles = useMemo(
+    () => computeCuratedPiles(baseObjects, state.localUserTags),
+    [baseObjects, state.localUserTags]
   );
   const topTags = useMemo(() => computeTopTags(topTagsSource), [topTagsSource]);
 
@@ -770,6 +783,8 @@ export default function App() {
             roll back if needed.
           </div>
         )}
+
+        <CuratedPilesBar piles={curatedPiles} />
 
         <FilterBar
           topTags={topTags}

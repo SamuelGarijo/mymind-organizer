@@ -122,14 +122,26 @@ type State = {
    * `syncMymindObjects` from silently re-adding a tag the user took off,
    * on every subsequent sync forever. */
   localTagRemovals: Record<string, string[]>;
+  /** Tag names this app itself added by hand, per object id — the durable
+   * "user" side of lib/tagOrigin.ts's origin resolution (Curated Piles).
+   * Kept separate from mymind's own tagFlags because a tag added here can
+   * get pushed to mymind and echoed back with mymind's own Manual flag on a
+   * later sync; without this record, that round-trip would make it
+   * indistinguishable from a tag someone typed inside mymind's own UI, and
+   * it would quietly stop being a pile. */
+  localUserTags: Record<string, string[]>;
   /** Adds a tag the user typed by hand — local-only, never pushed to mymind
-   * (the one write endpoint we're authorized to use is the facet-field
-   * push in DetailPanel, not this). Also clears any prior local removal of
-   * the same tag, since re-adding it supersedes that. */
+   * itself by this action (the one write endpoint we're authorized to use
+   * is the facet-field push in DetailPanel, not this — callers that DO want
+   * to push, like DetailPanel's own "Add tag" box, call mymindWrite's
+   * addMymindTag separately after this). Also clears any prior local
+   * removal of the same tag, since re-adding it supersedes that, and
+   * records it in localUserTags so its origin survives resync. */
   addObjectTag: (objectId: string, tag: string) => void;
   /** Removes a tag locally. mymind has no removal endpoint, so this only
    * ever affects our own copy — and records the removal so a later sync
-   * doesn't bring the tag straight back. */
+   * doesn't bring the tag straight back. Also drops it from localUserTags,
+   * so a later re-add (by hand or from mymind) resolves its origin fresh. */
   removeObjectTag: (objectId: string, tag: string) => void;
   setTagGroup: (tagName: string, group: string | null) => void;
   addSmartCollection: (name: string, rule: FilterGroup) => string;
@@ -294,6 +306,7 @@ type PersistedState = Pick<
   | "detailViewMode"
   | "deletedMymindIds"
   | "localTagRemovals"
+  | "localUserTags"
   | "sidebarCollapsed"
 >;
 
@@ -387,6 +400,7 @@ export const useStore = create<State>()(
 
       deletedMymindIds: [],
       localTagRemovals: {},
+      localUserTags: {},
 
       lastBackupAt: undefined,
       setLastBackupAt: (iso) => set({ lastBackupAt: iso }),
@@ -529,6 +543,10 @@ export const useStore = create<State>()(
           const localTagRemovals = removals?.includes(tag)
             ? { ...s.localTagRemovals, [objectId]: removals.filter((t) => t !== tag) }
             : s.localTagRemovals;
+          const userTags = s.localUserTags[objectId] ?? [];
+          const localUserTags = userTags.includes(tag)
+            ? s.localUserTags
+            : { ...s.localUserTags, [objectId]: [...userTags, tag] };
           return {
             objects: {
               ...s.objects,
@@ -539,6 +557,7 @@ export const useStore = create<State>()(
               },
             },
             localTagRemovals,
+            localUserTags,
           };
         }),
 
@@ -547,6 +566,10 @@ export const useStore = create<State>()(
           const existing = s.objects[objectId];
           if (!existing) return {};
           const removals = s.localTagRemovals[objectId] ?? [];
+          const userTags = s.localUserTags[objectId];
+          const localUserTags = userTags?.includes(tag)
+            ? { ...s.localUserTags, [objectId]: userTags.filter((t) => t !== tag) }
+            : s.localUserTags;
           return {
             objects: {
               ...s.objects,
@@ -559,6 +582,7 @@ export const useStore = create<State>()(
             localTagRemovals: removals.includes(tag)
               ? s.localTagRemovals
               : { ...s.localTagRemovals, [objectId]: [...removals, tag] },
+            localUserTags,
           };
         }),
 
@@ -978,6 +1002,7 @@ export const useStore = create<State>()(
         detailViewMode: state.detailViewMode,
         deletedMymindIds: state.deletedMymindIds,
         localTagRemovals: state.localTagRemovals,
+        localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),
       // Embeddings are deliberately excluded from what idbStorage actually

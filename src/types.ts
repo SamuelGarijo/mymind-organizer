@@ -20,8 +20,9 @@ export type DesignObject = {
   createdAt: string;
   updatedAt: string;
   /** Tag name (normalized) -> mymind's raw flags bitmask (2=AI, 8=Manual),
-   * present only on objects synced from mymind. Purely a display hint —
-   * never used for filtering, and unrelated to our own local tagGroups. */
+   * present only on objects synced from mymind. Feeds lib/tagOrigin.ts's
+   * origin resolution (Curated Piles); unrelated to our own local
+   * tagGroups. */
   tagFlags?: Record<string, number>;
   /** Where this object came from: locally imported test data ("sample") or
    * a real mymind sync ("mymind"). Optional because objects created before
@@ -39,6 +40,13 @@ export type DesignObject = {
    * gets everywhere it appears. Local-only — never written to mymind. */
   role?: string;
 };
+
+/** Where a tag actually came from — powers Curated Piles (only "user" tags
+ * become piles) and, later, issue #80's tag→facet promotion path. "facet" is
+ * reserved for that promotion (not produced by anything yet); the other
+ * three are resolved live by lib/tagOrigin.ts, never stored on the object
+ * itself. */
+export type TagOrigin = "mymind" | "ai" | "user" | "facet";
 
 // ---------------------------------------------------------------------------
 // Smart collection filter rules

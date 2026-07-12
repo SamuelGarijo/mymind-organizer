@@ -1,6 +1,7 @@
 import type { DesignObject } from "../types";
 import { norm } from "./ruleEngine";
 import { asFieldString } from "./mymindSync";
+import { resolveTagOrigin } from "./tagOrigin";
 
 export type FacetFieldFilter = { field: string; value: string };
 
@@ -24,6 +25,26 @@ export function computeTopTags(objects: DesignObject[], limit = 30): TagFrequenc
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
     .slice(0, limit);
+}
+
+/** Curated Piles (user-created tags only, most frequent first) — same shape
+ * and sort as computeTopTags, filtered to tags lib/tagOrigin.ts resolves as
+ * "user" so mymind/AI-sourced tags never show up as a pile. `localUserTags`
+ * is the store's own record of which tags were added by hand here. */
+export function computeCuratedPiles(
+  objects: DesignObject[],
+  localUserTags: Record<string, string[]>
+): TagFrequency[] {
+  const counts = new Map<string, number>();
+  for (const obj of objects) {
+    for (const tag of obj.tags) {
+      if (resolveTagOrigin(obj, tag, localUserTags[obj.id]) !== "user") continue;
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 }
 
 /** Distinct mymind entity types (fields.entity_type) present, most frequent
