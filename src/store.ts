@@ -14,6 +14,7 @@ import type {
 import { makeId } from "./lib/id";
 import { matchesSmartCollection, norm } from "./lib/ruleEngine";
 import type { FacetMode } from "./lib/quickFilter";
+import type { ColorFilter } from "./lib/colorSearch";
 import { createIdbStorage } from "./lib/idbStorage";
 import { loadEmbeddings, saveEmbeddings } from "./lib/embeddingsStorage";
 import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
@@ -48,6 +49,11 @@ type State = {
   /** Facet/role field value filter, e.g. { field: "Genre", value: "Portrait" } —
    * null means no filter. Independent of tag filtering; combines with it (AND). */
   facetFieldFilter: { field: string; value: string } | null;
+  /** Color search (issue #69) — matches against mymind's own per-image
+   * palette (BLOB_PALETTE_KEY), not any local color extraction. null means
+   * no filter; combines with everything else (AND), same footing as
+   * facetFieldFilter. */
+  colorFilter: ColorFilter | null;
   /** mymind's entityType (fields.entity_type), e.g. "Image"/"Article" — "" means
    * no filter. A separate control from the free-text search box. */
   typeFilter: string;
@@ -209,6 +215,7 @@ type State = {
   toggleExcludeTag: (tag: string) => void;
   clearExcludedTags: () => void;
   setFacetFieldFilter: (filter: { field: string; value: string } | null) => void;
+  setColorFilter: (filter: ColorFilter | null) => void;
   setTypeFilter: (type: string) => void;
   setRoleFilter: (role: string) => void;
   setGridZoom: (zoom: number) => void;
@@ -361,6 +368,7 @@ export const useStore = create<State>()(
       facetMode: "AND",
       excludedTags: [],
       facetFieldFilter: null,
+      colorFilter: null,
       typeFilter: "",
       roleFilter: "",
       gridZoom: 0,
@@ -711,7 +719,13 @@ export const useStore = create<State>()(
         }),
 
       setSelectedView: (view) =>
-        set({ selectedView: view, facetTags: [], excludedTags: [], facetFieldFilter: null }),
+        set({
+          selectedView: view,
+          facetTags: [],
+          excludedTags: [],
+          facetFieldFilter: null,
+          colorFilter: null,
+        }),
       openDetail: (id) => set({ detailObjectId: id }),
       closeDetail: () => set({ detailObjectId: null }),
 
@@ -735,6 +749,7 @@ export const useStore = create<State>()(
         })),
       clearExcludedTags: () => set({ excludedTags: [] }),
       setFacetFieldFilter: (filter) => set({ facetFieldFilter: filter }),
+      setColorFilter: (filter) => set({ colorFilter: filter }),
       setTypeFilter: (type) => set({ typeFilter: type }),
       setRoleFilter: (role) => set({ roleFilter: role }),
       setGridZoom: (zoom) => set({ gridZoom: Math.max(-2, Math.min(3, zoom)) }),

@@ -20,6 +20,7 @@ import {
   computeRoleFrequency,
   computeTopTags,
 } from "./lib/quickFilter";
+import { applyColorFilter } from "./lib/colorSearch";
 import { buildSearchIndex, searchObjects } from "./lib/search";
 import { describeMymindError, fetchAllMymindIds, syncFull, syncIncremental } from "./lib/mymindSync";
 import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
@@ -83,6 +84,8 @@ export default function App() {
       roles: s.roles,
       typeFilter: s.typeFilter,
       roleFilter: s.roleFilter,
+      colorFilter: s.colorFilter,
+      setColorFilter: s.setColorFilter,
       gridZoom: s.gridZoom,
       setGridZoom: s.setGridZoom,
       searchQuery: s.searchQuery,
@@ -186,9 +189,13 @@ export default function App() {
     () => applyExcludedTags(facetFiltered, state.excludedTags),
     [facetFiltered, state.excludedTags]
   );
-  const visibleObjects = useMemo(
+  const fieldFiltered = useMemo(
     () => applyFacetFieldFilter(excludeFiltered, state.facetFieldFilter),
     [excludeFiltered, state.facetFieldFilter]
+  );
+  const visibleObjects = useMemo(
+    () => applyColorFilter(fieldFiltered, state.colorFilter),
+    [fieldFiltered, state.colorFilter]
   );
 
   // Library-wide, not view-scoped — "distinctive" means rare across
@@ -766,6 +773,8 @@ export default function App() {
           roleTypes={roleTypes}
           facetColumns={facetColumns}
           fieldFilterPool={excludeFiltered}
+          colorFilter={state.colorFilter}
+          setColorFilter={state.setColorFilter}
         />
 
         <div className="flex-1 overflow-hidden">

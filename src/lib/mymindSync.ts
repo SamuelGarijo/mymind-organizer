@@ -36,7 +36,19 @@ type RawMymindObject = {
    * empirically present on real image blobs, 2026-07-08) are the real pixel
    * dimensions — used for BLOB_ASPECT_KEY, the masonry grid's height
    * estimate (see lib/masonry.ts). */
-  blob?: { type?: string; path?: string; width?: number; height?: number };
+  blob?: {
+    type?: string;
+    path?: string;
+    width?: number;
+    height?: number;
+    /** Dominant colors of the image, weighted 0-1 (docs/mymind-api.md's
+     * Palette type) — mymind's own analysis, already present on every
+     * image blob response. Issue #69 (color search) deliberately reuses
+     * this instead of running any local extraction/perceptual-hashing
+     * pipeline (that would have been the actual scope of #62/#23) — the
+     * work is already done upstream, this just reads it. */
+    palette?: Record<string, number>;
+  };
   /** The object's OWN primary body — distinct from `notes[]` (a secondary
    * annotation slot attachable to any object, always empty for a real
    * mymind Note). For entityType "Note" this is the actual written text;
@@ -73,6 +85,13 @@ export const NOTE_CONTENT_KEY = "mymind_note_content";
  * for the image to load. Absent for non-image objects and for anything
  * synced before this field existed (falls back to a square-ish default). */
 export const BLOB_ASPECT_KEY = "mymind_blob_aspect";
+/** The image's dominant-color palette, straight from mymind's own analysis
+ * (`blob.palette`) — a JSON-stringified `Record<hexColor, weight>` (fields
+ * only ever hold string | string[], so the map is serialized). Powers
+ * color search (issue #69) via lib/colorSearch.ts, without this app running
+ * any color extraction of its own. Absent for non-image objects and for
+ * anything synced before this field existed. */
+export const BLOB_PALETTE_KEY = "mymind_blob_palette";
 
 /** Reads a field this module itself populates (entity_type, summary,
  * source_url, the *_KEY constants above, etc.) — always a plain string,
@@ -151,6 +170,7 @@ export const MYMIND_OWNED_FIELD_KEYS = [
   "entity_type",
   BLOB_TYPE_KEY,
   BLOB_ASPECT_KEY,
+  BLOB_PALETTE_KEY,
 ] as const;
 
 /** ProseMirror doc node — minimal shape, just enough to flatten to plain
@@ -270,6 +290,9 @@ export function mapMymindObjectToDesignObject(raw: RawMymindObject): DesignObjec
       ...(raw.blob?.type ? { [BLOB_TYPE_KEY]: raw.blob.type } : {}),
       ...(raw.blob?.width && raw.blob?.height
         ? { [BLOB_ASPECT_KEY]: String(raw.blob.width / raw.blob.height) }
+        : {}),
+      ...(raw.blob?.palette && Object.keys(raw.blob.palette).length > 0
+        ? { [BLOB_PALETTE_KEY]: JSON.stringify(raw.blob.palette) }
         : {}),
       ...(noteContent ? { [NOTE_CONTENT_KEY]: noteContent } : {}),
     },

@@ -9,9 +9,10 @@ import {
 } from "../lib/quickFilter";
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
+import { TOLERANCE_MAX, TOLERANCE_MIN, type ColorFilter } from "../lib/colorSearch";
 import type { DesignObject, FacetField } from "../types";
 
-type Category = "tag" | "type" | "role" | "field";
+type Category = "tag" | "type" | "role" | "field" | "color";
 
 /** One active filter, regardless of which underlying store slice it comes
  * from — the whole point of this redesign (issue #120) is that every
@@ -26,12 +27,19 @@ export function FilterBar({
   roleTypes,
   facetColumns,
   fieldFilterPool,
+  colorFilter,
+  setColorFilter,
 }: {
   topTags: TagFrequency[];
   objectTypes: TypeFrequency[];
   roleTypes: TypeFrequency[];
   facetColumns: FacetField[];
   fieldFilterPool: DesignObject[];
+  /** Color search (issue #69) — matches mymind's own per-image palette, no
+   * local color extraction. Lives in the store (not local state) since it
+   * needs to combine with every other filter in App.tsx's pipeline. */
+  colorFilter: ColorFilter | null;
+  setColorFilter: (filter: ColorFilter | null) => void;
 }) {
   // Shallow-selected — this bar legitimately re-renders on every keystroke
   // (it's the input itself), but a bare useStore() also re-rendered it on
@@ -84,6 +92,13 @@ export function FilterBar({
   // from the committed store filter so choosing a field doesn't filter
   // anything until a value is also chosen.
   const [pendingField, setPendingField] = useState<string | null>(null);
+  // Color category's own draft (issue #69) — picking a color/tolerance
+  // doesn't filter anything until "Apply", same reasoning as pendingField:
+  // dragging a color picker or slider fires many onChange events, and only
+  // the committed store filter re-runs the (relatively pricier) palette
+  // distance check over every object.
+  const [pendingHex, setPendingHex] = useState(colorFilter?.hex ?? "#6a5cff");
+  const [pendingTolerance, setPendingTolerance] = useState(colorFilter?.tolerance ?? 20);
   const menuRef = useRef<HTMLDivElement>(null);
 
   function closeMenu() {
@@ -142,6 +157,14 @@ export function FilterBar({
       label: `NOT: ${tag}`,
       tone: "exclude",
       onRemove: () => toggleExcludeTag(tag),
+    });
+  }
+  if (colorFilter) {
+    pills.push({
+      key: "color",
+      label: `Color: ${colorFilter.hex} (±${colorFilter.tolerance})`,
+      tone: "include",
+      onRemove: () => setColorFilter(null),
     });
   }
 
@@ -221,6 +244,7 @@ export function FilterBar({
                     ["type", "Type"],
                     ["role", "Item type"],
                     ["field", "Field"],
+                    ["color", "Color"],
                   ] as const
                 ).map(([c, label]) => (
                   <button
@@ -361,6 +385,53 @@ export function FilterBar({
                     </div>
                   </div>
                 ))}
+
+              {category === "color" && (
+                <div className="p-2 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={pendingHex}
+                      onChange={(e) => setPendingHex(e.target.value)}
+                      className="w-9 h-9 rounded border border-line cursor-pointer shrink-0"
+                      title="Target color — matched against mymind's own per-image palette, not a local color analysis"
+                    />
+                    <span className="text-[12px] text-muted uppercase">{pendingHex}</span>
+                  </div>
+                  <label className="text-[11px] text-muted flex flex-col gap-1">
+                    Tolerance ({pendingTolerance})
+                    <input
+                      type="range"
+                      min={TOLERANCE_MIN}
+                      max={TOLERANCE_MAX}
+                      value={pendingTolerance}
+                      onChange={(e) => setPendingTolerance(Number(e.target.value))}
+                    />
+                  </label>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => {
+                        setColorFilter({ hex: pendingHex, tolerance: pendingTolerance });
+                        closeMenu();
+                      }}
+                      className="flex-1 rounded-lg border border-line px-2 py-1 text-[12px] bg-ink text-white hover:opacity-90"
+                    >
+                      Apply
+                    </button>
+                    {colorFilter && (
+                      <button
+                        onClick={() => {
+                          setColorFilter(null);
+                          closeMenu();
+                        }}
+                        className="text-[12px] text-muted hover:text-ink px-2"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
