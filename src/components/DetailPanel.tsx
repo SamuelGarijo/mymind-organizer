@@ -19,6 +19,7 @@ import {
   updateMymindNote,
 } from "../lib/mymindWrite";
 import { buildDownloadFilename } from "../lib/downloadFilename";
+import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { RolePackageModal } from "./RolePackageModal";
 import { DRAG_MIME } from "./Sidebar";
 import type { DesignObject, FacetField, ManualCollection } from "../types";
@@ -106,6 +107,7 @@ export function DetailPanel({
       setTagGroup: s.setTagGroup,
       setObjectRole: s.setObjectRole,
       setSelectedView: s.setSelectedView,
+      openDetail: s.openDetail,
       setFacetFieldFilter: s.setFacetFieldFilter,
       clearFacetTags: s.clearFacetTags,
       toggleFacetTag: s.toggleFacetTag,
@@ -268,6 +270,19 @@ export function DetailPanel({
     }
     return best;
   }, [contextObjects, object]);
+
+  /** "Same vibe" strip (issue #88) — the same local hybrid score the full
+   * "similar" view (#23) ranks by, capped to a handful for an inline
+   * preview. Scoped to the whole library (not contextObjects, which is only
+   * this view's own pool) since similarity is a library-wide question, same
+   * as the full view it links out to. */
+  const similarStrip = useMemo(() => {
+    if (!object) return [];
+    const allObjects = Object.values(state.objects);
+    const candidates = allObjects.filter((o) => o.id !== object.id);
+    const ranked = rankByHybridSimilarity(object, candidates, allObjects, 8);
+    return ranked.map((r) => state.objects[r.id]).filter((o): o is DesignObject => !!o);
+  }, [object, state.objects]);
 
   /** Filters the current view down to just this tag (replacing any other
    * tag filters) and closes the panel so the filtered results are visible
@@ -917,16 +932,41 @@ export function DetailPanel({
         )}
 
         <div className="px-4 pt-4">
-          <button
-            onClick={() => {
-              state.setSelectedView({ kind: "similar", objectId: object.id });
-              onClose();
-            }}
-            className="w-full text-sm px-3 py-1.5 rounded-lg border border-line hover:bg-line/40"
-            title="Ranks your library by a local hybrid score (tags, color palette, matching facet fields, keywords) — no mymind embedding needed, works for any object regardless of source"
-          >
-            ✦ Similar to this
-          </button>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] uppercase tracking-wide text-muted">✦ Similar to this</span>
+            <button
+              onClick={() => {
+                state.setSelectedView({ kind: "similar", objectId: object.id });
+                onClose();
+              }}
+              className="text-[11px] text-accent hover:underline"
+              title="Ranks your whole library by a local hybrid score (tags, color palette, matching facet fields, keywords) — no mymind embedding needed, works for any object regardless of source"
+            >
+              See more →
+            </button>
+          </div>
+          {similarStrip.length > 0 ? (
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              {similarStrip.map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => state.openDetail(o.id)}
+                  className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-line hover:border-accent"
+                  title={o.title}
+                >
+                  {o.imageUrl ? (
+                    <img src={o.imageUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[9px] leading-tight text-muted bg-line/10 p-1 text-center">
+                      {o.title}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[12px] text-muted/70">Nothing else similar enough yet.</p>
+          )}
         </div>
 
         <div className="p-4 space-y-5">
