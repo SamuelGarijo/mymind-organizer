@@ -1,5 +1,5 @@
 import type { DesignObject } from "../types";
-import { norm } from "./ruleEngine";
+import { norm } from "./textNorm";
 import {
   BLOB_PALETTE_KEY,
   DESCRIPTION_KEY,
@@ -234,6 +234,16 @@ function scorePair(
     weightSum;
 
   return { score, breakdown: { tag, color, facet, keyword: keyword ?? 0 } };
+}
+
+/** Pairwise score between two specific objects (0-1) — same signals/weights
+ * as rankByHybridSimilarity, exposed separately for a smart collection's
+ * "similar to this object" criterion (lib/ruleEngine.ts's FilterSimilarity),
+ * which checks one seed against every candidate individually rather than
+ * ranking a fixed pool. `allObjects` is only for the TF-IDF corpus cache. */
+export function similarityScore(a: DesignObject, b: DesignObject, allObjects: DesignObject[]): number {
+  const stats = getCorpusStats(allObjects);
+  return scorePair(a, b, tfidfVector(a, stats), tfidfVector(b, stats)).score;
 }
 
 /** Ranks every candidate against `target`, most similar first — the

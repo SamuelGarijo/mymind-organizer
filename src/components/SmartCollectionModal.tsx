@@ -9,9 +9,9 @@ import {
   isGroupField,
 } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
-import type { DesignObject, FilterCondition, FilterOperator, TagGroups } from "../types";
+import type { DesignObject, FilterCondition, FilterOperator, FilterSimilarity, TagGroups } from "../types";
 
-type Row = FilterCondition;
+type Row = FilterCondition | FilterSimilarity;
 
 function newRow(): Row {
   return { kind: "condition", id: makeId("cond"), field: "tag", operator: "includes", value: "" };
@@ -93,7 +93,7 @@ export function SmartCollectionModal({
   const [rows, setRows] = useState<Row[]>(() => {
     if (existing?.type === "smart") {
       const flat = existing.rule.children.filter(
-        (c): c is FilterCondition => c.kind === "condition"
+        (c): c is Row => c.kind === "condition" || c.kind === "similarity"
       );
       return flat.length > 0 ? flat : [newRow()];
     }
@@ -121,15 +121,18 @@ export function SmartCollectionModal({
   // being edited, so that's the same live computation as the match preview.
   const matchingObjects = useMemo(() => {
     const group = { kind: "group" as const, id: "preview", combinator, children: rows };
-    return allObjects.filter((obj) => evaluateGroup(group, obj, tagGroups));
-  }, [rows, combinator, allObjects, tagGroups]);
+    return allObjects.filter((obj) => evaluateGroup(group, obj, tagGroups, state.objects));
+  }, [rows, combinator, allObjects, tagGroups, state.objects]);
   const previewCount = matchingObjects.length;
 
   /** Per-row: how many objects match this single condition, and — if zero —
-   * where else (which field/group) that exact value actually appears. */
+   * where else (which field/group) that exact value actually appears. Only
+   * meaningful for tag/facet conditions — a similarity row's "match" is a
+   * continuous score against one seed object, not a value lookup. */
   const rowDiagnostics = useMemo(() => {
     const map = new Map<string, { count: number; elsewhere: { field: string; count: number }[] }>();
     for (const row of rows) {
+      if (row.kind !== "condition") continue;
       const value = row.value.trim();
       if (value === "") continue;
       const count = allObjects.filter((obj) => evaluateCondition(row, obj, tagGroups)).length;
@@ -154,8 +157,8 @@ export function SmartCollectionModal({
     return map;
   }, [rows, allObjects, tagGroups]);
 
-  function updateRow(id: string, patch: Partial<Row>) {
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  function updateRow(id: string, patch: Partial<FilterCondition> | Partial<FilterSimilarity>) {
+    setRows((rs) => rs.map((r) => (r.id === id ? ({ ...r, ...patch } as Row) : r)));
   }
 
   function removeRow(id: string) {
@@ -165,7 +168,9 @@ export function SmartCollectionModal({
   function save() {
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    const cleanRows = rows.filter((r) => r.value.trim() !== "");
+    // A similarity row has no free-text value to be blank — only a
+    // condition row can be an empty/unfinished draft worth dropping.
+    const cleanRows = rows.filter((r) => r.kind !== "condition" || r.value.trim() !== "");
     const rule = { kind: "group" as const, id: makeId("group"), combinator, children: cleanRows };
     let id: string;
     if (existing) {
@@ -249,6 +254,42 @@ export function SmartCollectionModal({
 
         <div className="mt-3 space-y-2 max-h-72 overflow-y-auto pr-1">
           {rows.map((row) => {
+            if (row.kind === "similarity") {
+              const seed = state.objects[row.objectId];
+              return (
+                <div key={row.id} className="flex items-center gap-2">
+                  {seed?.imageUrl && (
+                    <img
+                      src={seed.imageUrl}
+                      alt=""
+                      className="w-8 h-8 rounded object-cover shrink-0 border border-line"
+                    />
+                  )}
+                  <span className="text-sm truncate min-w-0">
+                    Similar to <span className="font-medium">{seed?.title ?? "(deleted item)"}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(row.minScore * 100)}
+                    onChange={(e) => updateRow(row.id, { minScore: Number(e.target.value) / 100 })}
+                    className="flex-1 min-w-0"
+                    title="How close a match needs to be to count — lower is looser"
+                  />
+                  <span className="text-[11px] text-muted w-9 text-right shrink-0">
+                    {Math.round(row.minScore * 100)}%
+                  </span>
+                  <button
+                    onClick={() => removeRow(row.id)}
+                    className="text-muted hover:text-ink px-1.5"
+                    aria-label="Remove condition"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            }
             const diagnostic = rowDiagnostics.get(row.id);
             const suggestions = valuesForField(allObjects, row.field, tagGroups);
             const datalistId = `values-${row.id}`;

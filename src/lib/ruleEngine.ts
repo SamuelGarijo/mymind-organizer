@@ -2,9 +2,14 @@ import type {
   DesignObject,
   FilterCondition,
   FilterGroup,
+  FilterSimilarity,
   SmartCollection,
   TagGroups,
 } from "../types";
+import { similarityScore } from "./hybridSimilarity";
+import { norm } from "./textNorm";
+
+export { norm };
 
 export const GROUP_FIELD_PREFIX = "group:";
 
@@ -18,10 +23,6 @@ export function isGroupField(field: string): boolean {
 
 export function groupNameFromField(field: string): string {
   return field.slice(GROUP_FIELD_PREFIX.length);
-}
-
-export function norm(s: string): string {
-  return s.trim().toLowerCase();
 }
 
 export function searchableText(obj: DesignObject): string {
@@ -110,26 +111,52 @@ export function evaluateCondition(
   }
 }
 
+// Cached by reference identity (same pattern as hybridSimilarity's own
+// corpus-stats cache) — an "is this A vs B" similarity check needs the full
+// pool as an array for TF-IDF, but every caller here already holds it as the
+// store's `objects` Record; rebuilding Object.values() on every one of the
+// thousands of per-object evaluateSimilarity calls in a single filter pass
+// would be needless O(n²) work.
+let objectsArrayCache: { ref: Record<string, DesignObject>; arr: DesignObject[] } | null = null;
+function objectsArray(objectsById: Record<string, DesignObject>): DesignObject[] {
+  if (objectsArrayCache && objectsArrayCache.ref === objectsById) return objectsArrayCache.arr;
+  const arr = Object.values(objectsById);
+  objectsArrayCache = { ref: objectsById, arr };
+  return arr;
+}
+
+function evaluateSimilarity(
+  node: FilterSimilarity,
+  obj: DesignObject,
+  objectsById: Record<string, DesignObject>
+): boolean {
+  const seed = objectsById[node.objectId];
+  if (!seed) return false;
+  return similarityScore(seed, obj, objectsArray(objectsById)) >= node.minScore;
+}
+
 export function evaluateGroup(
   group: FilterGroup,
   obj: DesignObject,
-  tagGroups: TagGroups
+  tagGroups: TagGroups,
+  objectsById: Record<string, DesignObject>
 ): boolean {
   if (group.children.length === 0) return true;
-  const results = group.children.map((child) =>
-    child.kind === "group"
-      ? evaluateGroup(child, obj, tagGroups)
-      : evaluateCondition(child, obj, tagGroups)
-  );
+  const results = group.children.map((child) => {
+    if (child.kind === "group") return evaluateGroup(child, obj, tagGroups, objectsById);
+    if (child.kind === "similarity") return evaluateSimilarity(child, obj, objectsById);
+    return evaluateCondition(child, obj, tagGroups);
+  });
   return group.combinator === "AND" ? results.every(Boolean) : results.some(Boolean);
 }
 
 export function matchesSmartCollection(
   collection: SmartCollection,
   obj: DesignObject,
-  tagGroups: TagGroups
+  tagGroups: TagGroups,
+  objectsById: Record<string, DesignObject>
 ): boolean {
-  return evaluateGroup(collection.rule, obj, tagGroups);
+  return evaluateGroup(collection.rule, obj, tagGroups, objectsById);
 }
 
 /** Default operator suggested for a given field, used by the rule builder UI. */

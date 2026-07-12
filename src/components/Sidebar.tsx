@@ -3,7 +3,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore, isSampleObject } from "../store";
 import { matchesSmartCollection } from "../lib/ruleEngine";
 import { chooseBackupFile, getStoredBackupHandle, isAutoBackupSupported } from "../lib/autoBackup";
-import type { ViewSelection } from "../types";
+import { makeId } from "../lib/id";
+import type { FilterGroup, ViewSelection } from "../types";
 
 function timeSince(iso?: string): string {
   if (!iso) return "never";
@@ -148,6 +149,65 @@ function NavRow({
   );
 }
 
+/** Drop target for "make a new collection out of this" — splits into two
+ * independent halves on hover so the same gesture (drag onto empty sidebar
+ * space) can mean either "just file it away" (manual) or "I noticed a
+ * pattern, show me more like it" (smart, seeded with a same-vibe rule the
+ * next screen lets you edit or replace entirely). */
+function CreateDropZone({
+  onDropManual,
+  onDropSmart,
+}: {
+  onDropManual: (objectId: string) => void;
+  onDropSmart: (objectId: string) => void;
+}) {
+  const [hoverSide, setHoverSide] = useState<"manual" | "smart" | null>(null);
+
+  function handleDrop(side: "manual" | "smart", e: React.DragEvent) {
+    e.preventDefault();
+    setHoverSide(null);
+    const raw = e.dataTransfer.getData(DRAG_MIME);
+    if (!raw) return;
+    const ids: string[] = JSON.parse(raw);
+    for (const id of ids) (side === "manual" ? onDropManual : onDropSmart)(id);
+  }
+
+  const halfClass = (side: "manual" | "smart") =>
+    [
+      "flex-1 text-center py-2 transition-colors",
+      hoverSide === side ? "bg-accent/10 text-ink" : "text-muted/70",
+    ].join(" ");
+
+  return (
+    <div className="mt-1.5 flex rounded-lg border border-dashed border-line overflow-hidden text-[11px]">
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setHoverSide("manual");
+        }}
+        onDragLeave={() => setHoverSide((s) => (s === "manual" ? null : s))}
+        onDrop={(e) => handleDrop("manual", e)}
+        className={[halfClass("manual"), "border-r border-dashed border-line"].join(" ")}
+        title="Drop here to file it into a brand-new manual collection"
+      >
+        {hoverSide === "manual" ? "Drop → new folder" : "Manual"}
+      </div>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setHoverSide("smart");
+        }}
+        onDragLeave={() => setHoverSide((s) => (s === "smart" ? null : s))}
+        onDrop={(e) => handleDrop("smart", e)}
+        className={halfClass("smart")}
+        title="Drop here to create a smart collection seeded with 'similar to this' — every parameter, including that rule itself, stays editable after"
+      >
+        {hoverSide === "smart" ? "Drop → same vibe" : "Smart"}
+      </div>
+    </div>
+  );
+}
+
 export function Sidebar({
   onNewSmart,
   onNewManual,
@@ -175,6 +235,8 @@ export function Sidebar({
       deleteSampleObjects: s.deleteSampleObjects,
       deleteCollection: s.deleteCollection,
       assignToManualCollection: s.assignToManualCollection,
+      addManualCollection: s.addManualCollection,
+      addSmartCollection: s.addSmartCollection,
       sidebarCollapsed: s.sidebarCollapsed,
       setSidebarCollapsed: s.setSidebarCollapsed,
       dragRevealSidebar: s.dragRevealSidebar,
@@ -216,7 +278,7 @@ export function Sidebar({
     for (const c of [...smart, ...manual]) map.set(c.id, 0);
     for (const obj of objects) {
       for (const c of smart) {
-        if (matchesSmartCollection(c, obj, state.tagGroups)) {
+        if (matchesSmartCollection(c, obj, state.tagGroups, state.objects)) {
           map.set(c.id, (map.get(c.id) ?? 0) + 1);
         }
       }
@@ -242,6 +304,28 @@ export function Sidebar({
         "are untouched, and nothing is ever deleted in mymind itself."
     );
     if (ok) state.deleteSampleObjects();
+  }
+
+  function handleDropCreateManual(objectId: string) {
+    const id = state.addManualCollection("New collection");
+    state.assignToManualCollection(objectId, id);
+  }
+
+  // Seeds a smart collection with a "similar to this" rule (default 40%
+  // threshold) and opens it straight in the full editor — every parameter,
+  // including that rule itself, stays reversible from there (remove it,
+  // loosen/tighten the threshold, add a tag/facet condition alongside it).
+  function handleDropCreateSmart(objectId: string) {
+    const seed = state.objects[objectId];
+    if (!seed) return;
+    const rule: FilterGroup = {
+      kind: "group",
+      id: makeId("group"),
+      combinator: "AND",
+      children: [{ kind: "similarity", id: makeId("cond"), objectId, minScore: 0.4 }],
+    };
+    const id = state.addSmartCollection(`Similar to ${seed.title}`, rule);
+    onEditSmart(id);
   }
 
   if (state.sidebarCollapsed && !state.dragRevealSidebar) {
@@ -359,6 +443,7 @@ export function Sidebar({
             />
           ))}
         </div>
+        <CreateDropZone onDropManual={handleDropCreateManual} onDropSmart={handleDropCreateSmart} />
       </div>
 
       <div className="mt-auto px-4 py-3 border-t border-line text-[11px] text-muted space-y-1.5">

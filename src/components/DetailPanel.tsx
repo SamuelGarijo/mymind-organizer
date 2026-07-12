@@ -215,7 +215,7 @@ export function DetailPanel({
   const smartMatches = useMemo(() => {
     if (!object) return [];
     return Object.values(state.collections).filter(
-      (c) => c.type === "smart" && matchesSmartCollection(c, object, state.tagGroups)
+      (c) => c.type === "smart" && matchesSmartCollection(c, object, state.tagGroups, state.objects)
     );
   }, [state.collections, state.tagGroups, object]);
 

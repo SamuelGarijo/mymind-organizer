@@ -1027,7 +1027,7 @@ export function getVisibleObjects(state: VisibilityState): DesignObject[] {
       all.filter((obj) => {
         if (obj.manualCollectionIds.length > 0) return false;
         const anySmartMatch = Object.values(state.collections).some(
-          (c) => c.type === "smart" && matchesSmartCollection(c, obj, state.tagGroups)
+          (c) => c.type === "smart" && matchesSmartCollection(c, obj, state.tagGroups, state.objects)
         );
         return !anySmartMatch;
       })
@@ -1057,7 +1057,9 @@ export function getVisibleObjects(state: VisibilityState): DesignObject[] {
   if (collection.type === "manual") {
     return sortByRecency(all.filter((obj) => obj.manualCollectionIds.includes(collection.id)));
   }
-  return sortByRecency(all.filter((obj) => matchesSmartCollection(collection, obj, state.tagGroups)));
+  return sortByRecency(
+    all.filter((obj) => matchesSmartCollection(collection, obj, state.tagGroups, state.objects))
+  );
 }
 
 export function countForCollection(state: State, collection: Collection): number {
@@ -1065,5 +1067,6 @@ export function countForCollection(state: State, collection: Collection): number
   if (collection.type === "manual") {
     return all.filter((obj) => obj.manualCollectionIds.includes(collection.id)).length;
   }
-  return all.filter((obj) => matchesSmartCollection(collection, obj, state.tagGroups)).length;
+  return all.filter((obj) => matchesSmartCollection(collection, obj, state.tagGroups, state.objects))
+    .length;
 }

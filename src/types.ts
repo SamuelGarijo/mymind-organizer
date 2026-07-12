@@ -57,11 +57,27 @@ export type FilterCondition = {
   value: string;
 };
 
+/** "Same vibe as this specific object" as an editable, removable smart-
+ * collection criterion (sidebar drag-to-create-smart-collection flow) —
+ * reuses lib/hybridSimilarity.ts's existing 4-signal score instead of
+ * inventing a second similarity metric. Lives alongside FilterCondition in
+ * the same flat rows list so it can be combined with tag/facet conditions
+ * or removed entirely, same as any other row. */
+export type FilterSimilarity = {
+  kind: "similarity";
+  id: string;
+  /** The seed object every candidate is scored against. */
+  objectId: string;
+  /** 0-1 threshold on lib/hybridSimilarity's score — a candidate matches
+   * when its similarity to objectId is at or above this. */
+  minScore: number;
+};
+
 export type FilterGroup = {
   kind: "group";
   id: string;
   combinator: "AND" | "OR";
-  children: (FilterCondition | FilterGroup)[];
+  children: (FilterCondition | FilterGroup | FilterSimilarity)[];
 };
 
 export type SmartCollection = {
