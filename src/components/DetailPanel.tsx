@@ -115,6 +115,37 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   // e.g. a saved webpage has no uploaded attachment) or fails to load.
   const [blobFailed, setBlobFailed] = useState(false);
   const [defaultThumbFailed, setDefaultThumbFailed] = useState(false);
+  // Panel root for the focus trap below — Tab/Shift+Tab cycles between the
+  // first and last focusable element inside instead of escaping into the
+  // grid behind it (issue #116).
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, [objectId]);
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
   useEffect(() => {
     setBlobFailed(false);
     setDefaultThumbFailed(false);
@@ -500,6 +531,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                   onKeyDown={(e) => {
                     if (e.key === "Enter") confirmNewOption(field);
                     if (e.key === "Escape") {
+                      e.stopPropagation();
                       setNewOptionField(null);
                       setNewOptionDraft("");
                     }
@@ -579,6 +611,7 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
                   onKeyDown={(e) => {
                     if (e.key === "Enter") confirmNewOption(field);
                     if (e.key === "Escape") {
+                      e.stopPropagation();
                       setNewOptionField(null);
                       setNewOptionDraft("");
                     }
@@ -626,7 +659,14 @@ export function DetailPanel({ objectId, onClose }: { objectId: string; onClose: 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl overflow-y-auto">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={object.title || "Item details"}
+        tabIndex={-1}
+        className="relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto"
+      >
         <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex justify-end">
           <button
             onClick={onClose}

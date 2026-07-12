@@ -16,3 +16,8 @@ Backup-folder/
 
 # Claude Code local-only settings (tool permission grants for this machine)
 .claude/settings.local.json
+
+# Reference repos + research doc — local-only "LEGO piece" study material,
+# not part of this project's own history
+Other repositories for reference - as LEGO pieces/
+Frontend Architecture Reference — 9 Building Blocks for The Organizer.md

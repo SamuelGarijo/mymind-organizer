@@ -182,6 +182,22 @@ export function Table({
     useStore.getState().setSelection(new Set(), null);
   }, [viewKey, groupByField]);
 
+  // Cmd/Ctrl+A selects every row in the current filtered view (issue #117),
+  // same convention as Grid's identical handler — reaches rows that haven't
+  // scrolled into range yet, which a shift-click range can't do on its own.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a") return;
+      const target = e.target as HTMLElement;
+      if (target.closest("input, textarea, [contenteditable='true']")) return;
+      if (useStore.getState().detailObjectId) return;
+      e.preventDefault();
+      useStore.getState().setSelection(new Set(objects.map((o) => o.id)), null);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [objects]);
+
   // An in-progress "name this new bucket" prompt stops making sense the
   // moment the grouped field itself changes underneath it.
   useEffect(() => {

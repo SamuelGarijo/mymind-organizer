@@ -116,6 +116,38 @@ between cycles.
      and leave a short summary of what shipped, what got skipped and why, for Samuel to read
      when he's back.
 
+## Reference repos (as of 2026-07-12)
+
+Samuel downloaded a set of real open-source repos into
+`/Users/side/mymind-organizer/Other repositories for reference - as LEGO pieces/` (gitignored,
+not part of this project's own history) as concrete "LEGO piece" references for the six
+architecture-improvement issues filed from the Frontend Architecture Reference research
+(#114–#119): `dnd-kit-main`, `viselect-master`, `ocean-dataview-main`, `tanstack-react-table-mega-example-main`,
+`react-filter-main`, `table-beta`, `tablecn-main`, `columns.js-master`, `dnd-main`, `self-sync-main`.
+
+When picking one of #114–#119, read the matching reference repo(s) first — study the pattern,
+don't vendor the whole repo or blindly add its full dependency tree. This project's own
+"minimize diffs, no premature abstraction, no new deps without a reason" rules still apply on
+top of what the reference shows; the repos are for *how*, not a mandate to adopt their exact
+stack wholesale.
+
+Samuel's message authorizing this ("tu tarea... será revisar esta carpeta de ejemplos,
+copiando pattern y componentes e ir mejorando nuestra app") greenlights building from #114–#119
+specifically, on top of the standing Developer/Designer authorization already in place — but
+weigh scope per issue, don't treat "greenlit" as "equally safe to build blind":
+- **#116** (DetailPanel a11y: focus trap, Esc, ARIA) and **#117** (Cmd+A select-all) are small,
+  mechanical, low-risk — pick these first.
+- **#115** (extract creatable-combobox) is a medium refactor of code shipped this same session
+  — safe, but re-read its own "only one consumer today" caveat before doing more than the
+  DetailPanel call site needs.
+- **#114** (dnd-kit migration), **#118** (Dexie.js), and **#119** (TanStack Table) are each a
+  real architectural swap — new dependency, touches code across multiple files, the kind of
+  "genuine architecture/data-shape decision" step 2's ambiguity test already asks you to weigh.
+  Don't silently start one of these three just because the mode field and this message clear
+  it — if you reach one of them with nothing smaller left, post a comment sketching the
+  concrete plan (what changes, what new dependency, estimated diff size) and ask in chat before
+  writing code, same as any other real judgment call.
+
 ## Keeping this running across usage limits (the overnight part)
 
 This skill's whole point is surviving interruptions without a human restarting it. The

@@ -95,6 +95,24 @@ export function Grid({
     useStore.getState().setSelection(new Set(), null);
   }, [viewKey, groupByField]);
 
+  // Cmd/Ctrl+A selects every object in the current filtered view (issue
+  // #117), not just what's mounted so far — the whole point is reaching
+  // items that haven't scrolled into range yet, where a marquee can't help.
+  // Selecting doesn't force those cards to render (progressive reveal stays
+  // as-is for perf); they just show selected once they do scroll in.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a") return;
+      const target = e.target as HTMLElement;
+      if (target.closest("input, textarea, [contenteditable='true']")) return;
+      if (useStore.getState().detailObjectId) return;
+      e.preventDefault();
+      useStore.getState().setSelection(new Set(objects.map((o) => o.id)), null);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [objects]);
+
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || renderCount >= objects.length) return;
