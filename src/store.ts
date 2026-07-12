@@ -1033,7 +1033,11 @@ export function getVisibleObjects(state: VisibilityState): DesignObject[] {
     const candidates = all.filter((o) => o.id !== target.id);
     const ranked = rankByHybridSimilarity(target, candidates, all, 60);
     const byId = new Map(all.map((o) => [o.id, o]));
-    return ranked.map((r) => byId.get(r.id)).filter((o): o is DesignObject => !!o);
+    // The reference object itself leads the list (issue #81) — Grid's own
+    // masonry placement (lib/masonry.ts) always seats the first item in
+    // column 0, so this alone puts it at the very top-left, no separate
+    // layout logic needed.
+    return [target, ...ranked.map((r) => byId.get(r.id)).filter((o): o is DesignObject => !!o)];
   }
 
   const collection = state.collections[view.collectionId];
