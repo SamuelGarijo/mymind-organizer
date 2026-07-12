@@ -504,10 +504,14 @@ export function DetailPanel({
       await addMymindTag(object.id, trimmed);
       // Optimistic: reflect it locally now rather than waiting for the next
       // sync to pull it back — mymind already has it, this just avoids a
-      // moment where our own tag list looks stale.
-      if (!object.tags.includes(trimmed)) {
-        state.updateObject(object.id, { tags: [...object.tags, trimmed] });
-      }
+      // moment where our own tag list looks stale. Goes through
+      // addObjectTag (not a raw updateObject) so this is recorded in
+      // localUserTags — a value hand-typed into a facet field is exactly as
+      // "handpicked" as one typed into the tags box, and Curated Piles
+      // (lib/tagOrigin.ts) needs that to keep reading "user" even after
+      // mymind's own sync eventually echoes this tag back with its own
+      // Manual flag.
+      state.addObjectTag(object.id, trimmed);
       setTagPushError(null);
     } catch (err) {
       setTagPushError(`Couldn't sync "${trimmed}" to mymind as a tag: ${(err as Error).message}`);
