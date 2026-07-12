@@ -25,7 +25,7 @@ import { parseBackup } from "./lib/backupValidation";
 import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
 
 export type ViewMode = "grid" | "table";
-export type DetailViewMode = "side" | "centered" | "carousel";
+export type DetailViewMode = "side" | "centered";
 
 type State = {
   objects: Record<string, DesignObject>;
@@ -33,6 +33,13 @@ type State = {
   collectionOrder: string[];
   selectedView: ViewSelection;
   detailObjectId: string | null;
+  /** Which object's media is being viewed fullscreen in the carousel
+   * overlay — opened by clicking the preview image/video/pdf inside
+   * DetailPanel (not a persistent display mode anymore, see detailViewMode
+   * above). Independent of detailObjectId: the detail panel stays open
+   * underneath while the carousel is up, so closing the carousel returns
+   * to it rather than closing everything. */
+  carouselObjectId: string | null;
 
   /** Tag name -> group label (e.g. "style"). Local-only, optional, never
    * sourced from mymind — the user assigns these themselves. */
@@ -207,6 +214,8 @@ type State = {
   setSelectedView: (view: ViewSelection) => void;
   openDetail: (id: string) => void;
   closeDetail: () => void;
+  openCarousel: (id: string) => void;
+  closeCarousel: () => void;
 
   setSearchQuery: (query: string) => void;
   toggleFacetTag: (tag: string) => void;
@@ -360,6 +369,7 @@ export const useStore = create<State>()(
       collectionOrder: [],
       selectedView: { kind: "all" },
       detailObjectId: null,
+      carouselObjectId: null,
 
       tagGroups: {},
 
@@ -728,6 +738,8 @@ export const useStore = create<State>()(
         }),
       openDetail: (id) => set({ detailObjectId: id }),
       closeDetail: () => set({ detailObjectId: null }),
+      openCarousel: (id) => set({ carouselObjectId: id }),
+      closeCarousel: () => set({ carouselObjectId: null }),
 
       setSearchQuery: (query) => set({ searchQuery: query }),
       toggleFacetTag: (tag) =>

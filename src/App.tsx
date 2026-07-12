@@ -96,6 +96,7 @@ export default function App() {
       viewMode: s.viewMode,
       detailViewMode: s.detailViewMode,
       detailObjectId: s.detailObjectId,
+      carouselObjectId: s.carouselObjectId,
       syncMymindObjects: s.syncMymindObjects,
       reconcileMymindDeletions: s.reconcileMymindDeletions,
       exportDataString: s.exportDataString,
@@ -103,6 +104,8 @@ export default function App() {
       restoreFromBackup: s.restoreFromBackup,
       openDetail: s.openDetail,
       closeDetail: s.closeDetail,
+      openCarousel: s.openCarousel,
+      closeCarousel: s.closeCarousel,
       setViewMode: s.setViewMode,
       setDetailViewMode: s.setDetailViewMode,
       bulkAssignRoles: s.bulkAssignRoles,
@@ -653,8 +656,11 @@ export default function App() {
                   <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
                     Detail view
                   </div>
+                  <p className="text-[11px] text-muted mb-1.5">
+                    Also switchable from the detail panel itself (⌘L).
+                  </p>
                   <div className="flex gap-1 mb-2">
-                    {(["side", "centered", "carousel"] as const).map((mode) => (
+                    {(["side", "centered"] as const).map((mode) => (
                       <button
                         key={mode}
                         onClick={() => state.setDetailViewMode(mode)}
@@ -665,9 +671,7 @@ export default function App() {
                         title={
                           mode === "side"
                             ? "Docked to the right, current default"
-                            : mode === "centered"
-                            ? "Same details, centered and larger"
-                            : "Fullscreen, image-only browsing (arrows, keyboard, drag, trackpad swipe)"
+                            : "Same details, centered and larger"
                         }
                       >
                         {mode}
@@ -805,15 +809,22 @@ export default function App() {
         </div>
       </main>
 
-      {state.detailObjectId && state.detailViewMode === "carousel" && (
-        <DetailCarousel objects={visibleObjects} currentId={state.detailObjectId} onClose={state.closeDetail} />
-      )}
-      {state.detailObjectId && state.detailViewMode !== "carousel" && (
+      {state.detailObjectId && (
         <DetailPanel
           objectId={state.detailObjectId}
           onClose={state.closeDetail}
           layout={state.detailViewMode}
+          onLayoutChange={state.setDetailViewMode}
           contextObjects={baseObjects}
+          onOpenCarousel={state.openCarousel}
+          carouselOpen={!!state.carouselObjectId}
+        />
+      )}
+      {state.carouselObjectId && (
+        <DetailCarousel
+          objects={visibleObjects}
+          currentId={state.carouselObjectId}
+          onClose={state.closeCarousel}
         />
       )}
 

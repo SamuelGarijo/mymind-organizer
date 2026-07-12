@@ -58,15 +58,20 @@ export function DetailPanel({
   objectId,
   onClose,
   layout = "side",
+  onLayoutChange,
   contextObjects = [],
+  onOpenCarousel,
+  carouselOpen = false,
 }: {
   objectId: string;
   onClose: () => void;
   /** Display mode (issue #108) — "side" keeps the original docked slide-
    * over as the default; "centered" renders the exact same content in a
    * larger, centered modal instead, so the image gets more room. A user
-   * preference (Preferences menu), not per-item state. */
+   * preference (Preferences menu), also switchable right here from the
+   * panel itself (a small inline switch + ⌘L shortcut, issue follow-up). */
   layout?: "side" | "centered";
+  onLayoutChange: (layout: "side" | "centered") => void;
   /** The current view's own object pool (App.tsx's baseObjects) — already
    * scoped to whatever collection is active, or the whole library in the
    * All-items/Unclassified views. Powers the "more from {dominant tag}"
@@ -74,6 +79,15 @@ export function DetailPanel({
    * own tags is most common among the OTHER objects in this same scope,
    * so the suggestion is always contextual to what's already on screen. */
   contextObjects?: DesignObject[];
+  /** Opens the fullscreen media carousel for this object — clicking the
+   * preview image/video/pdf itself triggers this now, rather than
+   * "carousel" being a separate persistent display mode you had to opt
+   * into from Settings ahead of time. */
+  onOpenCarousel: (id: string) => void;
+  /** True while the carousel overlay (rendered on top by App.tsx) is open —
+   * its own Escape/keyboard handling should win, not this panel's, or
+   * Escape would close both at once instead of just the overlay on top. */
+  carouselOpen?: boolean;
 }) {
   // Shallow-selected — while a detail panel is open, typing in the main
   // search box (or anything else touching unrelated store fields) shouldn't
@@ -147,8 +161,16 @@ export function DetailPanel({
   }, [objectId]);
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (carouselOpen) return;
       if (e.key === "Escape") {
         onClose();
+        return;
+      }
+      // ⌘L / Ctrl+L toggles side <-> centered without leaving the keyboard —
+      // the same switch as the inline button in the panel header.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        onLayoutChange(layout === "side" ? "centered" : "side");
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
@@ -168,7 +190,7 @@ export function DetailPanel({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [onClose, onLayoutChange, layout, carouselOpen]);
   useEffect(() => {
     setBlobFailed(false);
     setDefaultThumbFailed(false);
@@ -787,7 +809,22 @@ export function DetailPanel({
             : "relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto"
         }
       >
-        <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex justify-end">
+        <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex items-center justify-between">
+          <div className="inline-flex rounded-lg border border-line overflow-hidden text-[11px]">
+            {(["side", "centered"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => onLayoutChange(mode)}
+                className={[
+                  "px-2 py-1 capitalize",
+                  layout === mode ? "bg-ink text-white" : "hover:bg-line/40",
+                ].join(" ")}
+                title={`Switch to ${mode} layout (⌘L to toggle)`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
           <button
             onClick={onClose}
             className="text-muted hover:text-ink text-lg leading-none"
@@ -798,20 +835,27 @@ export function DetailPanel({
         </div>
 
         {!isNote && object.imageUrl && (
-          <img
-            src={detailImageSrc}
-            alt={object.title}
-            // A tall portrait-oriented photo at its native aspect ratio can
-            // run well past the viewport height (issue #107) — capping the
-            // height and using object-contain (not object-cover, which
-            // would crop) lets a tall image shrink to fit while a wide one
-            // still uses the full panel width, same as before.
-            className="w-full max-h-[70vh] object-contain bg-line/10"
-            onError={() => {
-              if (!blobFailed) setBlobFailed(true);
-              else if (!defaultThumbFailed) setDefaultThumbFailed(true);
-            }}
-          />
+          <button
+            type="button"
+            onClick={() => onOpenCarousel(object.id)}
+            className="block w-full cursor-zoom-in"
+            title="Click to view fullscreen"
+          >
+            <img
+              src={detailImageSrc}
+              alt={object.title}
+              // A tall portrait-oriented photo at its native aspect ratio can
+              // run well past the viewport height (issue #107) — capping the
+              // height and using object-contain (not object-cover, which
+              // would crop) lets a tall image shrink to fit while a wide one
+              // still uses the full panel width, same as before.
+              className="w-full max-h-[70vh] object-contain bg-line/10"
+              onError={() => {
+                if (!blobFailed) setBlobFailed(true);
+                else if (!defaultThumbFailed) setDefaultThumbFailed(true);
+              }}
+            />
+          </button>
         )}
 
         {!isNote && object.source === "mymind" && blobType && (

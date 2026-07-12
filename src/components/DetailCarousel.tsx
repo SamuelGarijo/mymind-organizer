@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { DesignObject } from "../types";
 
 const SWIPE_THRESHOLD_PX = 60;
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.25;
 
 /**
  * Third detail-view mode (issue #108) — fullscreen, image-only browsing
@@ -30,19 +33,30 @@ export function DetailCarousel({
     return i === -1 ? 0 : i;
   }, [imageObjects, currentId]);
   const [index, setIndex] = useState(startIndex);
+  // Zoom in/out (issue follow-up) — a plain CSS scale on top of the
+  // fit-to-viewport size below, not a separate crop/pan mode; resets on
+  // every navigation since "zoomed into the last image" carrying over to
+  // a brand new one would be surprising.
+  const [zoom, setZoom] = useState(1);
   const dragStartX = useRef<number | null>(null);
   const wheelCooldown = useRef(false);
 
   useEffect(() => setIndex(startIndex), [startIndex]);
+  useEffect(() => setZoom(1), [index]);
 
   const goPrev = () => setIndex((i) => Math.max(0, i - 1));
   const goNext = () => setIndex((i) => Math.min(imageObjects.length - 1, i + 1));
+  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)));
+  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)));
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft") goPrev();
       if (e.key === "ArrowRight") goNext();
+      if (e.key === "+" || e.key === "=") zoomIn();
+      if (e.key === "-" || e.key === "_") zoomOut();
+      if (e.key === "0") setZoom(1);
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -122,8 +136,33 @@ export function DetailCarousel({
         src={object.imageUrl}
         alt={object.title}
         draggable={false}
-        className="max-w-[92vw] max-h-[85vh] object-contain pointer-events-none"
+        // Uses nearly the full viewport (issue follow-up: "100% of the
+        // viewport height") — a hair short of 100 so the close/arrow
+        // controls above never get fully covered. `zoom` scales further on
+        // top of that fit-to-viewport size.
+        style={{ transform: `scale(${zoom})` }}
+        className="max-w-[98vw] max-h-[96vh] object-contain pointer-events-none transition-transform"
       />
+
+      <div className="absolute top-4 left-4 z-10 flex items-center gap-1 bg-black/40 rounded-lg px-1 py-1">
+        <button
+          onClick={zoomOut}
+          disabled={zoom <= ZOOM_MIN}
+          className="text-white/80 hover:text-white disabled:opacity-30 w-7 h-7 text-lg leading-none"
+          aria-label="Zoom out"
+        >
+          −
+        </button>
+        <span className="text-white/70 text-[11px] w-10 text-center">{Math.round(zoom * 100)}%</span>
+        <button
+          onClick={zoomIn}
+          disabled={zoom >= ZOOM_MAX}
+          className="text-white/80 hover:text-white disabled:opacity-30 w-7 h-7 text-lg leading-none"
+          aria-label="Zoom in"
+        >
+          +
+        </button>
+      </div>
 
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 text-white/80 text-[13px] max-w-[80vw] truncate text-center">
         {object.title} <span className="text-white/40">· {index + 1}/{imageObjects.length}</span>
