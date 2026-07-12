@@ -20,6 +20,7 @@ import {
 } from "../lib/mymindWrite";
 import { buildDownloadFilename } from "../lib/downloadFilename";
 import { RolePackageModal } from "./RolePackageModal";
+import { DRAG_MIME } from "./Sidebar";
 import type { DesignObject, FacetField, ManualCollection } from "../types";
 
 /** Drag payload for "drag a tag onto an empty facet field" — distinct from
@@ -108,7 +109,9 @@ export function DetailPanel({
       setFacetFieldFilter: s.setFacetFieldFilter,
       clearFacetTags: s.clearFacetTags,
       toggleFacetTag: s.toggleFacetTag,
+      assignToManualCollection: s.assignToManualCollection,
       removeFromManualCollection: s.removeFromManualCollection,
+      addManualCollection: s.addManualCollection,
       deleteObjectLocally: s.deleteObjectLocally,
     }))
   );
@@ -129,6 +132,12 @@ export function DetailPanel({
   // forward for every object with this role.
   const [newOptionField, setNewOptionField] = useState<string | null>(null);
   const [newOptionDraft, setNewOptionDraft] = useState("");
+  // "Add to a collection" picker under "In manual collections" — pick an
+  // existing collection this object isn't already in, or type a name that
+  // doesn't match one to create it and add in one step (same creatable
+  // pattern as a facet's "+ new" option above).
+  const [addingToCollection, setAddingToCollection] = useState(false);
+  const [addCollectionDraft, setAddCollectionDraft] = useState("");
   // "New type…" input draft in the item-type picker, and whether the
   // role's field-package editor modal is open.
   const [roleDraft, setRoleDraft] = useState("");
@@ -199,6 +208,8 @@ export function DetailPanel({
     setRoleDraft("");
     setEditingRoleFields(false);
     setShowEmptyRoleFields(false);
+    setAddingToCollection(false);
+    setAddCollectionDraft("");
   }, [objectId]);
 
   const smartMatches = useMemo(() => {
@@ -214,6 +225,26 @@ export function DetailPanel({
       .map((id) => state.collections[id])
       .filter((c): c is ManualCollection => c?.type === "manual");
   }, [state.collections, object]);
+
+  // Existing manual collections this object hasn't joined yet — offered as
+  // one-click options in the "add to a collection" picker below, alongside
+  // typing a brand-new name.
+  const availableManualCollections = useMemo(() => {
+    if (!object) return [];
+    return Object.values(state.collections).filter(
+      (c): c is ManualCollection => c.type === "manual" && !object.manualCollectionIds.includes(c.id)
+    );
+  }, [state.collections, object]);
+
+  function confirmAddToCollection() {
+    const name = addCollectionDraft.trim();
+    setAddingToCollection(false);
+    setAddCollectionDraft("");
+    if (!name || !object) return;
+    const existing = availableManualCollections.find((c) => norm(c.name) === norm(name));
+    const id = existing ? existing.id : state.addManualCollection(name);
+    state.assignToManualCollection(object.id, id);
+  }
 
   /** "More from {dominant tag}" (issue #89) — whichever of this object's
    * own tags is most common among the OTHER objects already in view
@@ -837,13 +868,25 @@ export function DetailPanel({
         {!isNote && object.imageUrl && (
           <button
             type="button"
+            draggable
+            onDragStart={(e) => {
+              // Same drag contract as a grid Card (issue follow-up: drag the
+              // expanded detail view straight onto a sidebar folder, no need
+              // to close the panel and find the card in the grid first).
+              const { sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
+              e.dataTransfer.setData(DRAG_MIME, JSON.stringify([object.id]));
+              e.dataTransfer.effectAllowed = "copy";
+              if (sidebarCollapsed) setDragRevealSidebar(true);
+            }}
+            onDragEnd={() => useStore.getState().setDragRevealSidebar(false)}
             onClick={() => onOpenCarousel(object.id)}
-            className="block w-full cursor-zoom-in"
-            title="Click to view fullscreen"
+            className="block w-full cursor-zoom-in active:cursor-grabbing"
+            title="Click to view fullscreen — drag onto a sidebar folder to add to a collection"
           >
             <img
               src={detailImageSrc}
               alt={object.title}
+              draggable={false}
               // A tall portrait-oriented photo at its native aspect ratio can
               // run well past the viewport height (issue #107) — capping the
               // height and using object-contain (not object-cover, which
@@ -1303,13 +1346,11 @@ export function DetailPanel({
           )}
 
           <div className="pt-3 border-t border-line space-y-2">
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-muted mb-1">
-                Matches smart collections
-              </div>
-              {smartMatches.length === 0 ? (
-                <div className="text-[12px] text-muted/70">None</div>
-              ) : (
+            {smartMatches.length > 0 && (
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted mb-1">
+                  Matches smart collections
+                </div>
                 <div className="flex flex-wrap gap-1">
                   {smartMatches.map((c) => (
                     <span key={c.id} className="tag-chip">
@@ -1317,15 +1358,25 @@ export function DetailPanel({
                     </span>
                   ))}
                 </div>
-              )}
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-muted mb-1">
-                In manual collections
               </div>
-              {manualMemberships.length === 0 ? (
+            )}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[11px] uppercase tracking-wide text-muted">
+                  In manual collections
+                </div>
+                <button
+                  onClick={() => setAddingToCollection(true)}
+                  className="text-muted hover:text-ink text-[13px] leading-none px-1"
+                  aria-label="Add to a collection"
+                  title="Add to an existing collection, or type a new name to create one"
+                >
+                  +
+                </button>
+              </div>
+              {manualMemberships.length === 0 && !addingToCollection ? (
                 <div className="text-[12px] text-muted/70">
-                  None — drag this card onto a folder in the sidebar.
+                  None — drag this card onto a folder in the sidebar, or use + above.
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-1">
@@ -1341,6 +1392,38 @@ export function DetailPanel({
                       </button>
                     </span>
                   ))}
+                </div>
+              )}
+              {addingToCollection && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {availableManualCollections.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        state.assignToManualCollection(object.id, c.id);
+                        setAddingToCollection(false);
+                      }}
+                      className="tag-chip hover:border-accent hover:text-ink"
+                    >
+                      📁 {c.name}
+                    </button>
+                  ))}
+                  <input
+                    autoFocus
+                    value={addCollectionDraft}
+                    onChange={(e) => setAddCollectionDraft(e.target.value)}
+                    onBlur={confirmAddToCollection}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") confirmAddToCollection();
+                      if (e.key === "Escape") {
+                        e.stopPropagation();
+                        setAddingToCollection(false);
+                        setAddCollectionDraft("");
+                      }
+                    }}
+                    placeholder="New collection…"
+                    className="tag-chip w-32 outline-none focus:border-accent"
+                  />
                 </div>
               )}
             </div>

@@ -9,11 +9,24 @@ export type ColorFilter = { hex: string; tolerance: number };
 export const TOLERANCE_MIN = 0;
 export const TOLERANCE_MAX = 100;
 
+/** mymind's own palette keys aren't always 6-digit hex — real synced data
+ * includes shorthand 3-digit (`#fff`) and 8-digit-with-alpha (`#f1f1f1fb`)
+ * forms too (alpha itself is ignored here, same as the rest of this module
+ * treating palette as pure color). The picker's own target hex is always
+ * plain 6-digit (browsers normalize `<input type="color">` to that), so
+ * this only needs to bend for the palette side. */
 function hexToRgb(hex: string): [number, number, number] | null {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const trimmed = hex.trim();
+  const m6 = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(trimmed);
+  if (m6) {
+    const n = parseInt(m6[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const m3 = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(trimmed);
+  if (m3) {
+    return [parseInt(m3[1] + m3[1], 16), parseInt(m3[2] + m3[2], 16), parseInt(m3[3] + m3[3], 16)];
+  }
+  return null;
 }
 
 /** Plain Euclidean distance in RGB space, normalized to 0-100 so it lines up
