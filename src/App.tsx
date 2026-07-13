@@ -529,6 +529,142 @@ export default function App() {
     });
   }
 
+  // The preferences trigger + popover (issue #128) — state/handlers all
+  // stay right here (sync/backup/credentials are already owned by this
+  // component), just handed to Sidebar as a ready-built node so it can
+  // place the icon wherever its condensed control column wants it,
+  // without either component needing to know the other's internals.
+  const prefsControl = (
+    <div className="relative" ref={prefsRef}>
+      <button
+        onClick={() => setPrefsOpen((v) => !v)}
+        className={[
+          "text-[13px] w-8 h-8 flex items-center justify-center rounded-lg border border-line hover:bg-line/40",
+          prefsOpen ? "bg-line/40" : "",
+        ].join(" ")}
+        title="Organizer preferences — sync and backup"
+        aria-label="Organizer preferences"
+      >
+        ⚙
+      </button>
+      {prefsOpen && (
+        <div className="absolute left-full top-0 ml-2 w-64 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-lg border border-line bg-panel shadow-cardHover p-3 z-20 text-[12px]">
+          <div className="text-[11px] uppercase tracking-wide text-muted mb-1.5">Sync</div>
+          <label
+            className="flex items-center gap-1.5 text-muted mb-2"
+            title="Ignore what's already synced and refetch everything"
+          >
+            <input
+              type="checkbox"
+              checked={fullResync}
+              onChange={(e) => setFullResync(e.target.checked)}
+            />
+            Full resync
+          </label>
+          <button
+            onClick={() => {
+              handleSync();
+              setPrefsOpen(false);
+            }}
+            disabled={syncState.status === "loading"}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40 disabled:opacity-50"
+          >
+            {syncState.status === "loading" ? "Syncing…" : "Sync from mymind"}
+          </button>
+
+          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+            Backup
+          </div>
+          <button
+            onClick={() => {
+              handleExport();
+              setPrefsOpen(false);
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40 mb-1.5"
+            title="Downloads objects, collections, and tag groups as a backup file"
+          >
+            Export backup
+          </button>
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleRestoreFile(file);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => {
+              restoreInputRef.current?.click();
+              setPrefsOpen(false);
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
+            title="Replaces everything with a previously exported backup"
+          >
+            Restore backup
+          </button>
+
+          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+            Item types
+          </div>
+          <button
+            onClick={() => {
+              handleAutoAssignRoles();
+              setPrefsOpen(false);
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
+            title="Suggests an item type for every object that doesn't have one yet, from its mymind type and tags — shows the impact before applying anything"
+          >
+            Auto-assign roles
+          </button>
+
+          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+            Detail view
+          </div>
+          <p className="text-[11px] text-muted mb-1.5">
+            Also switchable from the detail panel itself (⌘L).
+          </p>
+          <div className="flex gap-1 mb-2">
+            {(["side", "centered"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => state.setDetailViewMode(mode)}
+                className={[
+                  "flex-1 capitalize px-2 py-1.5 rounded-lg border border-line text-[11px]",
+                  state.detailViewMode === mode ? "bg-ink text-white" : "hover:bg-line/40",
+                ].join(" ")}
+                title={
+                  mode === "side"
+                    ? "Docked to the right, current default"
+                    : "Same details, centered and larger"
+                }
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+            Connection
+          </div>
+          <button
+            onClick={() => {
+              setCredentialsModal({ dismissible: true });
+              setPrefsOpen(false);
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
+            title="View or replace the mymind API key this app connects with"
+          >
+            mymind API credentials
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="h-screen w-screen flex overflow-hidden">
       <Sidebar
@@ -536,6 +672,7 @@ export default function App() {
         onNewManual={(parentId) => setModal({ kind: "manual", parentId })}
         onEditSmart={(collectionId) => setModal({ kind: "smart", collectionId })}
         onEditManual={(collectionId) => setModal({ kind: "manual", collectionId })}
+        prefsControl={prefsControl}
       />
 
       <main className="flex-1 flex flex-col min-w-0">
@@ -545,171 +682,6 @@ export default function App() {
             <span className="text-[12px] text-muted shrink-0">
               {visibleObjects.length} item{visibleObjects.length === 1 ? "" : "s"}
             </span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {state.viewMode === "grid" && (
-              <div className="inline-flex rounded-lg border border-line overflow-hidden text-[12px]">
-                <button
-                  onClick={() => state.setGridZoom(state.gridZoom - 1)}
-                  disabled={state.gridZoom <= -2}
-                  className="px-2 py-1.5 hover:bg-line/40 disabled:opacity-30 disabled:hover:bg-transparent"
-                  title="Bigger cards"
-                >
-                  −
-                </button>
-                <button
-                  onClick={() => state.setGridZoom(state.gridZoom + 1)}
-                  disabled={state.gridZoom >= 3}
-                  className="px-2 py-1.5 hover:bg-line/40 disabled:opacity-30 disabled:hover:bg-transparent border-l border-line"
-                  title="Smaller cards"
-                >
-                  +
-                </button>
-              </div>
-            )}
-            <div className="inline-flex rounded-lg border border-line overflow-hidden text-[12px]">
-              {(["grid", "table"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => state.setViewMode(mode)}
-                  className={[
-                    "px-2.5 py-1.5 capitalize",
-                    state.viewMode === mode ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
-                  ].join(" ")}
-                  title={mode === "grid" ? "Masonry grid" : "Table with columns"}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-            <div className="relative" ref={prefsRef}>
-              <button
-                onClick={() => setPrefsOpen((v) => !v)}
-                className={[
-                  "text-[13px] w-8 h-8 flex items-center justify-center rounded-lg border border-line hover:bg-line/40",
-                  prefsOpen ? "bg-line/40" : "",
-                ].join(" ")}
-                title="Organizer preferences — sync and backup"
-                aria-label="Organizer preferences"
-              >
-                ⚙
-              </button>
-              {prefsOpen && (
-                <div className="absolute right-0 top-full mt-1.5 w-64 rounded-lg border border-line bg-panel shadow-cardHover p-3 z-20 text-[12px]">
-                  <div className="text-[11px] uppercase tracking-wide text-muted mb-1.5">Sync</div>
-                  <label
-                    className="flex items-center gap-1.5 text-muted mb-2"
-                    title="Ignore what's already synced and refetch everything"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={fullResync}
-                      onChange={(e) => setFullResync(e.target.checked)}
-                    />
-                    Full resync
-                  </label>
-                  <button
-                    onClick={() => {
-                      handleSync();
-                      setPrefsOpen(false);
-                    }}
-                    disabled={syncState.status === "loading"}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40 disabled:opacity-50"
-                  >
-                    {syncState.status === "loading" ? "Syncing…" : "Sync from mymind"}
-                  </button>
-
-                  <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
-                    Backup
-                  </div>
-                  <button
-                    onClick={() => {
-                      handleExport();
-                      setPrefsOpen(false);
-                    }}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40 mb-1.5"
-                    title="Downloads objects, collections, and tag groups as a backup file"
-                  >
-                    Export backup
-                  </button>
-                  <input
-                    ref={restoreInputRef}
-                    type="file"
-                    accept="application/json"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleRestoreFile(file);
-                      e.target.value = "";
-                    }}
-                  />
-                  <button
-                    onClick={() => {
-                      restoreInputRef.current?.click();
-                      setPrefsOpen(false);
-                    }}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
-                    title="Replaces everything with a previously exported backup"
-                  >
-                    Restore backup
-                  </button>
-
-                  <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
-                    Item types
-                  </div>
-                  <button
-                    onClick={() => {
-                      handleAutoAssignRoles();
-                      setPrefsOpen(false);
-                    }}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
-                    title="Suggests an item type for every object that doesn't have one yet, from its mymind type and tags — shows the impact before applying anything"
-                  >
-                    Auto-assign roles
-                  </button>
-
-                  <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
-                    Detail view
-                  </div>
-                  <p className="text-[11px] text-muted mb-1.5">
-                    Also switchable from the detail panel itself (⌘L).
-                  </p>
-                  <div className="flex gap-1 mb-2">
-                    {(["side", "centered"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={() => state.setDetailViewMode(mode)}
-                        className={[
-                          "flex-1 capitalize px-2 py-1.5 rounded-lg border border-line text-[11px]",
-                          state.detailViewMode === mode ? "bg-ink text-white" : "hover:bg-line/40",
-                        ].join(" ")}
-                        title={
-                          mode === "side"
-                            ? "Docked to the right, current default"
-                            : "Same details, centered and larger"
-                        }
-                      >
-                        {mode}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
-                    Connection
-                  </div>
-                  <button
-                    onClick={() => {
-                      setCredentialsModal({ dismissible: true });
-                      setPrefsOpen(false);
-                    }}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
-                    title="View or replace the mymind API key this app connects with"
-                  >
-                    mymind API credentials
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </header>
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore, isSampleObject } from "../store";
 import { matchesSmartCollection } from "../lib/ruleEngine";
@@ -248,11 +248,114 @@ function CreateDropZone({
   );
 }
 
+/** Condensed icon column (issue #128) — the view/zoom/preferences controls
+ * that used to live in the top-right header, now icon-only and pinned in
+ * the sidebar itself so they're reachable even when the sidebar is
+ * collapsed to its 36px strip (rendered by both sidebar states below,
+ * unlike everything else in this file that's expanded-only). Pressing the
+ * card-size icon reveals a popover with the actual slider, mirroring how
+ * the preferences gear already worked before this issue. */
+function CondensedControls({
+  viewMode,
+  setViewMode,
+  gridZoom,
+  setGridZoom,
+  prefsControl,
+}: {
+  viewMode: "grid" | "table";
+  setViewMode: (mode: "grid" | "table") => void;
+  gridZoom: number;
+  setGridZoom: (zoom: number) => void;
+  prefsControl: React.ReactNode;
+}) {
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const zoomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!zoomOpen) return;
+    function onPointerDown(e: MouseEvent) {
+      if (zoomRef.current && !zoomRef.current.contains(e.target as Node)) setZoomOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [zoomOpen]);
+
+  // The slider shows plain size, small→big left→right — gridZoom itself
+  // runs the opposite way internally (a HIGHER gridZoom means MORE grid
+  // columns, i.e. SMALLER cards), which is exactly the inversion issue
+  // #128 reported ("minus makes them bigger"). Negating it here means the
+  // fix lives entirely in this one control, without touching Grid.tsx's
+  // existing column-count math or the persisted gridZoom range.
+  const sizeValue = -gridZoom;
+
+  return (
+    <div className="flex flex-col items-start gap-1.5 py-3 border-b border-line">
+      <div className="relative" ref={zoomRef}>
+        <button
+          onClick={() => setZoomOpen((v) => !v)}
+          disabled={viewMode !== "grid"}
+          className={[
+            "w-8 h-8 flex items-center justify-center rounded-lg border border-line text-[14px]",
+            viewMode !== "grid" ? "opacity-30 pointer-events-none" : zoomOpen ? "bg-line/40" : "hover:bg-line/40",
+          ].join(" ")}
+          aria-label="Card size"
+          title="Card size"
+        >
+          ⛶
+        </button>
+        {zoomOpen && (
+          <div className="absolute left-full top-0 ml-2 w-40 rounded-lg border border-line bg-panel shadow-cardHover p-2.5 z-20">
+            <div className="text-[11px] text-muted mb-1.5">Card size</div>
+            <input
+              type="range"
+              min={-3}
+              max={2}
+              step={1}
+              value={sizeValue}
+              onChange={(e) => setGridZoom(-Number(e.target.value))}
+              className="w-full"
+              aria-label="Card size slider"
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="inline-flex flex-col rounded-lg border border-line overflow-hidden">
+        <button
+          onClick={() => setViewMode("grid")}
+          className={[
+            "w-8 h-8 flex items-center justify-center text-[13px]",
+            viewMode === "grid" ? "bg-ink text-white" : "hover:bg-line/40",
+          ].join(" ")}
+          aria-label="Masonry grid"
+          title="Masonry grid"
+        >
+          ▦
+        </button>
+        <button
+          onClick={() => setViewMode("table")}
+          className={[
+            "w-8 h-8 flex items-center justify-center text-[13px] border-t border-line",
+            viewMode === "table" ? "bg-ink text-white" : "hover:bg-line/40",
+          ].join(" ")}
+          aria-label="Table with columns"
+          title="Table with columns"
+        >
+          ☰
+        </button>
+      </div>
+
+      {prefsControl}
+    </div>
+  );
+}
+
 export function Sidebar({
   onNewSmart,
   onNewManual,
   onEditSmart,
   onEditManual,
+  prefsControl,
 }: {
   /** `parentId` (issue #126) nests the new collection under a manual
    * collection — omitted for a top-level create. */
@@ -260,6 +363,11 @@ export function Sidebar({
   onNewManual: (parentId?: string) => void;
   onEditSmart: (collectionId: string) => void;
   onEditManual: (collectionId: string) => void;
+  /** The preferences gear button + its popover (issue #128), fully built by
+   * App.tsx (which owns all the sync/backup/credentials state and handlers
+   * behind it) — Sidebar only decides where in its condensed control
+   * column to place it. */
+  prefsControl: React.ReactNode;
 }) {
   // Shallow-selected — Sidebar has nothing to do with search/facet/type
   // filters or which detail panel is open, so it shouldn't re-render (and
@@ -282,6 +390,10 @@ export function Sidebar({
       sidebarCollapsed: s.sidebarCollapsed,
       setSidebarCollapsed: s.setSidebarCollapsed,
       dragRevealSidebar: s.dragRevealSidebar,
+      viewMode: s.viewMode,
+      setViewMode: s.setViewMode,
+      gridZoom: s.gridZoom,
+      setGridZoom: s.setGridZoom,
     }))
   );
   const { collections, collectionOrder, selectedView, setSelectedView } = state;
@@ -429,12 +541,19 @@ export function Sidebar({
       <aside className="w-9 shrink-0 border-r border-line bg-panel h-full flex flex-col items-center pt-5">
         <button
           onClick={() => state.setSidebarCollapsed(false)}
-          className="text-muted hover:text-ink p-1.5 rounded-lg hover:bg-line/40"
+          className="text-muted hover:text-ink p-1.5 rounded-lg hover:bg-line/40 mb-3"
           aria-label="Show sidebar"
           title="Show sidebar"
         >
           <SidebarToggleIcon collapsed />
         </button>
+        <CondensedControls
+          viewMode={state.viewMode}
+          setViewMode={state.setViewMode}
+          gridZoom={state.gridZoom}
+          setGridZoom={state.setGridZoom}
+          prefsControl={prefsControl}
+        />
       </aside>
     );
   }
@@ -454,6 +573,16 @@ export function Sidebar({
         >
           <SidebarToggleIcon collapsed={false} />
         </button>
+      </div>
+
+      <div className="px-4">
+        <CondensedControls
+          viewMode={state.viewMode}
+          setViewMode={state.setViewMode}
+          gridZoom={state.gridZoom}
+          setGridZoom={state.setGridZoom}
+          prefsControl={prefsControl}
+        />
       </div>
 
       <div className="px-3 space-y-0.5">
