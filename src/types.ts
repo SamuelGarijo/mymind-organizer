@@ -138,6 +138,14 @@ export type FacetField = {
 export type RoleDefinition = {
   name: string;
   fields: FacetField[];
+  /** Up to 5 of this role's own field names (a subset of fields[].name),
+   * pinned as this role's "primary facets" — shown prominently in a
+   * collection's top bar and as tabs in the classification panel whenever
+   * this role is active (collection-workspace feature). Order here is
+   * display/tab order. Absent or empty means nothing's pinned yet, so the
+   * workspace UI has nothing to show for this role beyond the generic
+   * FilterBar. */
+  primaryFacets?: string[];
 };
 
 export type ManualCollection = {

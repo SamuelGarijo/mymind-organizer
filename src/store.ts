@@ -139,6 +139,15 @@ type State = {
    * removal of the same tag, since re-adding it supersedes that, and
    * records it in localUserTags so its origin survives resync. */
   addObjectTag: (objectId: string, tag: string) => void;
+  /** Records `value` as hand-picked in this app — the same durable
+   * localUserTags signal addObjectTag already gives a typed tag, reusable
+   * from any other direct-selection gesture (a facet chip pick, a
+   * classification-panel/bucket drag-drop) so lib/tagOrigin.ts's
+   * resolveTagOrigin reads "user" for those too. Never touches tags[]
+   * (unlike addObjectTag) since these values usually already live in a
+   * facet field, not the tags list. Deliberately never called from
+   * applyRoleToObject's auto-fill — that path stays non-user by design. */
+  recordUserValue: (objectId: string, value: string) => void;
   /** Removes a tag locally. mymind has no removal endpoint, so this only
    * ever affects our own copy — and records the removal so a later sync
    * doesn't bring the tag straight back. Also drops it from localUserTags,
@@ -173,10 +182,15 @@ type State = {
    * the bulk "Auto-assign roles" action's write path (issue #104). Skips
    * any objectId that no longer exists; does not touch objects not listed. */
   bulkAssignRoles: (assignments: { objectId: string; role: string }[]) => void;
-  /** Replaces a role's field package. Retroactive by construction: every
-   * consumer looks fields up through `roles`, so objects with this role
-   * pick the change up everywhere immediately. */
-  updateRoleFields: (roleName: string, fields: FacetField[]) => void;
+  /** Replaces a role's field package (and, optionally, its pinned
+   * primaryFacets — omit to leave the current pins untouched). Retroactive
+   * by construction: every consumer looks fields up through `roles`, so
+   * objects with this role pick the change up everywhere immediately. */
+  updateRoleFields: (
+    roleName: string,
+    fields: FacetField[],
+    primaryFacets?: string[]
+  ) => void;
   renameCollection: (id: string, name: string) => void;
   /** Updates a collection's optional channel-style metadata (issue #87) —
    * shared by both collection types, since description/hero image aren't
@@ -234,6 +248,15 @@ type State = {
   closeDetail: () => void;
   openCarousel: (id: string) => void;
   closeCarousel: () => void;
+
+  /** Whether the collection-workspace classification panel (right-side
+   * drop-zone drag-drop UI) is open. Ephemeral UI state, not persisted,
+   * same treatment as detailObjectId — and deliberately mutually exclusive
+   * with it (opening one closes the other) so the right side never tries
+   * to show two competing panels at once. */
+  classificationPanelOpen: boolean;
+  openClassificationPanel: () => void;
+  closeClassificationPanel: () => void;
 
   setSearchQuery: (query: string) => void;
   toggleFacetTag: (tag: string) => void;
@@ -567,6 +590,14 @@ export const useStore = create<State>()(
           };
         }),
 
+      recordUserValue: (objectId, value) =>
+        set((s) => {
+          if (!value || !s.objects[objectId]) return {};
+          const userTags = s.localUserTags[objectId] ?? [];
+          if (userTags.includes(value)) return {};
+          return { localUserTags: { ...s.localUserTags, [objectId]: [...userTags, value] } };
+        }),
+
       removeObjectTag: (objectId, tag) =>
         set((s) => {
           const existing = s.objects[objectId];
@@ -702,13 +733,15 @@ export const useStore = create<State>()(
           return { objects, roles, localTagRemovals };
         }),
 
-      updateRoleFields: (roleName, fields) =>
+      updateRoleFields: (roleName, fields, primaryFacets) =>
         set((s) => {
           const key = norm(roleName);
           const existing = s.roles[key];
-          const def: RoleDefinition = existing
-            ? { ...existing, fields }
-            : { name: roleName.trim(), fields };
+          const def: RoleDefinition = {
+            ...(existing ?? { name: roleName.trim() }),
+            fields,
+            ...(primaryFacets !== undefined ? { primaryFacets } : {}),
+          };
           return { roles: { ...s.roles, [key]: def } };
         }),
 
@@ -769,10 +802,14 @@ export const useStore = create<State>()(
           facetFieldFilter: null,
           colorFilter: null,
         }),
-      openDetail: (id) => set({ detailObjectId: id }),
+      openDetail: (id) => set({ detailObjectId: id, classificationPanelOpen: false }),
       closeDetail: () => set({ detailObjectId: null }),
       openCarousel: (id) => set({ carouselObjectId: id }),
       closeCarousel: () => set({ carouselObjectId: null }),
+
+      classificationPanelOpen: false,
+      openClassificationPanel: () => set({ classificationPanelOpen: true, detailObjectId: null }),
+      closeClassificationPanel: () => set({ classificationPanelOpen: false }),
 
       setSearchQuery: (query) => set({ searchQuery: query }),
       toggleFacetTag: (tag) =>
@@ -885,6 +922,13 @@ export const useStore = create<State>()(
                   return arr.includes(value) ? arr : [...arr, value];
                 })()
               : value;
+          // A drag-a-tag-onto-a-field gesture is exactly as much a direct
+          // user action as typing the value in — record it the same way
+          // addObjectTag would, so lib/tagOrigin.ts reads "user" for it.
+          const userTags = s.localUserTags[objectId] ?? [];
+          const localUserTags = userTags.includes(value)
+            ? s.localUserTags
+            : { ...s.localUserTags, [objectId]: [...userTags, value] };
           return {
             objects: {
               ...s.objects,
@@ -900,12 +944,14 @@ export const useStore = create<State>()(
             localTagRemovals: removals.includes(tag)
               ? s.localTagRemovals
               : { ...s.localTagRemovals, [objectId]: [...removals, tag] },
+            localUserTags,
           };
         }),
 
       assignFieldValue: (objectIds, fieldName, value, mode) =>
         set((s) => {
           const objects = { ...s.objects };
+          let localUserTags = s.localUserTags;
           let changed = false;
           for (const id of objectIds) {
             const existing = objects[id];
@@ -929,8 +975,15 @@ export const useStore = create<State>()(
               fields: { ...existing.fields, [fieldName]: nextValue },
               updatedAt: new Date().toISOString(),
             };
+            // A bucket/panel drag-drop is a direct user classification —
+            // same "user" provenance signal as a hand-typed tag (see
+            // recordUserValue's doc comment).
+            const userTags = localUserTags[id] ?? [];
+            if (!userTags.includes(value)) {
+              localUserTags = { ...localUserTags, [id]: [...userTags, value] };
+            }
           }
-          return changed ? { objects } : {};
+          return changed ? { objects, localUserTags } : {};
         }),
 
       addFieldOption: (fieldName, option) =>

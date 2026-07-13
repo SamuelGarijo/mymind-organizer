@@ -11,6 +11,9 @@ import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { FilterBar } from "./components/FilterBar";
 import { CuratedPilesBar } from "./components/CuratedPilesBar";
+import { PrimaryFacetsBar } from "./components/PrimaryFacetsBar";
+import { ClassificationPanel } from "./components/ClassificationPanel";
+import { resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
   applyFacetFieldFilter,
@@ -102,6 +105,9 @@ export default function App() {
       detailViewMode: s.detailViewMode,
       detailObjectId: s.detailObjectId,
       carouselObjectId: s.carouselObjectId,
+      classificationPanelOpen: s.classificationPanelOpen,
+      openClassificationPanel: s.openClassificationPanel,
+      closeClassificationPanel: s.closeClassificationPanel,
       syncMymindObjects: s.syncMymindObjects,
       reconcileMymindDeletions: s.reconcileMymindDeletions,
       exportDataString: s.exportDataString,
@@ -253,6 +259,17 @@ export default function App() {
   // every keystroke of a search/facet filter (which changes `objects`'
   // identity constantly without actually switching views).
   const viewKey = JSON.stringify(state.selectedView);
+
+  // Collection-workspace feature: which role is "active" for the top bar
+  // and classification panel, resolved against the collection's full
+  // membership (baseObjects), not the further quick-filter-narrowed
+  // visibleObjects — the workspace's own structure shouldn't reshuffle as
+  // someone types a search. See lib/primaryFacets.ts for the resolution
+  // rules themselves.
+  const activeRole = useMemo(
+    () => resolveActiveRole(baseObjects, state.roles, state.roleFilter),
+    [baseObjects, state.roles, state.roleFilter]
+  );
 
   const [modal, setModal] = useState<Modal>(null);
   const [fullResync, setFullResync] = useState(false);
@@ -702,6 +719,16 @@ export default function App() {
           </div>
         )}
 
+        {view.kind === "collection" && (
+          <PrimaryFacetsBar
+            objects={baseObjects}
+            roles={state.roles}
+            roleFilter={state.roleFilter}
+            localUserTags={state.localUserTags}
+            viewKey={viewKey}
+          />
+        )}
+
         {restoreNotice && (
           <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-[12px] text-emerald-800 flex items-center justify-between gap-3">
             <span>Your data is back and ready to use!</span>
@@ -814,6 +841,13 @@ export default function App() {
           objects={visibleObjects}
           currentId={state.carouselObjectId}
           onClose={state.closeCarousel}
+        />
+      )}
+      {state.classificationPanelOpen && activeRole && (
+        <ClassificationPanel
+          objects={visibleObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name))}
+          activeRole={activeRole}
+          onClose={state.closeClassificationPanel}
         />
       )}
 

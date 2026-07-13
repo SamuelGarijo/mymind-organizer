@@ -14,6 +14,12 @@ const TYPE_LABELS: Partial<Record<FacetFieldType, string>> = {
 };
 const ALLOWED_TYPES = Object.keys(TYPE_LABELS) as FacetFieldType[];
 
+/** How many fields a role can pin as "primary facets" — shown prominently
+ * in a collection's top bar / classification panel tabs (collection-
+ * workspace feature). A hard cap, not a suggestion, so the top bar never
+ * has to decide how to cram an unbounded set into limited space. */
+const MAX_PRIMARY_FACETS = 5;
+
 /** Objective vs subjective (issue #100) — purely how the detail view groups
  * fields visually, so "—" (unmarked) is a real, valid, default choice, not
  * a placeholder to be filled in later. */
@@ -42,6 +48,7 @@ export function RolePackageModal({
   );
   const definition = roles[norm(roleName)];
   const [fields, setFields] = useState<FacetField[]>(definition?.fields ?? []);
+  const [primaryFacets, setPrimaryFacets] = useState<string[]>(definition?.primaryFacets ?? []);
   const [nameDraft, setNameDraft] = useState("");
   const [typeDraft, setTypeDraft] = useState<FacetFieldType>("select");
   const [optionsDraft, setOptionsDraft] = useState("");
@@ -86,8 +93,23 @@ export function RolePackageModal({
     );
   }
 
+  function togglePrimary(fieldName: string) {
+    setPrimaryFacets((current) =>
+      current.includes(fieldName)
+        ? current.filter((f) => f !== fieldName)
+        : current.length >= MAX_PRIMARY_FACETS
+          ? current
+          : [...current, fieldName]
+    );
+  }
+
+  function removeField(fieldName: string) {
+    setFields(fields.filter((f) => f.name !== fieldName));
+    setPrimaryFacets((current) => current.filter((f) => f !== fieldName));
+  }
+
   function save() {
-    updateRoleFields(roleName, fields);
+    updateRoleFields(roleName, fields, primaryFacets);
     onClose();
   }
 
@@ -137,7 +159,22 @@ export function RolePackageModal({
                 ))}
               </select>
               <button
-                onClick={() => setFields(fields.filter((f) => f.name !== field.name))}
+                onClick={() => togglePrimary(field.name)}
+                disabled={
+                  !primaryFacets.includes(field.name) && primaryFacets.length >= MAX_PRIMARY_FACETS
+                }
+                aria-pressed={primaryFacets.includes(field.name)}
+                className="text-muted hover:text-ink px-1 shrink-0 disabled:opacity-30"
+                title={
+                  primaryFacets.includes(field.name)
+                    ? "Unpin from the collection top bar"
+                    : `Pin as a primary facet — shown prominently in the collection top bar (max ${MAX_PRIMARY_FACETS})`
+                }
+              >
+                {primaryFacets.includes(field.name) ? "★" : "☆"}
+              </button>
+              <button
+                onClick={() => removeField(field.name)}
                 className="text-muted hover:text-ink px-1"
                 aria-label={`Remove field ${field.name}`}
               >

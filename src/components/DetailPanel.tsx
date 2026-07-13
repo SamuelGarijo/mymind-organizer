@@ -103,6 +103,7 @@ export function DetailPanel({
       updateObject: s.updateObject,
       addObjectTag: s.addObjectTag,
       removeObjectTag: s.removeObjectTag,
+      recordUserValue: s.recordUserValue,
       moveTagToField: s.moveTagToField,
       setTagGroup: s.setTagGroup,
       setObjectRole: s.setObjectRole,
@@ -446,7 +447,10 @@ export function DetailPanel({
     const values = Array.isArray(raw) ? raw : [];
     const adding = !values.includes(value);
     setFieldValue(field.name, adding ? [...values, value] : values.filter((v) => v !== value));
-    if (adding) void maybePushFacetTag(field.name, value);
+    if (adding) {
+      state.recordUserValue(object.id, value);
+      void maybePushFacetTag(field.name, value);
+    }
   }
 
   /** Typed-in-a-new-option path — a select/multi-select field works like a
@@ -525,6 +529,7 @@ export function DetailPanel({
   function selectFacetOption(field: FacetField, value: string) {
     focusValues.current[field.name] = asFieldString(object.fields[field.name]);
     setFieldValue(field.name, value);
+    state.recordUserValue(object.id, value);
     void maybePushFacetTag(field.name, value);
   }
 
@@ -825,7 +830,10 @@ export function DetailPanel({
         <input
           type="date"
           value={value}
-          onChange={(e) => setFieldValue(field.name, e.target.value)}
+          onChange={(e) => {
+            setFieldValue(field.name, e.target.value);
+            state.recordUserValue(object.id, e.target.value);
+          }}
           onFocus={(e) => {
             focusValues.current[field.name] = e.target.value;
           }}
