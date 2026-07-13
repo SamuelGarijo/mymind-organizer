@@ -20,6 +20,11 @@ const VISIBLE_VALUES = 6;
  * active's pinned primaryFacets as clickable value chips. Every "what's
  * active/what's emphasized" decision is delegated to lib/primaryFacets.ts —
  * this component only renders what that module resolves.
+ *
+ * Always renders for a collection view, even with nothing set up yet — the
+ * Classify entry point (onClassifyClick) needs to be discoverable, not
+ * conditional on preconditions the user hasn't met, so there's always
+ * *some* bar with a way in.
  */
 export function PrimaryFacetsBar({
   objects,
@@ -27,6 +32,8 @@ export function PrimaryFacetsBar({
   roleFilter,
   localUserTags,
   viewKey,
+  boardOpen,
+  onClassifyClick,
 }: {
   objects: DesignObject[];
   roles: Record<string, RoleDefinition>;
@@ -35,16 +42,19 @@ export function PrimaryFacetsBar({
   /** JSON.stringify(selectedView), same identity App.tsx already derives —
    * used only to reset a stale roleFilter when the collection changes. */
   viewKey: string;
+  boardOpen: boolean;
+  /** Owns the "is this collection set up yet" decision (App.tsx) — suggests
+   * and assigns roles / pins starter facets when needed, then opens Board;
+   * just toggles Board open/closed once setup is already done. */
+  onClassifyClick: () => void;
 }) {
-  const { facetFieldFilter, setRoleFilter, setFacetFieldFilter, openClassificationPanel } =
-    useStore(
-      useShallow((s) => ({
-        facetFieldFilter: s.facetFieldFilter,
-        setRoleFilter: s.setRoleFilter,
-        setFacetFieldFilter: s.setFacetFieldFilter,
-        openClassificationPanel: s.openClassificationPanel,
-      }))
-    );
+  const { facetFieldFilter, setRoleFilter, setFacetFieldFilter } = useStore(
+    useShallow((s) => ({
+      facetFieldFilter: s.facetFieldFilter,
+      setRoleFilter: s.setRoleFilter,
+      setFacetFieldFilter: s.setFacetFieldFilter,
+    }))
+  );
   const [expandedField, setExpandedField] = useState<string | null>(null);
 
   // setSelectedView doesn't clear roleFilter (only the other quick-filters)
@@ -57,9 +67,31 @@ export function PrimaryFacetsBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewKey]);
 
+  const classifyButton = (
+    <button
+      onClick={onClassifyClick}
+      className={[
+        "tag-chip ml-auto shrink-0 hover:border-accent hover:text-ink",
+        boardOpen ? "border-accent/40 bg-accent/5 text-ink" : "",
+      ].join(" ")}
+      title="Open this collection as a drag-and-drop board — sets up a type and starter facets automatically if none exist yet"
+    >
+      {boardOpen ? "✦ Classifying" : "✦ Classify"}
+    </button>
+  );
+
   const roleKeys = distinctRoleKeys(objects);
   const activeRole = resolveActiveRole(objects, roles, roleFilter);
-  if (roleKeys.size === 0 || !activeRole) return null;
+  if (roleKeys.size === 0 || !activeRole) {
+    return (
+      <div className="shrink-0 border-b border-line bg-panel px-5 py-2.5 flex items-center gap-3">
+        <span className="text-[12px] text-muted">
+          No item types assigned in this collection yet.
+        </span>
+        {classifyButton}
+      </div>
+    );
+  }
 
   const roleOptions = Array.from(roleKeys)
     .map((key) => roles[key])
@@ -95,6 +127,15 @@ export function PrimaryFacetsBar({
               {role.name}
             </button>
           ))}
+        </div>
+      )}
+
+      {orderedPinned.length === 0 && (
+        <div className="flex items-center gap-3">
+          <span className="text-[12px] text-muted">
+            "{activeRole.name}" has no primary facets pinned yet.
+          </span>
+          {classifyButton}
         </div>
       )}
 
@@ -160,13 +201,7 @@ export function PrimaryFacetsBar({
               </div>
             );
           })}
-          <button
-            onClick={openClassificationPanel}
-            className="tag-chip ml-auto shrink-0 hover:border-accent hover:text-ink"
-            title="Open the classification panel — drag items onto facet values to classify them"
-          >
-            Classify
-          </button>
+          {classifyButton}
         </div>
       )}
     </div>

@@ -249,11 +249,11 @@ type State = {
   openCarousel: (id: string) => void;
   closeCarousel: () => void;
 
-  /** Whether the collection-workspace classification panel (right-side
-   * drop-zone drag-drop UI) is open. Ephemeral UI state, not persisted,
-   * same treatment as detailObjectId — and deliberately mutually exclusive
-   * with it (opening one closes the other) so the right side never tries
-   * to show two competing panels at once. */
+  /** Whether the collection-workspace Board view (Kanban-style columns,
+   * replacing Grid/Table in the main content area) is active. Ephemeral UI
+   * state, not persisted, same treatment as detailObjectId — coexists with
+   * it freely (opening an item's detail panel while Board is active is the
+   * same as doing so from Grid/Table). */
   classificationPanelOpen: boolean;
   openClassificationPanel: () => void;
   closeClassificationPanel: () => void;
@@ -802,13 +802,13 @@ export const useStore = create<State>()(
           facetFieldFilter: null,
           colorFilter: null,
         }),
-      openDetail: (id) => set({ detailObjectId: id, classificationPanelOpen: false }),
+      openDetail: (id) => set({ detailObjectId: id }),
       closeDetail: () => set({ detailObjectId: null }),
       openCarousel: (id) => set({ carouselObjectId: id }),
       closeCarousel: () => set({ carouselObjectId: null }),
 
       classificationPanelOpen: false,
-      openClassificationPanel: () => set({ classificationPanelOpen: true, detailObjectId: null }),
+      openClassificationPanel: () => set({ classificationPanelOpen: true }),
       closeClassificationPanel: () => set({ classificationPanelOpen: false }),
 
       setSearchQuery: (query) => set({ searchQuery: query }),

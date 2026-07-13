@@ -12,8 +12,8 @@ import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { FilterBar } from "./components/FilterBar";
 import { CuratedPilesBar } from "./components/CuratedPilesBar";
 import { PrimaryFacetsBar } from "./components/PrimaryFacetsBar";
-import { ClassificationPanel } from "./components/ClassificationPanel";
-import { resolveActiveRole } from "./lib/primaryFacets";
+import { Board } from "./components/Board";
+import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
   applyFacetFieldFilter,
@@ -34,7 +34,7 @@ import { norm } from "./lib/ruleEngine";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
 import { suggestRole } from "./lib/roleSuggestion";
-import type { FacetField } from "./types";
+import type { DesignObject, FacetField } from "./types";
 
 // Set right before a restore-triggered reload, read once on the next
 // mount — sessionStorage (not state) is the only thing that survives the
@@ -491,6 +491,68 @@ export default function App() {
     state.bulkAssignRoles(assignments);
   }
 
+  // Single entry point for the top bar's "Classify" button — owns the "is
+  // this collection set up yet" decision so PrimaryFacetsBar/Board never
+  // have to. Scoped to this collection's own objects (baseObjects), unlike
+  // handleAutoAssignRoles above which sweeps the whole library. Suggests +
+  // assigns a type where none exists (same suggestRole engine, same
+  // confirm-before-writing pattern), then pins a starter set of primary
+  // facets for any role present here that has fields but nothing pinned
+  // yet — a freshly-created role already got a curated field package for
+  // free via applyRoleToObject, so this just makes it visible in the
+  // workspace immediately instead of requiring a second manual pin step.
+  function handleClassifyClick() {
+    if (state.classificationPanelOpen) {
+      state.closeClassificationPanel();
+      return;
+    }
+    const ids = baseObjects.map((o) => o.id);
+    if (distinctRoleKeys(baseObjects).size === 0) {
+      const assignments: { objectId: string; role: string }[] = [];
+      const counts = new Map<string, number>();
+      for (const obj of baseObjects) {
+        const suggestion = suggestRole(obj);
+        if (!suggestion) continue;
+        assignments.push({ objectId: obj.id, role: suggestion });
+        counts.set(suggestion, (counts.get(suggestion) ?? 0) + 1);
+      }
+      if (assignments.length === 0) {
+        alert(
+          "Couldn't suggest a type for anything in this collection — assign one by hand from an item's detail panel, then try Classify again."
+        );
+        return;
+      }
+      const summary = Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([role, count]) => `${role}: ${count}`)
+        .join("\n");
+      const ok = window.confirm(
+        `Set up this collection as a workspace? This assigns a type to ${assignments.length.toLocaleString()} object${
+          assignments.length === 1 ? "" : "s"
+        }:\n\n${summary}\n\nAlways editable afterward from any item's detail panel. Continue?`
+      );
+      if (!ok) return;
+      state.bulkAssignRoles(assignments);
+    }
+
+    const fresh = useStore.getState();
+    const freshObjects = ids
+      .map((id) => fresh.objects[id])
+      .filter((o): o is DesignObject => Boolean(o));
+    for (const key of distinctRoleKeys(freshObjects)) {
+      const def = fresh.roles[key];
+      if (!def || def.fields.length === 0) continue;
+      if (def.primaryFacets && def.primaryFacets.length > 0) continue;
+      fresh.updateRoleFields(
+        def.name,
+        def.fields,
+        def.fields.slice(0, 3).map((f) => f.name)
+      );
+    }
+
+    state.openClassificationPanel();
+  }
+
   function handleExport() {
     const json = state.exportDataString();
     const blob = new Blob([json], { type: "application/json" });
@@ -726,6 +788,8 @@ export default function App() {
             roleFilter={state.roleFilter}
             localUserTags={state.localUserTags}
             viewKey={viewKey}
+            boardOpen={state.classificationPanelOpen}
+            onClassifyClick={handleClassifyClick}
           />
         )}
 
@@ -798,7 +862,15 @@ export default function App() {
         />
 
         <div className="flex-1 overflow-hidden">
-          {state.viewMode === "table" ? (
+          {state.classificationPanelOpen && activeRole ? (
+            <Board
+              objects={visibleObjects.filter(
+                (o) => o.role && norm(o.role) === norm(activeRole.name)
+              )}
+              activeRole={activeRole}
+              onOpen={state.openDetail}
+            />
+          ) : state.viewMode === "table" ? (
             <div className="h-full p-5">
               <Table
                 objects={visibleObjects}
@@ -843,14 +915,6 @@ export default function App() {
           onClose={state.closeCarousel}
         />
       )}
-      {state.classificationPanelOpen && activeRole && (
-        <ClassificationPanel
-          objects={visibleObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name))}
-          activeRole={activeRole}
-          onClose={state.closeClassificationPanel}
-        />
-      )}
-
       {modal?.kind === "smart" && (
         <SmartCollectionModal
           collectionId={modal.collectionId}
