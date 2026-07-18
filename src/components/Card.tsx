@@ -85,19 +85,22 @@ export const Card = memo(function Card({
         // inside the rounded selection ring (issue #110). Radius now comes
         // from one shared token (rounded-card) instead of the ring drawing
         // a curve nothing else honors, so it holds at any card size.
-        "active:cursor-grabbing rounded-card overflow-hidden",
+        "group active:cursor-grabbing rounded-card overflow-hidden",
         isSelected ? "ring-2 ring-accent ring-offset-2" : "",
       ].join(" ")}
       data-object-id={object.id}
     >
       {isTextOnly ? (
-        <div className="w-full bg-panel rounded-card shadow-card p-3.5">
+        <div className="w-full bg-panel rounded-card shadow-card group-hover:shadow-cardHover transition-shadow p-3.5">
           <p className="text-[14px] leading-snug text-ink/75 line-clamp-[10] whitespace-pre-line">
             {textPreview}
           </p>
         </div>
       ) : (
-        <div className="w-full border border-line bg-line/10">
+        // Floating, near-borderless (design-philosophy: things breathe as
+        // pieces on the canvas, not boxed sections) — soft shadow instead
+        // of a hard border, lifting slightly on hover.
+        <div className="w-full rounded-card overflow-hidden bg-panel shadow-card group-hover:shadow-cardHover transition-shadow">
           {showImage ? (
             <img
               src={object.imageUrl}

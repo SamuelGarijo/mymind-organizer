@@ -91,6 +91,7 @@ export default function App() {
       localUserTags: s.localUserTags,
       typeFilter: s.typeFilter,
       roleFilter: s.roleFilter,
+      groupBy: s.groupBy,
       colorFilter: s.colorFilter,
       setColorFilter: s.setColorFilter,
       gridZoom: s.gridZoom,
@@ -282,11 +283,14 @@ export default function App() {
   // A stale roleFilter surviving a collection switch could silently show
   // "0 objects match" for a role the new collection doesn't have — reset it
   // whenever the logical view changes (moved here from the old
-  // PrimaryFacetsBar when the ledger became scroll content).
+  // PrimaryFacetsBar when the ledger became scroll content). The grouping
+  // lens is view-local presentation state on the same footing.
   const setRoleFilter = useStore((s) => s.setRoleFilter);
+  const setGroupBy = useStore((s) => s.setGroupBy);
   useEffect(() => {
     setRoleFilter("");
-  }, [viewKey, setRoleFilter]);
+    setGroupBy(null);
+  }, [viewKey, setRoleFilter, setGroupBy]);
 
   // Success toasts self-dismiss — a floating "already up to date" that
   // lingered forever would just be chrome noise with extra steps. Errors
@@ -378,6 +382,21 @@ export default function App() {
   // Stable reference per objects-map identity — the similarity corpus cache
   // keys on it (lib/hybridSimilarity.ts).
   const allObjectsList = useMemo(() => Object.values(state.objects), [state.objects]);
+
+  // The folders panel is the collection's own architecture, so entering a
+  // world that's already set up opens it by default (Samuel's call) — and
+  // leaving, or entering one with nothing pinned yet, closes it. Closing it
+  // by hand (✦ / ×) sticks until the next view change; this only fires on
+  // viewKey transitions, deliberately reading the freshly-computed
+  // primaryFacetNames of the view just entered.
+  useEffect(() => {
+    if (view.kind === "collection" && primaryFacetNames.length > 0) {
+      state.openClassificationPanel();
+    } else {
+      state.closeClassificationPanel();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewKey]);
   // Matches the debounced value the results are actually computed from, so
   // this message never flashes out of sync with what's on screen.
   const isQuickFiltering =
@@ -830,10 +849,6 @@ export default function App() {
               {/* The reservoir IS the main space (N8): the not-yet-folded
                   things keep the sacred area; folders float beside them. */}
               <div className="flex-1 overflow-y-auto pl-5 pr-[26rem] pt-3 pb-5">
-                <div className="pb-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                  Unclassified · {reservoirObjects.length.toLocaleString()}
-                  {effectiveClassifyField ? ` — drag things into ${effectiveClassifyField} folders` : ""}
-                </div>
                 <Grid
                   objects={reservoirObjects}
                   facetColumns={facetColumns}
@@ -858,6 +873,7 @@ export default function App() {
                 onOpen={state.openDetail}
                 emptyLabel={emptyLabel}
                 viewKey={viewKey}
+                groupBy={state.groupBy}
               />
             </div>
           ) : (
@@ -889,6 +905,7 @@ export default function App() {
                 onOpen={state.openDetail}
                 emptyLabel={emptyLabel}
                 zoom={state.gridZoom}
+                groupBy={state.groupBy}
               />
             </div>
           )}
@@ -902,6 +919,7 @@ export default function App() {
           allObjects={allObjectsList}
           activeRole={activeRole}
           fieldName={effectiveClassifyField ?? ""}
+          reservoirCount={reservoirObjects.length}
           onFieldChange={setClassifyField}
           onClose={state.closeClassificationPanel}
           onOpen={state.openDetail}

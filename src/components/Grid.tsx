@@ -4,7 +4,6 @@ import { Card } from "./Card";
 import { useStore } from "../store";
 import { assignMasonryColumns, columnsForWidth, GRID_GAP } from "../lib/masonry";
 import { groupObjects, ITEM_TYPE_GROUP } from "../lib/grouping";
-import { GroupBySelect } from "./GroupBySelect";
 
 const INITIAL_COUNT = 80;
 const BATCH_SIZE = 120;
@@ -48,12 +47,17 @@ export function Grid({
   onOpen,
   emptyLabel,
   zoom = 0,
+  groupBy = null,
 }: {
   objects: DesignObject[];
   /** Role field packages present in the current view — same prop Table
    * already takes, needed here too now that Grid can group (issue #98). */
   facetColumns: FacetField[];
   tagFrequency: Map<string, number>;
+  /** Grouping lens — now store-owned (TopBar's filter popover sets it), so
+   * Grid just renders whatever lens is active instead of owning a local
+   * dropdown (design-philosophy: group-by lives inside the filters). */
+  groupBy?: string | null;
   /** Identifies the logical view (e.g. JSON.stringify(selectedView)) — reset
    * keys off this, not `objects` itself. `objects` gets a new array identity
    * on every search/facet keystroke without the view actually changing, and
@@ -76,14 +80,10 @@ export function Grid({
   const containerRef = useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(containerRef);
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
-  const [groupByField, setGroupByField] = useState<string | null>(null);
+  const groupByField = groupBy;
 
   useEffect(() => {
     setRenderCount(INITIAL_COUNT);
-  }, [viewKey]);
-
-  useEffect(() => {
-    setGroupByField(null);
   }, [viewKey]);
 
   // A range/marquee selection is only meaningful against the objects
@@ -265,17 +265,8 @@ export function Grid({
     );
   }
 
-  const hasRoles = objects.some((o) => o.role);
-
   return (
     <>
-      <GroupBySelect
-        value={groupByField}
-        onChange={setGroupByField}
-        hasRoles={hasRoles}
-        facetColumns={facetColumns}
-        objects={objects}
-      />
       <div ref={containerRef} onMouseDown={handleMarqueeMouseDown}>
         {sections ? (
           <div className="space-y-6">

@@ -10,9 +10,10 @@ import {
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { TOLERANCE_MAX, TOLERANCE_MIN, type ColorFilter } from "../lib/colorSearch";
+import { ITEM_TYPE_GROUP, rankableFacetColumns } from "../lib/grouping";
 import type { DesignObject, FacetField } from "../types";
 
-type Category = "tag" | "type" | "role" | "field" | "color";
+type Category = "tag" | "type" | "role" | "field" | "color" | "group";
 
 /** One active filter, regardless of which underlying store slice it comes
  * from — every condition reads as one combinable list ("Type: Article",
@@ -105,6 +106,8 @@ export function TopBar({
     setFacetFieldFilter,
     setTypeFilter,
     setRoleFilter,
+    groupBy,
+    setGroupBy,
   } = useStore(
     useShallow((s) => ({
       searchQuery: s.searchQuery,
@@ -124,6 +127,8 @@ export function TopBar({
       setFacetFieldFilter: s.setFacetFieldFilter,
       setTypeFilter: s.setTypeFilter,
       setRoleFilter: s.setRoleFilter,
+      groupBy: s.groupBy,
+      setGroupBy: s.setGroupBy,
     }))
   );
 
@@ -207,8 +212,18 @@ export function TopBar({
       onRemove: () => setColorFilter(null),
     });
   }
+  if (groupBy) {
+    pills.push({
+      key: "group",
+      label: `Group: ${groupBy === ITEM_TYPE_GROUP ? "Item type" : groupBy}`,
+      tone: "include",
+      onRemove: () => setGroupBy(null),
+    });
+  }
 
   const hasAnyFilter = pills.length > 0;
+  const groupableColumns = rankableFacetColumns(fieldFilterPool, facetColumns);
+  const hasRoles = fieldFilterPool.some((o) => o.role);
   const fieldValueOptions = pendingField ? computeFieldValueFrequency(fieldFilterPool, pendingField) : [];
   const tagResults = category === "tag" ? searchTags(fieldFilterPool, query) : [];
   // Empty query → the view's top tags as suggestions, so the tag universe
@@ -250,9 +265,11 @@ export function TopBar({
   }
 
   return (
-    <div className="shrink-0 border-b border-line bg-panel">
-      <div className="h-12 px-5 flex items-center gap-3">
-        {/* Breadcrumb — the are.na register: app root muted, view in ink. */}
+    <div className="shrink-0">
+      {/* No band, no border — breadcrumb sits directly on the canvas and the
+          controls float as pills (the "breathing" register: elements, not
+          sections). */}
+      <div className="px-5 pt-3.5 pb-1.5 flex items-center gap-3">
         <div className="flex items-baseline gap-2 min-w-0 font-mono">
           <span className="text-[13px] text-muted shrink-0">Organizer</span>
           <span className="text-[13px] text-muted/60 shrink-0">/</span>
@@ -268,12 +285,12 @@ export function TopBar({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search…"
             title="Fuzzy search — title matches outrank tag/summary matches"
-            className="w-48 focus:w-80 transition-[width] duration-200 rounded-full border border-line bg-canvas/60 pl-3.5 pr-7 py-1.5 text-[13px] font-mono outline-none focus:border-accent focus:bg-panel"
+            className="w-72 focus:w-[26rem] transition-[width,box-shadow] duration-200 rounded-full border border-line/60 bg-panel shadow-card pl-4 pr-8 py-2 text-[13px] font-mono outline-none focus:border-accent/40 focus:shadow-cardHover"
           />
           {searchQuery !== "" && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
               aria-label="Clear search"
             >
               ×
@@ -285,12 +302,12 @@ export function TopBar({
           <button
             onClick={() => setMenuOpen((v) => !v)}
             className={[
-              "w-8 h-8 flex items-center justify-center rounded-full border transition-colors",
+              "w-9 h-9 flex items-center justify-center rounded-full border bg-panel shadow-card transition-all hover:shadow-cardHover",
               hasAnyFilter || menuOpen
-                ? "border-accent/50 text-accent bg-accent/5"
-                : "border-line text-muted hover:text-ink hover:bg-line/40",
+                ? "border-accent/50 text-accent"
+                : "border-line/60 text-muted hover:text-ink",
             ].join(" ")}
-            title="Filter — tags, types, fields, color"
+            title="Filter — tags, types, fields, color, grouping"
             aria-label="Filter"
           >
             <FilterIcon active={hasAnyFilter} />
@@ -305,6 +322,7 @@ export function TopBar({
                     ["role", "Item type"],
                     ["field", "Field"],
                     ["color", "Color"],
+                    ["group", "Group"],
                   ] as const
                 ).map(([c, label]) => (
                   <button
@@ -443,6 +461,52 @@ export function TopBar({
                   </div>
                 ))}
 
+              {category === "group" && (
+                <div className="max-h-56 overflow-y-auto p-1">
+                  <button
+                    onClick={() => {
+                      setGroupBy(null);
+                      closeMenu();
+                    }}
+                    className={[
+                      "w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40",
+                      groupBy === null ? "text-accent" : "",
+                    ].join(" ")}
+                  >
+                    None
+                  </button>
+                  {hasRoles && (
+                    <button
+                      onClick={() => {
+                        setGroupBy(ITEM_TYPE_GROUP);
+                        closeMenu();
+                      }}
+                      className={[
+                        "w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40",
+                        groupBy === ITEM_TYPE_GROUP ? "text-accent" : "",
+                      ].join(" ")}
+                    >
+                      Item type
+                    </button>
+                  )}
+                  {groupableColumns.map((f) => (
+                    <button
+                      key={f.name}
+                      onClick={() => {
+                        setGroupBy(f.name);
+                        closeMenu();
+                      }}
+                      className={[
+                        "w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40",
+                        groupBy === f.name ? "text-accent" : "",
+                      ].join(" ")}
+                    >
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {category === "color" && (
                 <div className="p-2 flex flex-col gap-2">
                   <div className="flex items-center gap-2">
@@ -497,12 +561,12 @@ export function TopBar({
           <button
             onClick={onClassifyClick}
             className={[
-              "shrink-0 font-mono text-[12px] px-3 py-1.5 rounded-full border transition-colors",
+              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded-full border bg-panel shadow-card transition-all hover:shadow-cardHover",
               boardOpen
-                ? "border-accent/50 bg-accent/5 text-ink"
-                : "border-line text-muted hover:text-ink hover:bg-line/40",
+                ? "border-accent/50 text-ink"
+                : "border-line/60 text-muted hover:text-ink",
             ].join(" ")}
-            title="Open this collection as a drag-and-drop board — sets up a type and starter facets automatically if none exist yet"
+            title="Open this collection's folders — sets up a type and starter facets automatically if none exist yet"
           >
             {boardOpen ? "✦ Classifying" : "✦ Classify"}
           </button>
@@ -511,7 +575,7 @@ export function TopBar({
 
       {/* Summoned by state, recedes with it — exists only while filtering. */}
       {hasAnyFilter && (
-        <div className="px-5 pb-2.5 flex flex-wrap items-center gap-2">
+        <div className="px-5 pb-1.5 flex flex-wrap items-center gap-2">
           {pills.map(renderPill)}
 
           {facetTags.length > 1 && (
@@ -543,6 +607,7 @@ export function TopBar({
               clearFacetTags();
               clearExcludedTags();
               setColorFilter(null);
+              setGroupBy(null);
             }}
             className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
           >

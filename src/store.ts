@@ -268,6 +268,12 @@ type State = {
   setColorFilter: (filter: ColorFilter | null) => void;
   setTypeFilter: (type: string) => void;
   setRoleFilter: (role: string) => void;
+  /** Grid/Table grouping lens — lives in the store (not per-view local
+   * state) so the TopBar's filter popover, Grid, and Table all read the
+   * same value (the "Group by should live inside filters" call). Reset on
+   * view change by App, like roleFilter. */
+  groupBy: string | null;
+  setGroupBy: (field: string | null) => void;
   setGridZoom: (zoom: number) => void;
   setViewMode: (mode: ViewMode) => void;
   setDetailViewMode: (mode: DetailViewMode) => void;
@@ -423,6 +429,7 @@ export const useStore = create<State>()(
       colorFilter: null,
       typeFilter: "",
       roleFilter: "",
+      groupBy: null,
       gridZoom: 0,
       viewMode: "grid",
       detailViewMode: "side",
@@ -434,7 +441,12 @@ export const useStore = create<State>()(
       lastBackupAt: undefined,
       setLastBackupAt: (iso) => set({ lastBackupAt: iso }),
 
-      sidebarCollapsed: false,
+      // Collapsed by default (design-philosophy N20): the left panel holds
+      // FIXED concepts — interface controls and deliberately-created
+      // collections — not things conditional on the current exploration, so
+      // its resting state is the thin rail. Expands on drag-toward or
+      // intentional open; a persisted user choice overrides this default.
+      sidebarCollapsed: true,
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
       dragRevealSidebar: false,
@@ -834,6 +846,7 @@ export const useStore = create<State>()(
       setColorFilter: (filter) => set({ colorFilter: filter }),
       setTypeFilter: (type) => set({ typeFilter: type }),
       setRoleFilter: (role) => set({ roleFilter: role }),
+      setGroupBy: (field) => set({ groupBy: field }),
       setGridZoom: (zoom) => set({ gridZoom: Math.max(-2, Math.min(3, zoom)) }),
       setViewMode: (mode) => set({ viewMode: mode }),
       setDetailViewMode: (mode) => set({ detailViewMode: mode }),

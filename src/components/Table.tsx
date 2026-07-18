@@ -5,7 +5,6 @@ import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
 import { asFieldString } from "../lib/mymindSync";
 import { useStore } from "../store";
 import { DRAG_MIME } from "./Sidebar";
-import { GroupBySelect } from "./GroupBySelect";
 import {
   groupObjects,
   ITEM_TYPE_GROUP,
@@ -168,6 +167,7 @@ export function Table({
   onOpen,
   emptyLabel,
   viewKey,
+  groupBy = null,
 }: {
   objects: DesignObject[];
   facetColumns: FacetField[];
@@ -175,12 +175,15 @@ export function Table({
   onOpen: (id: string) => void;
   emptyLabel?: string;
   /** Identifies the logical view — see Grid's identical prop. Resets
-   * groupByField on a real view change without reacting to `objects`
-   * merely getting a new array identity from a search/facet keystroke. */
+   * view-local presentation state on a real view change without reacting
+   * to `objects` merely getting a new array identity from a keystroke. */
   viewKey: string;
+  /** Grouping lens — store-owned now (TopBar's filter popover sets it),
+   * same prop as Grid's. */
+  groupBy?: string | null;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const [groupByField, setGroupByField] = useState<string | null>(null);
+  const groupByField = groupBy;
   // Highlights whichever bucket (group header, or the trailing "+ new
   // value" row via NEW_VALUE_DROP_KEY) is currently under a drag.
   const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
@@ -212,7 +215,6 @@ export function Table({
   }, [sortMenuOpen, columnsMenuOpen]);
 
   useEffect(() => {
-    setGroupByField(null);
     setSortRules([]);
     setHiddenColumns(new Set());
   }, [viewKey]);
@@ -369,21 +371,11 @@ export function Table({
   const minWidth =
     220 + (showType ? 128 : 0) + (showTags ? 224 : 0) + visibleFacetColumns.length * 112 + 36;
 
-  const hasRoles = objects.some((o) => o.role);
-
   const sortableFields = [{ name: "Title", key: SORT_BY_TITLE }, ...facetColumns.map((f) => ({ name: f.name, key: f.name }))];
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-3 flex-wrap" ref={controlsRef}>
-        <GroupBySelect
-          value={groupByField}
-          onChange={setGroupByField}
-          hasRoles={hasRoles}
-          facetColumns={facetColumns}
-          objects={objects}
-        />
-
         <div className="relative mb-2">
           <button
             onClick={() => {

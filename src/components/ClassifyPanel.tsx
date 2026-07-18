@@ -68,6 +68,7 @@ export function ClassifyPanel({
   allObjects,
   activeRole,
   fieldName,
+  reservoirCount,
   onFieldChange,
   onClose,
   onOpen,
@@ -80,6 +81,9 @@ export function ClassifyPanel({
   allObjects: DesignObject[];
   activeRole: RoleDefinition;
   fieldName: string;
+  /** How many things are still unfolded for this facet — shown as a quiet
+   * note here (the grid itself carries no annotation). */
+  reservoirCount: number;
   onFieldChange: (name: string) => void;
   onClose: () => void;
   onOpen: (id: string) => void;
@@ -241,6 +245,11 @@ export function ClassifyPanel({
                 {name}
               </button>
             ))}
+          </div>
+        )}
+        {reservoirCount > 0 && (
+          <div className="mt-1.5 font-mono text-[10px] text-muted/80">
+            {reservoirCount.toLocaleString()} unfolded — drag them in from the grid
           </div>
         )}
       </div>
