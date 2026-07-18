@@ -80,6 +80,60 @@ The objects/cards are the inhabitants of the sacred space. Give them room.
 **Density is the enemy of assimilation** — and where density is unavoidable
 or desirable, it is a *dial the user turns*, not a fixed value we impose.
 
+### 8. Every collection is a world
+
+The Organizer is not one space — it is a space that **reconfigures itself per
+collection**. Each collection (smart or manual) carries its own *workspace
+schema*, the way Photoshop carries workspaces: which facets matter here, how
+this world groups by default, what its header filters by. Cleaning the global
+filter bar was right, but a space with no internal architecture is
+*over-cleaned*. The resolution is not to bring the global bar back — it is to
+make the header **belong to the collection**: what was noise globally (30
+tags) becomes signal locally (the 4–5 facets that actually matter in *this*
+world), read like a table header.
+
+- **Homogeneous** collection (e.g. all typography): header = its 4–5 key
+  facets (serif?, condensed?…).
+- **Heterogeneous** collection (mixed roles — images + articles + notes):
+  the first level is **Group by Role**, then each role reveals its own facets.
+
+### 9. Fixed vs. conditional — two reasons a thing isn't resident
+
+Nothing is resident by default, but for two different reasons — and the
+distinction decides *how* it comes back:
+
+- **Fixed** structure — the left panel: interface controls and the
+  manually/smart-created collections. These are *stable concepts*, not tied to
+  what you're exploring right now. So they are **collapsed by default** and
+  expand on demand: when you **drag something toward them**, or when you
+  **open them intentionally**. They are never summoned *by the exploration
+  itself*.
+- **Conditional** structure — the right-side / floating modules: the folders
+  panel, the *similar items* strip, contextual filters. These *are* tied to
+  the current exploration, so they are **summoned by context** and recede when
+  the context passes.
+
+The workspace is therefore **modular** — assembled from pieces that come and
+go depending on context (Samuel's sketch: "modular pieces that come and go
+depending on context"). Modularity is the mechanism behind Principle 3's
+"conditional, not resident."
+
+### 10. Facets are structure; tags are anecdote; provenance is quiet signal
+
+Two classes of metadata, and their status is **relative to the world you're
+in**:
+
+- **Facets** — structural properties of *this* collection (typography → style;
+  a research board → role). They drive the header and the grouping.
+- **Anecdotal tags** — free notes with no relation to the collection's facets
+  (a color note on a typography item). Secondary; never the header.
+
+The *same* tag can be signal in one world and anecdote in another. Separately,
+**provenance matters**: tags the user wrote (intentional) are distinguished
+from tags the AI suggested — but as **quiet color, never a loud badge**. This
+reconciles the discarded #50/#51: the badge/icon version was noise; a calm
+highlight that separates *mine* from *suggested* is signal.
+
 ### Meta-principle: choreography, not subtraction
 
 **This is not about removing features we worked hard to build.** Filters,
@@ -139,6 +193,38 @@ yes/no.
   cut — the space itself is a feature, so its changes should read as the
   space breathing, not as elements popping.
 
+**Per-collection workspace**
+- N13. A collection's header filters by **that collection's key facets**
+  (homogeneous) — not the global most-common tags. Surface ~4–5, like a table
+  header.
+- N14. A heterogeneous collection groups by **Role first**, then reveals
+  role-specific facets within each group.
+- N15. The workspace schema is **per-collection state** (builds on
+  `ManualCollection.facetSchema`) — surfaced as the collection's header, not
+  buried in the detail panel.
+
+**Grouping order & honesty**
+- N16. Grouping shows **classified groups first**; the uncategorized / "—"
+  bucket goes last, never first. Foregrounding the un-assimilated violates the
+  assimilation ladder (Principle 5).
+- N17. Filter/facet options that are **near-empty noise** (e.g. an AI-filled
+  facet matching only 2–3 items) are pruned or de-emphasized — structure must
+  be real, not "noise disguised as structure."
+
+**Metadata provenance & class**
+- N18. Facets drive the header; **anecdotal tags stay secondary** and never
+  colonize it.
+- N19. User-authored tags are **visually distinct** from AI-authored tags
+  (data already exists: `tagFlags` 2=AI, 8=Manual) via **quiet color**, never
+  per-tag badges/icons.
+
+**Fixed vs. conditional chrome**
+- N20. **Fixed** structure (left panel) is collapsed by default and expands
+  only on **drag-toward** or **intentional open** — never summoned by the
+  exploration itself.
+- N21. **Conditional** modules (right / floating) are summoned by context and
+  recede when the context passes (N5 applies).
+
 ---
 
 ## Layer 3 — Decisions (Per-screen applications)
@@ -165,18 +251,45 @@ changes.
 - The full facet apparatus is powerful and stays — it just stops being
   resident (meta-principle).
 
+### Collection workspace (per-collection header)
+- **Target:** entering a collection adapts the top into *that collection's*
+  header — its 4–5 key facets for a homogeneous collection, or a
+  **Group-by-Role** first level for a heterogeneous one, read like a table
+  header (Principles 8/10, N13–N15). Builds on the existing `facetSchema`,
+  promoting it from the detail panel up to the space's header.
+- **Against:** one global tag wall shown identically in every collection —
+  each collection is a world with its own architecture, not a filter of the
+  same soup.
+
 ### Grouping / Board view
 - **Target:** grouping as **soft headings over the flowing grid**
   (`POSTER (11)` style), so the waterfall still reads as one breathing space.
   Rigid always-on columns are reserved for when the user explicitly enters a
   board/kanban intent — not the default resting layout (N7).
+- **Order:** classified groups first, the "—"/uncategorized bucket last
+  (N16); prune near-empty AI-filled facet options (N17).
 - The "Unclassified" reservoir is the **generous center**, not a cramped
   column with a backlog count (N8).
 
-### Sidebar
-- **Target:** calm — title, "All items", a short list of smart/manual
-  collections. **Collapsible to a thin rail** (already done, #70). Reclaimed
-  width flows to the grid (N6).
+### Left panel (fixed structure)
+- **Why collapsed by default:** it holds *fixed* concepts — interface controls
+  and the manually/smart-created collections — that are stable, not
+  conditional to the current exploration (Principle 9). **Collapsed to a thin
+  rail by default** (#70); expands only on **drag-toward** (dropping a card
+  into a collection) or **intentional open** — never summoned by the
+  exploration itself (N20). Reclaimed width flows to the grid (N6).
+
+### Right-side / floating contextual modules
+- **Target:** conditional modules that come and go — a folders/collections
+  panel (with tabs, "+ new folder"), a horizontal *similar items* strip —
+  summoned by context and receding when it passes (Principle 9, N21). Samuel's
+  sketch: modular pieces assembled per context.
+
+### Tag provenance & facets vs. anecdotal
+- **Target:** user-authored tags in a **quiet highlight** (e.g. blue), AI tags
+  plain — reconciling the discarded #50/#51 as calm color, not badges
+  (Principle 10, N19). Facets lead the header; anecdotal tags stay secondary
+  (N18).
 
 ### Cards / grid
 - **Target:** near-borderless cards floating on the canvas, generous gaps,
