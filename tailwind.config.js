@@ -3,6 +3,12 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        // The archive register (docs/design-philosophy.md, Typography &
+        // tone): Space Mono for breadcrumbs, labels, counts — the quiet
+        // editorial voice. Body text stays system sans.
+        mono: ['"Space Mono"', "ui-monospace", "monospace"],
+      },
       colors: {
         canvas: "#f4f3f0",
         panel: "#ffffff",

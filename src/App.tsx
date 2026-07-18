@@ -9,9 +9,8 @@ import { DetailPanel } from "./components/DetailPanel";
 import { DetailCarousel } from "./components/DetailCarousel";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
-import { FilterBar } from "./components/FilterBar";
-import { CuratedPilesBar } from "./components/CuratedPilesBar";
-import { PrimaryFacetsBar } from "./components/PrimaryFacetsBar";
+import { TopBar } from "./components/TopBar";
+import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionLedger";
 import { Board } from "./components/Board";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
@@ -275,6 +274,24 @@ export default function App() {
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
   const [prefsOpen, setPrefsOpen] = useState(false);
+
+  // A stale roleFilter surviving a collection switch could silently show
+  // "0 objects match" for a role the new collection doesn't have — reset it
+  // whenever the logical view changes (moved here from the old
+  // PrimaryFacetsBar when the ledger became scroll content).
+  const setRoleFilter = useStore((s) => s.setRoleFilter);
+  useEffect(() => {
+    setRoleFilter("");
+  }, [viewKey, setRoleFilter]);
+
+  // Success toasts self-dismiss — a floating "already up to date" that
+  // lingered forever would just be chrome noise with extra steps. Errors
+  // stay until dismissed.
+  useEffect(() => {
+    if (syncState.status !== "done" || syncState.backupSuspect) return;
+    const t = setTimeout(() => setSyncState({ status: "idle" }), 6000);
+    return () => clearTimeout(t);
+  }, [syncState]);
   const [credentialsModal, setCredentialsModal] = useState<{ dismissible: boolean } | null>(null);
   const [restoreNotice, setRestoreNotice] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
@@ -755,46 +772,89 @@ export default function App() {
       />
 
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 shrink-0 border-b border-line bg-panel flex items-center justify-between px-5 gap-3">
-          <div className="flex items-baseline gap-2 min-w-0">
-            <h1 className="text-sm font-semibold truncate">{viewTitle(state)}</h1>
-            <span className="text-[12px] text-muted shrink-0">
-              {visibleObjects.length} item{visibleObjects.length === 1 ? "" : "s"}
-            </span>
-          </div>
-        </header>
+        {/* The single resident band (design-philosophy N1). */}
+        <TopBar
+          title={viewTitle(state)}
+          count={visibleObjects.length}
+          isCollection={view.kind === "collection"}
+          boardOpen={state.classificationPanelOpen}
+          onClassifyClick={handleClassifyClick}
+          topTags={topTags}
+          objectTypes={objectTypes}
+          roleTypes={roleTypes}
+          facetColumns={facetColumns}
+          fieldFilterPool={excludeFiltered}
+          colorFilter={state.colorFilter}
+          setColorFilter={state.setColorFilter}
+        />
 
-        {currentCollection && (currentCollection.description || heroObject?.imageUrl) && (
-          <div className="shrink-0 border-b border-line bg-panel px-5 py-3 flex items-start gap-3">
-            {heroObject?.imageUrl && (
-              <img
-                src={heroObject.imageUrl}
-                alt=""
-                className="w-16 h-16 rounded-lg object-cover shrink-0"
+        <div className="flex-1 overflow-hidden">
+          {state.classificationPanelOpen && activeRole ? (
+            <div className="h-full flex flex-col">
+              {/* Role picker stays reachable while boarding — contextual
+                  chrome tied to the board intent (N21). */}
+              <RoleStrip objects={baseObjects} roles={state.roles} roleFilter={state.roleFilter} />
+              <div className="flex-1 overflow-hidden">
+                <Board
+                  objects={visibleObjects.filter(
+                    (o) => o.role && norm(o.role) === norm(activeRole.name)
+                  )}
+                  activeRole={activeRole}
+                  onOpen={state.openDetail}
+                />
+              </div>
+            </div>
+          ) : state.viewMode === "table" ? (
+            <div className="h-full p-5">
+              <Table
+                objects={visibleObjects}
+                facetColumns={facetColumns}
+                tagFrequency={tagFrequency}
+                onOpen={state.openDetail}
+                emptyLabel={emptyLabel}
+                viewKey={viewKey}
               />
-            )}
-            {currentCollection.description && (
-              <p className="text-[13px] text-ink/80 leading-relaxed">
-                {currentCollection.description}
-              </p>
-            )}
-          </div>
-        )}
+            </div>
+          ) : (
+            <div className="h-full overflow-y-auto px-5 pt-4 pb-5">
+              {/* The collection's workspace header is CONTENT, not chrome —
+                  it scrolls away with the grid (are.na channel-header move;
+                  design-philosophy Principle 8 + N1). */}
+              {view.kind === "collection" && currentCollection && (
+                <CollectionLedger
+                  collection={currentCollection}
+                  heroObject={heroObject}
+                  objects={baseObjects}
+                  roles={state.roles}
+                  roleFilter={state.roleFilter}
+                  localUserTags={state.localUserTags}
+                  piles={curatedPiles}
+                />
+              )}
+              {view.kind !== "collection" && curatedPiles.length > 0 && (
+                <div className="pb-5">
+                  <PileChips piles={curatedPiles} />
+                </div>
+              )}
+              <Grid
+                objects={visibleObjects}
+                facetColumns={facetColumns}
+                tagFrequency={tagFrequency}
+                viewKey={viewKey}
+                onOpen={state.openDetail}
+                emptyLabel={emptyLabel}
+                zoom={state.gridZoom}
+              />
+            </div>
+          )}
+        </div>
+      </main>
 
-        {view.kind === "collection" && (
-          <PrimaryFacetsBar
-            objects={baseObjects}
-            roles={state.roles}
-            roleFilter={state.roleFilter}
-            localUserTags={state.localUserTags}
-            viewKey={viewKey}
-            boardOpen={state.classificationPanelOpen}
-            onClassifyClick={handleClassifyClick}
-          />
-        )}
-
+      {/* Status toasts — floating, never a band that pushes content (N3).
+          Success self-dismisses; errors and the backup warning persist. */}
+      <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 max-w-sm">
         {restoreNotice && (
-          <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-[12px] text-emerald-800 flex items-center justify-between gap-3">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
             <span>Your data is back and ready to use!</span>
             <button
               onClick={() => setRestoreNotice(false)}
@@ -806,7 +866,7 @@ export default function App() {
           </div>
         )}
         {syncState.status === "error" && (
-          <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-[12px] text-red-800 flex items-center justify-between gap-3">
+          <div className="rounded-lg border border-red-200 bg-red-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-red-800 flex items-start justify-between gap-3">
             <span>{syncState.message}</span>
             <button
               onClick={() => setSyncState({ status: "idle" })}
@@ -818,7 +878,7 @@ export default function App() {
           </div>
         )}
         {syncState.status === "done" && (
-          <div className="px-5 py-2 bg-emerald-50 border-b border-emerald-200 text-[12px] text-emerald-800 flex items-center justify-between gap-3">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
             <span>
               {syncState.count === 0
                 ? "Already up to date — no new or changed items."
@@ -840,7 +900,7 @@ export default function App() {
           </div>
         )}
         {syncState.status === "done" && syncState.backupSuspect && (
-          <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 text-[12px] text-amber-900">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-amber-900">
             ⚠ This sync's backup was written as <code>-SUSPECT.json</code> instead of rotating in
             normally — it has 20%+ fewer objects than the last good backup. That can happen
             legitimately (e.g. right after deleting a lot locally), but it's also what a corrupted
@@ -848,54 +908,7 @@ export default function App() {
             roll back if needed.
           </div>
         )}
-
-        <CuratedPilesBar piles={curatedPiles} />
-
-        <FilterBar
-          topTags={topTags}
-          objectTypes={objectTypes}
-          roleTypes={roleTypes}
-          facetColumns={facetColumns}
-          fieldFilterPool={excludeFiltered}
-          colorFilter={state.colorFilter}
-          setColorFilter={state.setColorFilter}
-        />
-
-        <div className="flex-1 overflow-hidden">
-          {state.classificationPanelOpen && activeRole ? (
-            <Board
-              objects={visibleObjects.filter(
-                (o) => o.role && norm(o.role) === norm(activeRole.name)
-              )}
-              activeRole={activeRole}
-              onOpen={state.openDetail}
-            />
-          ) : state.viewMode === "table" ? (
-            <div className="h-full p-5">
-              <Table
-                objects={visibleObjects}
-                facetColumns={facetColumns}
-                tagFrequency={tagFrequency}
-                onOpen={state.openDetail}
-                emptyLabel={emptyLabel}
-                viewKey={viewKey}
-              />
-            </div>
-          ) : (
-            <div className="h-full overflow-y-auto p-5">
-              <Grid
-                objects={visibleObjects}
-                facetColumns={facetColumns}
-                tagFrequency={tagFrequency}
-                viewKey={viewKey}
-                onOpen={state.openDetail}
-                emptyLabel={emptyLabel}
-                zoom={state.gridZoom}
-              />
-            </div>
-          )}
-        </div>
-      </main>
+      </div>
 
       {state.detailObjectId && (
         <DetailPanel

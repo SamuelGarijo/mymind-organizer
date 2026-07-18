@@ -15,13 +15,53 @@ import type { DesignObject, FacetField } from "../types";
 type Category = "tag" | "type" | "role" | "field" | "color";
 
 /** One active filter, regardless of which underlying store slice it comes
- * from — the whole point of this redesign (issue #120) is that every
- * condition reads as one combinable list ("Type: Article", "NOT: agua",
- * "Genre: Environmental") instead of living in 4 separate, disconnected
- * controls the way it did before. */
+ * from — every condition reads as one combinable list ("Type: Article",
+ * "NOT: agua", "Genre: Environmental") instead of living in 4 separate,
+ * disconnected controls (issue #120). */
 type Pill = { key: string; label: string; tone: "include" | "exclude"; onRemove: () => void };
 
-export function FilterBar({
+/** The φφφ sliders glyph from Samuel's sketch — the filter summon. */
+function FilterIcon({ active }: { active: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" className="shrink-0">
+      {[
+        { y: 3.5, knob: 10.5 },
+        { y: 8, knob: 5.5 },
+        { y: 12.5, knob: 11.5 },
+      ].map(({ y, knob }) => (
+        <g key={y}>
+          <line x1="1.5" y1={y} x2="14.5" y2={y} stroke="currentColor" strokeWidth="1.2" />
+          <circle
+            cx={knob}
+            cy={y}
+            r="2.2"
+            fill={active ? "currentColor" : "#ffffff"}
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * The single resident band (design-philosophy N1): an are.na-style
+ * breadcrumb line — `Organizer / <view> · count` on the left, then search
+ * and the filter summon on the right. Everything else that used to stack
+ * here (tag wall, curated piles, primary facets, hero) either became
+ * content that scrolls with the grid (CollectionLedger) or lives behind
+ * the filter popover.
+ *
+ * A second row exists ONLY while filters are active (summoned by state,
+ * recedes with it — N5): the active-filter pills, match mode, clear-all.
+ */
+export function TopBar({
+  title,
+  count,
+  isCollection,
+  boardOpen,
+  onClassifyClick,
   topTags,
   objectTypes,
   roleTypes,
@@ -30,21 +70,23 @@ export function FilterBar({
   colorFilter,
   setColorFilter,
 }: {
+  title: string;
+  count: number;
+  /** Collection views get the ✦ Classify affordance — it must stay reachable
+   * even once the ledger has scrolled away, so it lives here, not there. */
+  isCollection: boolean;
+  boardOpen: boolean;
+  onClassifyClick: () => void;
+  /** Empty-query suggestions inside the popover's Tag category — the old
+   * resident tag wall, demoted to summoned (choreography, not subtraction). */
   topTags: TagFrequency[];
   objectTypes: TypeFrequency[];
   roleTypes: TypeFrequency[];
   facetColumns: FacetField[];
   fieldFilterPool: DesignObject[];
-  /** Color search (issue #69) — matches mymind's own per-image palette, no
-   * local color extraction. Lives in the store (not local state) since it
-   * needs to combine with every other filter in App.tsx's pipeline. */
   colorFilter: ColorFilter | null;
   setColorFilter: (filter: ColorFilter | null) => void;
 }) {
-  // Shallow-selected — this bar legitimately re-renders on every keystroke
-  // (it's the input itself), but a bare useStore() also re-rendered it on
-  // every unrelated store change (syncs, tag edits, opening a detail panel),
-  // which this avoids.
   const {
     searchQuery,
     facetTags,
@@ -92,11 +134,9 @@ export function FilterBar({
   // from the committed store filter so choosing a field doesn't filter
   // anything until a value is also chosen.
   const [pendingField, setPendingField] = useState<string | null>(null);
-  // Color category's own draft (issue #69) — picking a color/tolerance
-  // doesn't filter anything until "Apply", same reasoning as pendingField:
-  // dragging a color picker or slider fires many onChange events, and only
-  // the committed store filter re-runs the (relatively pricier) palette
-  // distance check over every object.
+  // Color category's own draft (issue #69) — dragging a picker/slider fires
+  // many onChange events; only the committed store filter re-runs the
+  // palette distance check over every object.
   const [pendingHex, setPendingHex] = useState(colorFilter?.hex ?? "#6a5cff");
   const [pendingTolerance, setPendingTolerance] = useState(colorFilter?.tolerance ?? 20);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -169,11 +209,14 @@ export function FilterBar({
   }
 
   const hasAnyFilter = pills.length > 0;
-  const inactiveSuggestions = topTags.filter(
-    ({ tag }) => !facetTags.includes(tag) && !excludedTags.includes(tag)
-  );
   const fieldValueOptions = pendingField ? computeFieldValueFrequency(fieldFilterPool, pendingField) : [];
   const tagResults = category === "tag" ? searchTags(fieldFilterPool, query) : [];
+  // Empty query → the view's top tags as suggestions, so the tag universe
+  // stays discoverable without a resident wall of chips.
+  const tagSuggestions = topTags.filter(
+    ({ tag }) => !facetTags.includes(tag) && !excludedTags.includes(tag)
+  );
+  const tagList = query === "" ? tagSuggestions.slice(0, 24) : tagResults;
 
   function renderPill({ key, label, tone, onRemove }: Pill) {
     const group = tone === "include" ? tagGroups[norm(label)] : undefined;
@@ -207,20 +250,30 @@ export function FilterBar({
   }
 
   return (
-    <div className="border-b border-line bg-panel">
-      <div className="px-5 py-3 flex flex-wrap items-center gap-2">
-        <div className="relative">
+    <div className="shrink-0 border-b border-line bg-panel">
+      <div className="h-12 px-5 flex items-center gap-3">
+        {/* Breadcrumb — the are.na register: app root muted, view in ink. */}
+        <div className="flex items-baseline gap-2 min-w-0 font-mono">
+          <span className="text-[13px] text-muted shrink-0">Organizer</span>
+          <span className="text-[13px] text-muted/60 shrink-0">/</span>
+          <h1 className="text-[13px] font-bold truncate">{title}</h1>
+          <span className="text-[11px] text-muted shrink-0">{count.toLocaleString()}</span>
+        </div>
+
+        <div className="flex-1" />
+
+        <div className="relative shrink-0">
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search title, tags, summary…"
+            placeholder="Search…"
             title="Fuzzy search — title matches outrank tag/summary matches"
-            className="w-56 rounded-lg border border-line pl-3 pr-7 py-1.5 text-[13px] outline-none focus:border-accent"
+            className="w-48 focus:w-80 transition-[width] duration-200 rounded-full border border-line bg-canvas/60 pl-3.5 pr-7 py-1.5 text-[13px] font-mono outline-none focus:border-accent focus:bg-panel"
           />
           {searchQuery !== "" && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
               aria-label="Clear search"
             >
               ×
@@ -228,16 +281,23 @@ export function FilterBar({
           )}
         </div>
 
-        <div className="relative" ref={menuRef}>
+        <div className="relative shrink-0" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="rounded-lg border border-line px-2.5 py-1.5 text-[13px] bg-panel hover:bg-line/40"
+            className={[
+              "w-8 h-8 flex items-center justify-center rounded-full border transition-colors",
+              hasAnyFilter || menuOpen
+                ? "border-accent/50 text-accent bg-accent/5"
+                : "border-line text-muted hover:text-ink hover:bg-line/40",
+            ].join(" ")}
+            title="Filter — tags, types, fields, color"
+            aria-label="Filter"
           >
-            + Filter
+            <FilterIcon active={hasAnyFilter} />
           </button>
           {menuOpen && (
-            <div className="absolute z-20 top-full mt-1 left-0 w-64 rounded-lg border border-line bg-panel shadow-lg overflow-hidden">
-              <div className="flex border-b border-line text-[11px]">
+            <div className="absolute z-20 top-full mt-1.5 right-0 w-72 rounded-lg border border-line bg-panel shadow-cardHover overflow-hidden">
+              <div className="flex border-b border-line text-[11px] font-mono">
                 {(
                   [
                     ["tag", "Tag"],
@@ -273,14 +333,11 @@ export function FilterBar({
                     placeholder="Search any tag…"
                     className="w-full rounded-lg border border-line px-2 py-1 text-[12px] outline-none focus:border-accent mb-1.5"
                   />
-                  <div className="max-h-48 overflow-y-auto flex flex-col gap-0.5">
-                    {query === "" && (
-                      <p className="text-[11px] text-muted px-1 py-1">Type to search every tag in this view.</p>
-                    )}
-                    {tagResults.map(({ tag, count }) => (
+                  <div className="max-h-56 overflow-y-auto flex flex-col gap-0.5">
+                    {tagList.map(({ tag, count: tagCount }) => (
                       <div key={tag} className="flex items-center justify-between gap-1 px-1 py-0.5 rounded hover:bg-line/40">
                         <span className="text-[12px] truncate">
-                          {tag} <span className="text-muted">{count}</span>
+                          {tag} <span className="text-muted">{tagCount}</span>
                         </span>
                         <div className="flex gap-1 shrink-0">
                           <button
@@ -314,7 +371,7 @@ export function FilterBar({
                 <div className="max-h-56 overflow-y-auto p-1">
                   {objectTypes
                     .filter(({ type }) => norm(type).includes(norm(query)))
-                    .map(({ type, count }) => (
+                    .map(({ type, count: typeCount }) => (
                       <button
                         key={type}
                         onClick={() => {
@@ -323,7 +380,7 @@ export function FilterBar({
                         }}
                         className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
                       >
-                        {type} <span className="text-muted">{count}</span>
+                        {type} <span className="text-muted">{typeCount}</span>
                       </button>
                     ))}
                 </div>
@@ -333,7 +390,7 @@ export function FilterBar({
                 <div className="max-h-56 overflow-y-auto p-1">
                   {roleTypes
                     .filter(({ type }) => norm(type).includes(norm(query)))
-                    .map(({ type, count }) => (
+                    .map(({ type, count: roleCount }) => (
                       <button
                         key={type}
                         onClick={() => {
@@ -342,7 +399,7 @@ export function FilterBar({
                         }}
                         className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
                       >
-                        {type} <span className="text-muted">{count}</span>
+                        {type} <span className="text-muted">{roleCount}</span>
                       </button>
                     ))}
                 </div>
@@ -370,7 +427,7 @@ export function FilterBar({
                       ← {pendingField}
                     </button>
                     <div className="max-h-48 overflow-y-auto">
-                      {fieldValueOptions.map(({ tag: value, count }) => (
+                      {fieldValueOptions.map(({ tag: value, count: valueCount }) => (
                         <button
                           key={value}
                           onClick={() => {
@@ -379,7 +436,7 @@ export function FilterBar({
                           }}
                           className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
                         >
-                          {value} <span className="text-muted">{count}</span>
+                          {value} <span className="text-muted">{valueCount}</span>
                         </button>
                       ))}
                     </div>
@@ -436,30 +493,48 @@ export function FilterBar({
           )}
         </div>
 
-        {pills.map(renderPill)}
-
-        {facetTags.length > 1 && (
-          <div className="flex items-center gap-1 text-[11px]">
-            <span className="text-muted">Match</span>
-            <div className="inline-flex rounded-lg border border-line overflow-hidden">
-              {(["AND", "OR"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setFacetMode(m)}
-                  className={[
-                    "px-2 py-0.5",
-                    facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
-                  ].join(" ")}
-                  title={m === "AND" ? "Must have all included tags" : "Match any included tag"}
-                >
-                  {m === "AND" ? "all" : "any"}
-                </button>
-              ))}
-            </div>
-          </div>
+        {isCollection && (
+          <button
+            onClick={onClassifyClick}
+            className={[
+              "shrink-0 font-mono text-[12px] px-3 py-1.5 rounded-full border transition-colors",
+              boardOpen
+                ? "border-accent/50 bg-accent/5 text-ink"
+                : "border-line text-muted hover:text-ink hover:bg-line/40",
+            ].join(" ")}
+            title="Open this collection as a drag-and-drop board — sets up a type and starter facets automatically if none exist yet"
+          >
+            {boardOpen ? "✦ Classifying" : "✦ Classify"}
+          </button>
         )}
+      </div>
 
-        {hasAnyFilter && (
+      {/* Summoned by state, recedes with it — exists only while filtering. */}
+      {hasAnyFilter && (
+        <div className="px-5 pb-2.5 flex flex-wrap items-center gap-2">
+          {pills.map(renderPill)}
+
+          {facetTags.length > 1 && (
+            <div className="flex items-center gap-1 text-[11px]">
+              <span className="text-muted">Match</span>
+              <div className="inline-flex rounded-lg border border-line overflow-hidden">
+                {(["AND", "OR"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setFacetMode(m)}
+                    className={[
+                      "px-2 py-0.5",
+                      facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
+                    ].join(" ")}
+                    title={m === "AND" ? "Must have all included tags" : "Match any included tag"}
+                  >
+                    {m === "AND" ? "all" : "any"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <button
             onClick={() => {
               setTypeFilter("");
@@ -467,35 +542,12 @@ export function FilterBar({
               setFacetFieldFilter(null);
               clearFacetTags();
               clearExcludedTags();
+              setColorFilter(null);
             }}
             className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
           >
             clear all
           </button>
-        )}
-      </div>
-
-      {inactiveSuggestions.length > 0 && (
-        <div className="px-5 pb-3 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-          {inactiveSuggestions.map(({ tag, count }) => {
-            const group = tagGroups[norm(tag)];
-            const color = group ? colorForGroup(group) : null;
-            return (
-              <button
-                key={tag}
-                onClick={(e) => (e.altKey ? toggleExcludeTag(tag) : toggleFacetTag(tag))}
-                className="tag-chip gap-1 shrink-0"
-                style={color ? { borderColor: color.border } : undefined}
-                title={
-                  (group ? `${tag} · ${group} — ` : `${tag} — `) +
-                  "click to filter, option/alt-click to exclude"
-                }
-              >
-                {tag}
-                <span className="text-muted">{count}</span>
-              </button>
-            );
-          })}
         </div>
       )}
     </div>
