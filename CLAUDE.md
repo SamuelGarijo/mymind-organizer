@@ -19,6 +19,21 @@ what's now resolved/blocked), and move its board Status field accordingly
 only partially resolved). Do this as part of finishing the task, not as a
 separate step the user has to ask for.
 
+## Design philosophy — read before any UI change
+
+Full doc: [`docs/design-philosophy.md`](docs/design-philosophy.md). The core
+idea: The Organizer is a **sacred space for thinking**, and **space itself is
+a first-class feature** — weighted equal to or above any button, tag, or bar.
+The product's KPI is *assimilation* (turning saved things into understood
+things), so anything that crowds the work out with chrome ("death by
+features") is a regression, not a nicety. The discipline is **choreography of
+appearance** — features are summoned on intent and recede when done, not
+resident by default — never subtraction of hard-won capability. Figma
+mockups/sketches are visual conversation, not pixel-perfect spec; implement
+freely against the principles. **You're expected to flag and propose
+decluttering proactively** (e.g. "this bar is starting to get in the way")
+without being asked. Verify UI decisions against that doc's Norms (Layer 2).
+
 ## mymind API — hard rules
 
 Full spec: [`docs/mymind-api.md`](docs/mymind-api.md) (verbatim from
