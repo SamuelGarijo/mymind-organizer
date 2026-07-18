@@ -27,16 +27,23 @@ function PanelLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Tiny thumbnail used in folder peeks and the similar strip. */
+/** Tiny thumbnail used in folder peeks and the similar strip — a failed
+ * image falls back to the title, never a broken-image glyph. */
 function Peek({ object, onOpen }: { object: DesignObject; onOpen: (id: string) => void }) {
+  const [failed, setFailed] = useState(false);
   return (
     <button
       onClick={() => onOpen(object.id)}
       title={object.title}
       className="shrink-0 w-12 h-12 rounded-md overflow-hidden border border-line bg-line/20 hover:border-accent/50"
     >
-      {object.imageUrl ? (
-        <img src={object.imageUrl} alt="" className="w-full h-full object-cover pointer-events-none" />
+      {object.imageUrl && !failed ? (
+        <img
+          src={object.imageUrl}
+          alt=""
+          className="w-full h-full object-cover pointer-events-none"
+          onError={() => setFailed(true)}
+        />
       ) : (
         <span className="block w-full h-full p-1 text-[7px] leading-tight text-muted text-left overflow-hidden pointer-events-none">
           {object.title}

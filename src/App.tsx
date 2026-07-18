@@ -687,8 +687,8 @@ export default function App() {
       <button
         onClick={() => setPrefsOpen((v) => !v)}
         className={[
-          "text-[13px] w-8 h-8 flex items-center justify-center rounded-lg border border-line hover:bg-line/40",
-          prefsOpen ? "bg-line/40" : "",
+          "w-7 h-7 flex items-center justify-center rounded-md text-[13px] transition-colors",
+          prefsOpen ? "bg-line/60 text-ink" : "text-muted hover:text-ink hover:bg-line/40",
         ].join(" ")}
         title="Organizer preferences — sync and backup"
         aria-label="Organizer preferences"

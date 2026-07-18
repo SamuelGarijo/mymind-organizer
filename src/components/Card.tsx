@@ -53,7 +53,11 @@ export const Card = memo(function Card({
   const textPreview = (
     asFieldString(object.fields[NOTE_CONTENT_KEY]) || asFieldString(object.fields.summary)
   ).trim();
-  const isTextOnly = !showImage && !!textPreview;
+  // Text-preview ONLY for objects that genuinely have no image (Notes,
+  // Content…). An Image whose thumbnail merely failed to load must NOT
+  // masquerade as a note — that made "Type: Image" look broken (real
+  // confusion, 2026-07-19); it gets an honest muted placeholder instead.
+  const isTextOnly = !object.imageUrl && !!textPreview;
 
   return (
     <div
@@ -111,8 +115,8 @@ export const Card = memo(function Card({
               onError={() => setImageFailed(true)}
             />
           ) : (
-            <div className="w-full aspect-[4/3] flex items-center justify-center text-muted text-xs">
-              No image
+            <div className="w-full aspect-[4/3] flex items-center justify-center font-mono text-[10px] uppercase tracking-[0.12em] text-muted/60">
+              image unavailable
             </div>
           )}
         </div>

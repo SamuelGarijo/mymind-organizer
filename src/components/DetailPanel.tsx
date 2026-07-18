@@ -56,6 +56,24 @@ function formatFieldValue(value: string | string[]): string {
   return Array.isArray(value) ? value.join(", ") : value;
 }
 
+/** Similar-strip thumbnail with an honest failure state — a thumb whose
+ * image 404s falls back to its title, never a broken-image glyph. */
+function StripThumb({ object }: { object: { imageUrl: string; title: string } }) {
+  const [failed, setFailed] = useState(false);
+  return object.imageUrl && !failed ? (
+    <img
+      src={object.imageUrl}
+      alt=""
+      className="w-full h-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  ) : (
+    <div className="w-full h-full flex items-center justify-center text-[9px] leading-tight text-muted bg-line/10 p-1 text-center overflow-hidden">
+      {object.title}
+    </div>
+  );
+}
+
 export function DetailPanel({
   objectId,
   onClose,
@@ -164,6 +182,9 @@ export function DetailPanel({
   // e.g. a saved webpage has no uploaded attachment) or fails to load.
   const [blobFailed, setBlobFailed] = useState(false);
   const [defaultThumbFailed, setDefaultThumbFailed] = useState(false);
+  // Terminal state: every rung of the fallback chain failed. Render nothing
+  // at all — a broken-image glyph is chrome debris, never content.
+  const [coverFailed, setCoverFailed] = useState(false);
   // Panel root for the focus trap below — Tab/Shift+Tab cycles between the
   // first and last focusable element inside instead of escaping into the
   // grid behind it (issue #116).
@@ -206,6 +227,7 @@ export function DetailPanel({
   useEffect(() => {
     setBlobFailed(false);
     setDefaultThumbFailed(false);
+    setCoverFailed(false);
     setActiveTag(null);
     setExpandedOptionsField(null);
     setRoleDraft("");
@@ -892,7 +914,7 @@ export function DetailPanel({
           </button>
         </div>
 
-        {!isNote && object.imageUrl && (
+        {!isNote && object.imageUrl && !coverFailed && (
           <button
             type="button"
             draggable
@@ -923,6 +945,7 @@ export function DetailPanel({
               onError={() => {
                 if (!blobFailed) setBlobFailed(true);
                 else if (!defaultThumbFailed) setDefaultThumbFailed(true);
+                else setCoverFailed(true);
               }}
             />
           </button>
@@ -966,13 +989,7 @@ export function DetailPanel({
                   className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-line hover:border-accent"
                   title={o.title}
                 >
-                  {o.imageUrl ? (
-                    <img src={o.imageUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[9px] leading-tight text-muted bg-line/10 p-1 text-center">
-                      {o.title}
-                    </div>
-                  )}
+                  <StripThumb object={o} />
                 </button>
               ))}
             </div>

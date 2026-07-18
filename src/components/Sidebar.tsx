@@ -110,8 +110,11 @@ function NavRow({
         for (const id of ids) onDrop(id);
       }}
       className={[
-        "group flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] cursor-pointer select-none",
-        active ? "bg-ink text-white" : "text-ink/80 hover:bg-line/60",
+        // Quiet active state (the Claude-app register): a soft tint, not an
+        // inverted black pill — the sidebar is fixed structure and should
+        // whisper, not shout.
+        "group flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-mono text-[12px] cursor-pointer select-none",
+        active ? "bg-line/60 text-ink" : "text-ink/75 hover:bg-line/40",
         dragOver ? "ring-2 ring-accent ring-offset-1 ring-offset-panel" : "",
         disabled ? "opacity-40 pointer-events-none" : "",
       ].join(" ")}
@@ -119,19 +122,14 @@ function NavRow({
     >
       {icon}
       <span className="flex-1 truncate">{label}</span>
-      {typeof count === "number" && (
-        <span className={active ? "text-white/60" : "text-muted"}>{count}</span>
-      )}
+      {typeof count === "number" && <span className="text-muted/70">{count}</span>}
       {onEdit && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             onEdit();
           }}
-          className={[
-            "hidden group-hover:inline-flex px-1",
-            active ? "text-white/70 hover:text-white" : "text-muted hover:text-ink",
-          ].join(" ")}
+          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
           aria-label={`Edit ${label}`}
           title="Edit"
         >
@@ -144,10 +142,7 @@ function NavRow({
             e.stopPropagation();
             onDelete();
           }}
-          className={[
-            "hidden group-hover:inline-flex px-1",
-            active ? "text-white/70 hover:text-white" : "text-muted hover:text-ink",
-          ].join(" ")}
+          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
           aria-label={`Delete ${label}`}
         >
           ×
@@ -159,10 +154,7 @@ function NavRow({
             e.stopPropagation();
             onAddNestedManual();
           }}
-          className={[
-            "hidden group-hover:inline-flex px-1",
-            active ? "text-white/70 hover:text-white" : "text-muted hover:text-ink",
-          ].join(" ")}
+          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
           aria-label={`New nested manual collection in ${label}`}
           title="New nested manual collection"
         >
@@ -175,10 +167,7 @@ function NavRow({
             e.stopPropagation();
             onAddNestedSmart();
           }}
-          className={[
-            "hidden group-hover:inline-flex px-1",
-            active ? "text-white/70 hover:text-white" : "text-muted hover:text-ink",
-          ].join(" ")}
+          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
           aria-label={`New nested smart collection in ${label}`}
           title="New nested smart collection"
         >
@@ -214,12 +203,12 @@ function CreateDropZone({
 
   const halfClass = (side: "manual" | "smart") =>
     [
-      "flex-1 text-center py-2 transition-colors",
+      "flex-1 text-center py-2 transition-colors font-mono text-[10px] uppercase tracking-[0.08em]",
       hoverSide === side ? "bg-accent/10 text-ink" : "text-muted/70",
     ].join(" ");
 
   return (
-    <div className="mt-1.5 flex rounded-lg border border-dashed border-line overflow-hidden text-[11px]">
+    <div className="mt-1.5 flex rounded-lg border border-dashed border-line overflow-hidden">
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -261,12 +250,15 @@ function CondensedControls({
   gridZoom,
   setGridZoom,
   prefsControl,
+  vertical = false,
 }: {
   viewMode: "grid" | "table";
   setViewMode: (mode: "grid" | "table") => void;
   gridZoom: number;
   setGridZoom: (zoom: number) => void;
   prefsControl: React.ReactNode;
+  /** Collapsed-rail placement stacks the icons; expanded lays them in a row. */
+  vertical?: boolean;
 }) {
   const [zoomOpen, setZoomOpen] = useState(false);
   const zoomRef = useRef<HTMLDivElement>(null);
@@ -288,24 +280,36 @@ function CondensedControls({
   // existing column-count math or the persisted gridZoom range.
   const sizeValue = -gridZoom;
 
+  // Ghost icons in a quiet row (column when the sidebar is collapsed to its
+  // rail) — no boxes, no borders: the Claude-app register for fixed
+  // controls. Active view = soft tint, never an inverted block.
+  const ghost = (isActive: boolean, isDisabled = false) =>
+    [
+      "w-7 h-7 flex items-center justify-center rounded-md text-[13px] transition-colors",
+      isDisabled
+        ? "opacity-30 pointer-events-none"
+        : isActive
+        ? "bg-line/60 text-ink"
+        : "text-muted hover:text-ink hover:bg-line/40",
+    ].join(" ");
+
   return (
-    <div className="flex flex-col items-start gap-1.5 py-3 border-b border-line">
+    <div className={vertical ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}>
       <div className="relative" ref={zoomRef}>
         <button
           onClick={() => setZoomOpen((v) => !v)}
           disabled={viewMode !== "grid"}
-          className={[
-            "w-8 h-8 flex items-center justify-center rounded-lg border border-line text-[14px]",
-            viewMode !== "grid" ? "opacity-30 pointer-events-none" : zoomOpen ? "bg-line/40" : "hover:bg-line/40",
-          ].join(" ")}
+          className={ghost(zoomOpen, viewMode !== "grid")}
           aria-label="Card size"
           title="Card size"
         >
           ⛶
         </button>
         {zoomOpen && (
-          <div className="absolute left-full top-0 ml-2 w-40 rounded-lg border border-line bg-panel shadow-cardHover p-2.5 z-20">
-            <div className="text-[11px] text-muted mb-1.5">Card size</div>
+          <div className="absolute left-full top-0 ml-2 w-40 rounded-xl border border-line/70 bg-panel shadow-cardHover p-2.5 z-20">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
+              Card size
+            </div>
             <input
               type="range"
               min={-3}
@@ -320,30 +324,22 @@ function CondensedControls({
         )}
       </div>
 
-      <div className="inline-flex flex-col rounded-lg border border-line overflow-hidden">
-        <button
-          onClick={() => setViewMode("grid")}
-          className={[
-            "w-8 h-8 flex items-center justify-center text-[13px]",
-            viewMode === "grid" ? "bg-ink text-white" : "hover:bg-line/40",
-          ].join(" ")}
-          aria-label="Masonry grid"
-          title="Masonry grid"
-        >
-          ▦
-        </button>
-        <button
-          onClick={() => setViewMode("table")}
-          className={[
-            "w-8 h-8 flex items-center justify-center text-[13px] border-t border-line",
-            viewMode === "table" ? "bg-ink text-white" : "hover:bg-line/40",
-          ].join(" ")}
-          aria-label="Table with columns"
-          title="Table with columns"
-        >
-          ☰
-        </button>
-      </div>
+      <button
+        onClick={() => setViewMode("grid")}
+        className={ghost(viewMode === "grid")}
+        aria-label="Masonry grid"
+        title="Masonry grid"
+      >
+        ▦
+      </button>
+      <button
+        onClick={() => setViewMode("table")}
+        className={ghost(viewMode === "table")}
+        aria-label="Table with columns"
+        title="Table with columns"
+      >
+        ☰
+      </button>
 
       {prefsControl}
     </div>
@@ -401,6 +397,23 @@ export function Sidebar({
   const [backupConfigured, setBackupConfigured] = useState(false);
   useEffect(() => {
     getStoredBackupHandle().then((handle) => setBackupConfigured(!!handle));
+  }, []);
+
+  // The create-by-drop zone is only meaningful mid-drag, so it only exists
+  // then (summoned by intent, N4) — document-level listeners catch any card
+  // drag, wherever it started.
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    const start = () => setDragging(true);
+    const end = () => setDragging(false);
+    document.addEventListener("dragstart", start);
+    document.addEventListener("dragend", end);
+    document.addEventListener("drop", end);
+    return () => {
+      document.removeEventListener("dragstart", start);
+      document.removeEventListener("dragend", end);
+      document.removeEventListener("drop", end);
+    };
   }, []);
 
   async function handleSetBackupFile() {
@@ -538,10 +551,10 @@ export function Sidebar({
 
   if (state.sidebarCollapsed && !state.dragRevealSidebar) {
     return (
-      <aside className="w-9 shrink-0 border-r border-line bg-panel h-full flex flex-col items-center pt-5">
+      <aside className="w-10 shrink-0 border-r border-line/70 bg-panel h-full flex flex-col items-center pt-4 gap-2">
         <button
           onClick={() => state.setSidebarCollapsed(false)}
-          className="text-muted hover:text-ink p-1.5 rounded-lg hover:bg-line/40 mb-3"
+          className="w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40 mb-1"
           aria-label="Show sidebar"
           title="Show sidebar"
         >
@@ -553,21 +566,21 @@ export function Sidebar({
           gridZoom={state.gridZoom}
           setGridZoom={state.setGridZoom}
           prefsControl={prefsControl}
+          vertical
         />
       </aside>
     );
   }
 
   return (
-    <aside className="w-64 shrink-0 border-r border-line bg-panel h-full flex flex-col">
-      <div className="px-4 pt-5 pb-3 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-[13px] font-semibold tracking-tight">The Organizer</div>
-          <div className="text-[11px] text-muted mt-0.5">Design reference archive</div>
+    <aside className="w-64 shrink-0 border-r border-line/70 bg-panel h-full flex flex-col">
+      <div className="px-4 pt-4 pb-1 flex items-center justify-between gap-2">
+        <div className="font-mono text-[13px] font-bold tracking-tight truncate">
+          The Organizer
         </div>
         <button
           onClick={() => state.setSidebarCollapsed(true)}
-          className="text-muted hover:text-ink p-1 rounded-lg hover:bg-line/40 shrink-0"
+          className="w-7 h-7 shrink-0 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"
           aria-label="Hide sidebar"
           title="Hide sidebar"
         >
@@ -575,7 +588,7 @@ export function Sidebar({
         </button>
       </div>
 
-      <div className="px-4">
+      <div className="px-3.5 pb-2">
         <CondensedControls
           viewMode={state.viewMode}
           setViewMode={state.setViewMode}
@@ -585,7 +598,7 @@ export function Sidebar({
         />
       </div>
 
-      <div className="px-3 space-y-0.5">
+      <div className="px-3 pt-2 space-y-0.5">
         <NavRow
           active={isView({ kind: "all" })}
           onClick={() => setSelectedView({ kind: "all" })}
@@ -601,7 +614,7 @@ export function Sidebar({
 
       <div className="mt-5 px-3">
         <div className="flex items-center justify-between px-2 mb-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
             Smart collections
           </span>
           <button
@@ -615,8 +628,8 @@ export function Sidebar({
         </div>
         <div className="space-y-0.5">
           {smart.length === 0 && (
-            <div className="px-2 py-1 text-[12px] text-muted/70">
-              None yet — saved searches appear here.
+            <div className="px-2.5 py-1 font-mono text-[11px] text-muted/60">
+              none yet — saved searches live here
             </div>
           )}
           {smart.map((c) => (
@@ -636,7 +649,7 @@ export function Sidebar({
 
       <div className="mt-5 px-3">
         <div className="flex items-center justify-between px-2 mb-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
             Manual collections
           </span>
           <button
@@ -650,16 +663,18 @@ export function Sidebar({
         </div>
         <div className="space-y-0.5">
           {manual.length === 0 && (
-            <div className="px-2 py-1 text-[12px] text-muted/70">
-              None yet — drag items here from the grid.
+            <div className="px-2.5 py-1 font-mono text-[11px] text-muted/60">
+              none yet — drag things here
             </div>
           )}
           {manual.map((c) => renderManualNode(c, 0))}
         </div>
-        <CreateDropZone onDropManual={handleDropCreateManual} onDropSmart={handleDropCreateSmart} />
+        {dragging && (
+          <CreateDropZone onDropManual={handleDropCreateManual} onDropSmart={handleDropCreateSmart} />
+        )}
       </div>
 
-      <div className="mt-auto px-4 py-3 border-t border-line text-[11px] text-muted space-y-1.5">
+      <div className="mt-auto px-4 py-3 border-t border-line/70 font-mono text-[10px] text-muted space-y-1.5">
         {isAutoBackupSupported() ? (
           backupConfigured ? (
             <div className="flex items-center justify-between">
@@ -692,12 +707,6 @@ export function Sidebar({
             Clear {sampleCount} sample item{sampleCount === 1 ? "" : "s"}
           </button>
         )}
-        <div className="flex items-center gap-1.5">
-          <SmartIcon /> saved search — fills itself, hover for ✎ to edit
-        </div>
-        <div className="flex items-center gap-1.5">
-          <FolderIcon /> curated folder — drag items in
-        </div>
       </div>
     </aside>
   );

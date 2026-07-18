@@ -313,8 +313,8 @@ export function TopBar({
             <FilterIcon active={hasAnyFilter} />
           </button>
           {menuOpen && (
-            <div className="absolute z-20 top-full mt-1.5 right-0 w-72 rounded-lg border border-line bg-panel shadow-cardHover overflow-hidden">
-              <div className="flex border-b border-line text-[11px] font-mono">
+            <div className="absolute z-40 top-full mt-2 right-0 w-80 rounded-2xl border border-line/70 bg-panel/95 backdrop-blur shadow-cardHover overflow-hidden">
+              <div className="px-3 pt-3 pb-2 flex items-center gap-1 flex-wrap font-mono">
                 {(
                   [
                     ["tag", "Tag"],
@@ -333,8 +333,8 @@ export function TopBar({
                       setPendingField(null);
                     }}
                     className={[
-                      "flex-1 px-2 py-1.5",
-                      category === c ? "bg-ink text-white" : "hover:bg-line/40",
+                      "tag-chip shrink-0",
+                      category === c ? "border-accent/40 bg-accent/5 text-ink" : "",
                     ].join(" ")}
                   >
                     {label}
@@ -343,40 +343,43 @@ export function TopBar({
               </div>
 
               {category === "tag" && (
-                <div className="p-2">
+                <div className="px-3 pb-3">
                   <input
                     autoFocus
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Search any tag…"
-                    className="w-full rounded-lg border border-line px-2 py-1 text-[12px] outline-none focus:border-accent mb-1.5"
+                    className="w-full rounded-lg border border-line/70 bg-canvas/50 px-2.5 py-1.5 font-mono text-[12px] outline-none focus:border-accent/40 focus:bg-panel mb-1.5"
                   />
                   <div className="max-h-56 overflow-y-auto flex flex-col gap-0.5">
                     {tagList.map(({ tag, count: tagCount }) => (
-                      <div key={tag} className="flex items-center justify-between gap-1 px-1 py-0.5 rounded hover:bg-line/40">
-                        <span className="text-[12px] truncate">
-                          {tag} <span className="text-muted">{tagCount}</span>
+                      <div
+                        key={tag}
+                        className="group/tagrow flex items-center justify-between gap-1 pl-2 pr-1 py-1 rounded-lg hover:bg-line/30"
+                      >
+                        <span className="font-mono text-[12px] truncate text-ink/85">
+                          {tag} <span className="text-muted/60">{tagCount}</span>
                         </span>
-                        <div className="flex gap-1 shrink-0">
+                        <div className="flex gap-0.5 shrink-0 opacity-0 group-hover/tagrow:opacity-100 transition-opacity">
                           <button
                             onClick={() => {
                               toggleFacetTag(tag);
                               closeMenu();
                             }}
-                            className="text-[11px] text-accent hover:underline"
+                            className="w-6 h-6 rounded-md font-mono text-[13px] text-muted hover:text-accent hover:bg-accent/10"
                             title="Include this tag"
                           >
-                            include
+                            +
                           </button>
                           <button
                             onClick={() => {
                               toggleExcludeTag(tag);
                               closeMenu();
                             }}
-                            className="text-[11px] text-red-600 hover:underline"
+                            className="w-6 h-6 rounded-md font-mono text-[13px] text-muted hover:text-red-600 hover:bg-red-50"
                             title="Exclude this tag"
                           >
-                            exclude
+                            −
                           </button>
                         </div>
                       </div>
@@ -386,7 +389,7 @@ export function TopBar({
               )}
 
               {category === "type" && (
-                <div className="max-h-56 overflow-y-auto p-1">
+                <div className="max-h-56 overflow-y-auto px-2 pb-2.5">
                   {objectTypes
                     .filter(({ type }) => norm(type).includes(norm(query)))
                     .map(({ type, count: typeCount }) => (
@@ -396,7 +399,7 @@ export function TopBar({
                           setTypeFilter(type);
                           closeMenu();
                         }}
-                        className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                        className="w-full text-left px-2.5 py-1 rounded-lg font-mono text-[12px] text-ink/85 hover:bg-line/30"
                       >
                         {type} <span className="text-muted">{typeCount}</span>
                       </button>
@@ -405,7 +408,7 @@ export function TopBar({
               )}
 
               {category === "role" && (
-                <div className="max-h-56 overflow-y-auto p-1">
+                <div className="max-h-56 overflow-y-auto px-2 pb-2.5">
                   {roleTypes
                     .filter(({ type }) => norm(type).includes(norm(query)))
                     .map(({ type, count: roleCount }) => (
@@ -415,7 +418,7 @@ export function TopBar({
                           setRoleFilter(type);
                           closeMenu();
                         }}
-                        className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                        className="w-full text-left px-2.5 py-1 rounded-lg font-mono text-[12px] text-ink/85 hover:bg-line/30"
                       >
                         {type} <span className="text-muted">{roleCount}</span>
                       </button>
@@ -425,22 +428,22 @@ export function TopBar({
 
               {category === "field" &&
                 (!pendingField ? (
-                  <div className="max-h-56 overflow-y-auto p-1">
+                  <div className="max-h-56 overflow-y-auto px-2 pb-2.5">
                     {facetColumns.map((f) => (
                       <button
                         key={f.name}
                         onClick={() => setPendingField(f.name)}
-                        className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                        className="w-full text-left px-2.5 py-1 rounded-lg font-mono text-[12px] text-ink/85 hover:bg-line/30"
                       >
                         {f.name}
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="p-1">
+                  <div className="px-2 pb-2.5">
                     <button
                       onClick={() => setPendingField(null)}
-                      className="text-[11px] text-muted hover:text-ink px-1 py-0.5"
+                      className="font-mono text-[11px] text-muted hover:text-ink px-1 py-0.5"
                     >
                       ← {pendingField}
                     </button>
@@ -452,7 +455,7 @@ export function TopBar({
                             setFacetFieldFilter({ field: pendingField, value });
                             closeMenu();
                           }}
-                          className="w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40"
+                          className="w-full text-left px-2.5 py-1 rounded-lg font-mono text-[12px] text-ink/85 hover:bg-line/30"
                         >
                           {value} <span className="text-muted">{valueCount}</span>
                         </button>
@@ -462,14 +465,14 @@ export function TopBar({
                 ))}
 
               {category === "group" && (
-                <div className="max-h-56 overflow-y-auto p-1">
+                <div className="max-h-56 overflow-y-auto px-2 pb-2.5">
                   <button
                     onClick={() => {
                       setGroupBy(null);
                       closeMenu();
                     }}
                     className={[
-                      "w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40",
+                      "w-full text-left px-2.5 py-1 rounded-lg font-mono text-[12px] text-ink/85 hover:bg-line/30",
                       groupBy === null ? "text-accent" : "",
                     ].join(" ")}
                   >
@@ -482,7 +485,7 @@ export function TopBar({
                         closeMenu();
                       }}
                       className={[
-                        "w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40",
+                        "w-full text-left px-2.5 py-1 rounded-lg font-mono text-[12px] text-ink/85 hover:bg-line/30",
                         groupBy === ITEM_TYPE_GROUP ? "text-accent" : "",
                       ].join(" ")}
                     >
@@ -497,7 +500,7 @@ export function TopBar({
                         closeMenu();
                       }}
                       className={[
-                        "w-full text-left px-2 py-1 rounded text-[12px] hover:bg-line/40",
+                        "w-full text-left px-2.5 py-1 rounded-lg font-mono text-[12px] text-ink/85 hover:bg-line/30",
                         groupBy === f.name ? "text-accent" : "",
                       ].join(" ")}
                     >
@@ -508,7 +511,7 @@ export function TopBar({
               )}
 
               {category === "color" && (
-                <div className="p-2 flex flex-col gap-2">
+                <div className="px-3 pb-3 flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
