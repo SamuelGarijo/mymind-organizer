@@ -11,7 +11,7 @@ import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { TopBar } from "./components/TopBar";
 import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionLedger";
-import { Board } from "./components/Board";
+import { ClassifyPanel } from "./components/ClassifyPanel";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
@@ -274,6 +274,10 @@ export default function App() {
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
   const [prefsOpen, setPrefsOpen] = useState(false);
+  // Which of the active role's primary facets the classify panel is folding
+  // by — lives here (not in the panel) because the main grid's reservoir
+  // ("things with no value for THIS facet yet") depends on it too.
+  const [classifyField, setClassifyField] = useState<string | null>(null);
 
   // A stale roleFilter surviving a collection switch could silently show
   // "0 objects match" for a role the new collection doesn't have — reset it
@@ -345,6 +349,35 @@ export default function App() {
   const heroObject = currentCollection?.heroImageObjectId
     ? state.objects[currentCollection.heroImageObjectId]
     : undefined;
+
+  // --- Classify-mode derivations (the floating-panel inversion, N8) -------
+  // The panel folds by one primary facet at a time; the main grid becomes
+  // the reservoir — this collection's role-carrying things that have no
+  // value for that facet yet. Quick filters/search still apply (they narrow
+  // visibleObjects upstream), so you can search within the unclassified.
+  const primaryFacetNames = activeRole?.primaryFacets ?? [];
+  const effectiveClassifyField =
+    classifyField && primaryFacetNames.includes(classifyField)
+      ? classifyField
+      : primaryFacetNames[0] ?? null;
+  const classifyOpen = state.classificationPanelOpen && !!activeRole;
+  const reservoirObjects = useMemo(() => {
+    if (!classifyOpen || !activeRole || !effectiveClassifyField) return [];
+    return visibleObjects.filter((o) => {
+      if (!o.role || norm(o.role) !== norm(activeRole.name)) return false;
+      const raw = o.fields[effectiveClassifyField];
+      const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      return values.length === 0;
+    });
+  }, [classifyOpen, activeRole, effectiveClassifyField, visibleObjects]);
+  const roleObjects = useMemo(() => {
+    if (!activeRole) return [];
+    return baseObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name));
+  }, [baseObjects, activeRole]);
+  const collectionIds = useMemo(() => new Set(baseObjects.map((o) => o.id)), [baseObjects]);
+  // Stable reference per objects-map identity — the similarity corpus cache
+  // keys on it (lib/hybridSimilarity.ts).
+  const allObjectsList = useMemo(() => Object.values(state.objects), [state.objects]);
   // Matches the debounced value the results are actually computed from, so
   // this message never flashes out of sync with what's on screen.
   const isQuickFiltering =
@@ -789,18 +822,30 @@ export default function App() {
         />
 
         <div className="flex-1 overflow-hidden">
-          {state.classificationPanelOpen && activeRole ? (
+          {classifyOpen && activeRole ? (
             <div className="h-full flex flex-col">
-              {/* Role picker stays reachable while boarding — contextual
-                  chrome tied to the board intent (N21). */}
+              {/* Role picker stays reachable while classifying — contextual
+                  chrome tied to the intent (N21). */}
               <RoleStrip objects={baseObjects} roles={state.roles} roleFilter={state.roleFilter} />
-              <div className="flex-1 overflow-hidden">
-                <Board
-                  objects={visibleObjects.filter(
-                    (o) => o.role && norm(o.role) === norm(activeRole.name)
-                  )}
-                  activeRole={activeRole}
+              {/* The reservoir IS the main space (N8): the not-yet-folded
+                  things keep the sacred area; folders float beside them. */}
+              <div className="flex-1 overflow-y-auto pl-5 pr-[26rem] pt-3 pb-5">
+                <div className="pb-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                  Unclassified · {reservoirObjects.length.toLocaleString()}
+                  {effectiveClassifyField ? ` — drag things into ${effectiveClassifyField} folders` : ""}
+                </div>
+                <Grid
+                  objects={reservoirObjects}
+                  facetColumns={facetColumns}
+                  tagFrequency={tagFrequency}
+                  viewKey={viewKey + ":classify:" + (effectiveClassifyField ?? "")}
                   onOpen={state.openDetail}
+                  emptyLabel={
+                    effectiveClassifyField
+                      ? `Everything here already has a ${effectiveClassifyField} — switch facet or close the panel.`
+                      : "Pin a primary facet to start folding this collection."
+                  }
+                  zoom={state.gridZoom}
                 />
               </div>
             </div>
@@ -849,6 +894,19 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {classifyOpen && activeRole && (
+        <ClassifyPanel
+          roleObjects={roleObjects}
+          collectionIds={collectionIds}
+          allObjects={allObjectsList}
+          activeRole={activeRole}
+          fieldName={effectiveClassifyField ?? ""}
+          onFieldChange={setClassifyField}
+          onClose={state.closeClassificationPanel}
+          onOpen={state.openDetail}
+        />
+      )}
 
       {/* Status toasts — floating, never a band that pushes content (N3).
           Success self-dismisses; errors and the backup warning persist. */}
