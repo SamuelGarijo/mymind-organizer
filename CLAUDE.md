@@ -72,9 +72,14 @@ the mount-time auto-sync bug below for what that costs in practice.
 
 ## Credentials & data
 
-- `.env` (`MYMIND_KID` / `MYMIND_SECRET`) never leaves the local proxy —
-  never commit, never paste into chat, never let it appear in a client-side
-  bundle.
+- `.env` (`MYMIND_KID` / `MYMIND_SECRET` / `ARENA_TOKEN`) never leaves the
+  local proxy — never commit, never paste into chat, never let it appear
+  in a client-side bundle. `ARENA_TOKEN` (Are.na personal access token,
+  `server/arenaClient.js` / `server/arenaRoutes.js`, POST
+  `/api/setup/arena-token`) is separate project scope from mymind
+  entirely — its own write path (create a channel, add blocks to it),
+  never touches mymind's credentials or endpoints. Same rule applies: only
+  Samuel pastes it in, via the ARE.NA section of Preferences.
 - `organizer-backup.json` (~190MB real personal export) never gets
   committed — already gitignored.
 - Never handle/type/paste the user's actual credentials.

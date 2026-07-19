@@ -1,13 +1,15 @@
 import "dotenv/config";
 import express from "express";
 import { router } from "./routes.js";
-import { writeCredentials } from "./setup.js";
+import { arenaRouter } from "./arenaRoutes.js";
+import { writeArenaToken, writeCredentials } from "./setup.js";
 
 const app = express();
 // Only needed for the one write route (POST tags) — every other route is a
 // GET with no body.
 app.use(express.json());
 app.use("/api/mymind", router);
+app.use("/api/arena", arenaRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -18,6 +20,9 @@ app.get("/api/health", (_req, res) => {
     // settings UI can show which key is active. The secret itself is never
     // sent back over the wire once saved.
     kid: process.env.MYMIND_KID || null,
+    // Are.na's token has no analogous public half to echo back — this is
+    // just a connected/not-connected boolean, same spirit as mymind's flag.
+    arenaConfigured: Boolean(process.env.ARENA_TOKEN),
   });
 });
 
@@ -41,6 +46,26 @@ app.post("/api/setup/credentials", (req, res) => {
     res.status(204).end();
   } catch (err) {
     console.error("[mymind proxy] failed to write credentials", err);
+    res.status(500).json({ type: "InternalError", status: 500, detail: String(err) });
+  }
+});
+
+// POST /api/setup/arena-token  { token: string }
+// Writes ARENA_TOKEN to .env and applies it immediately — local-only
+// config, same treatment as mymind's credential write above. Are.na
+// personal access tokens don't expire and carry whatever scope (read /
+// read+write) was chosen when the token was created on are.na/settings.
+app.post("/api/setup/arena-token", (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+  if (!token) {
+    res.status(400).json({ type: "BadRequest", status: 400, detail: "`token` is required." });
+    return;
+  }
+  try {
+    writeArenaToken(token);
+    res.status(204).end();
+  } catch (err) {
+    console.error("[are.na proxy] failed to write token", err);
     res.status(500).json({ type: "InternalError", status: 500, detail: String(err) });
   }
 });

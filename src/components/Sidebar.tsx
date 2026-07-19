@@ -285,6 +285,7 @@ type NodeCtx = {
   onEditManual: (id: string) => void;
   onNewSmart: (parentId?: string) => void;
   onNewManual: (parentId?: string) => void;
+  onExportArena: (id: string) => void;
 };
 
 /**
@@ -354,10 +355,12 @@ function CollectionNode({ collection, ctx }: { collection: Collection; ctx: Node
         { label: "Edit", onSelect: () => ctx.onEditManual(collection.id) },
         { label: "New folder inside", onSelect: () => ctx.onNewManual(collection.id) },
         { label: "New smart inside", onSelect: () => ctx.onNewSmart(collection.id) },
+        { label: "Export to Are.na…", onSelect: () => ctx.onExportArena(collection.id) },
         { label: "Delete", onSelect: () => ctx.deleteCollection(collection.id), danger: true },
       ]
     : [
         { label: "Edit", onSelect: () => ctx.onEditSmart(collection.id) },
+        { label: "Export to Are.na…", onSelect: () => ctx.onExportArena(collection.id) },
         { label: "Delete", onSelect: () => ctx.deleteCollection(collection.id), danger: true },
       ];
 
@@ -593,6 +596,7 @@ export function Sidebar({
   onNewManual,
   onEditSmart,
   onEditManual,
+  onExportArena,
   prefsOpen,
   onTogglePrefs,
   prefsBody,
@@ -603,6 +607,7 @@ export function Sidebar({
   onNewManual: (parentId?: string) => void;
   onEditSmart: (collectionId: string) => void;
   onEditManual: (collectionId: string) => void;
+  onExportArena: (collectionId: string) => void;
   /** Preferences (issue #128, reworked): App owns the state/handlers and
    * hands the CONTENT here; Sidebar expands it inline inside its own body
    * — settings unfold within the bar itself, never a floating popover. */
@@ -774,6 +779,7 @@ export function Sidebar({
     onEditManual,
     onNewSmart,
     onNewManual,
+    onExportArena,
   };
 
   // Shared by the pinned in-flow aside and the temporary overlay — same

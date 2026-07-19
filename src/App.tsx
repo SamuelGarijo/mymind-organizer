@@ -15,6 +15,7 @@ import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionL
 import { ClassifyPanel } from "./components/ClassifyPanel";
 import { Workbench } from "./components/Workbench";
 import { ArrowLeft, X as XIcon } from "@phosphor-icons/react";
+import { ArenaExportModal } from "./components/ArenaExportModal";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
@@ -272,6 +273,7 @@ export default function App() {
   );
 
   const [modal, setModal] = useState<Modal>(null);
+  const [arenaExportId, setArenaExportId] = useState<string | null>(null);
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -304,19 +306,49 @@ export default function App() {
   const [restoreNotice, setRestoreNotice] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const autoSyncedOnMount = useRef(false);
+  const [arenaConfigured, setArenaConfigured] = useState(false);
+  const [arenaTokenDraft, setArenaTokenDraft] = useState("");
+  const [arenaSaving, setArenaSaving] = useState(false);
+  const [arenaError, setArenaError] = useState<string | null>(null);
 
   // First run: no MYMIND_KID/MYMIND_SECRET in .env yet means every mymind
   // call would just fail one by one with a confusing error — ask for the
   // key up front instead. A fetch failure here (proxy not running yet)
   // is left alone; that already surfaces via the normal sync error banner.
+  // Same call also seeds the Are.na connected-state indicator below.
   useEffect(() => {
     fetch("/api/health")
       .then((r) => r.json())
-      .then((data: { credentialsConfigured: boolean }) => {
+      .then((data: { credentialsConfigured: boolean; arenaConfigured: boolean }) => {
         if (!data.credentialsConfigured) setCredentialsModal({ dismissible: false });
+        setArenaConfigured(data.arenaConfigured);
       })
       .catch(() => {});
   }, []);
+
+  async function saveArenaToken() {
+    const token = arenaTokenDraft.trim();
+    if (!token) return;
+    setArenaSaving(true);
+    setArenaError(null);
+    try {
+      const res = await fetch("/api/setup/arena-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `Server responded ${res.status}`);
+      }
+      setArenaTokenDraft("");
+      setArenaConfigured(true);
+    } catch (err) {
+      setArenaError((err as Error).message);
+    } finally {
+      setArenaSaving(false);
+    }
+  }
 
   // Read once on mount: the restore flow sets this flag then reloads the
   // page (see handleRestoreFile) since a full page reload is the simplest
@@ -806,6 +838,37 @@ export default function App() {
           >
             mymind API credentials
           </button>
+
+          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">Are.na</div>
+          {arenaConfigured ? (
+            <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5 mb-1.5">
+              Connected. Paste a different token below to replace it.
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted mb-1.5">
+              Create a personal access token at are.na/settings/personal-access-tokens (with{" "}
+              <code>write</code> scope) to export collections as channels from any collection's ⋯
+              menu.
+            </p>
+          )}
+          <div className="flex gap-1">
+            <input
+              value={arenaTokenDraft}
+              onChange={(e) => setArenaTokenDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveArenaToken()}
+              placeholder="Personal access token"
+              type="password"
+              className="flex-1 min-w-0 rounded border border-line px-2.5 py-1.5 text-[12px] outline-none focus:border-accent"
+            />
+            <button
+              onClick={saveArenaToken}
+              disabled={!arenaTokenDraft.trim() || arenaSaving}
+              className="shrink-0 px-2.5 py-1.5 rounded border border-line hover:bg-line/40 disabled:opacity-40"
+            >
+              {arenaSaving ? "…" : "Save"}
+            </button>
+          </div>
+          {arenaError && <p className="text-[11px] text-red-700 mt-1">{arenaError}</p>}
     </div>
   );
 
@@ -816,6 +879,7 @@ export default function App() {
         onNewManual={(parentId) => setModal({ kind: "manual", parentId })}
         onEditSmart={(collectionId) => setModal({ kind: "smart", collectionId })}
         onEditManual={(collectionId) => setModal({ kind: "manual", collectionId })}
+        onExportArena={(collectionId) => setArenaExportId(collectionId)}
         prefsOpen={prefsOpen}
         onTogglePrefs={() => setPrefsOpen((v) => !v)}
         prefsBody={prefsBody}
@@ -1082,6 +1146,20 @@ export default function App() {
           dismissible={credentialsModal.dismissible}
           onClose={() => setCredentialsModal(null)}
           onSaved={() => void runSync({ full: false })}
+        />
+      )}
+
+      {arenaExportId && (
+        <ArenaExportModal
+          collectionName={state.collections[arenaExportId]?.name ?? "Untitled"}
+          collectionDescription={state.collections[arenaExportId]?.description}
+          objects={getVisibleObjects({
+            objects: state.objects,
+            collections: state.collections,
+            selectedView: { kind: "collection", collectionId: arenaExportId },
+            tagGroups: state.tagGroups,
+          })}
+          onClose={() => setArenaExportId(null)}
         />
       )}
     </div>
