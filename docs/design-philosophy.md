@@ -307,6 +307,25 @@ changes.
   neighbours into an existing pile) is the one legitimate overlap, since
   that's an explicit in-bench enrichment action, not a navigation.
 
+### Infinite canvas (issue #133)
+- **The canvas is a VIEW, never a source of truth.** tldraw is the engine
+  (pan/zoom/arrows/undo); Organizer stays the knowledge model. Every
+  canvas element references an object by id — no copies, ever. Spatial
+  state (positions, sizes, visual edges) lives in the canvas document's
+  snapshot; the object itself never stores x/y.
+- **Knowledge outlives the canvas.** Connecting two objects with an arrow
+  persists an `ObjectRelation` in the store — deduped, surviving canvas
+  deletion, visible/removable in DetailPanel's "Connected" section.
+  Deleting the visual edge does NOT delete the relationship: the canvas
+  is one way of creating knowledge, not where it lives. Relations are a
+  future relevance signal for Same Vibe / discovery.
+- **Objects remain alive**: shape cards read from the store (metadata
+  edits sync everywhere instantly); ↗ opens the real object. The bench is
+  the canvas's entry point ("open as canvas"); canvases reopen from the
+  sidebar's Canvases section. Future (from the #133 architecture notes):
+  semantic sections that assign metadata on entry, canvas as a collection
+  view mode, annotations becoming knowledge.
+
 ### Top bar
 - **Target:** one large, calm **search field, centered**, as the single
   primary action. A quiet secondary row (`Group by` / `Sort by` / `View as`)

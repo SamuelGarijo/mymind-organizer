@@ -11,6 +11,8 @@ import type {
   TagGroups,
   ViewSelection,
   ArenaPlacement,
+  CanvasDoc,
+  ObjectRelation,
 } from "./types";
 import { makeId } from "./lib/id";
 import { matchesSmartCollection, norm } from "./lib/ruleEngine";
@@ -310,6 +312,32 @@ type State = {
   flashNotice: string | null;
   setFlashNotice: (notice: string | null) => void;
 
+  /** Infinite canvases (issue #133) — presentation documents over the
+   * knowledge model. The canvas stores positions/sizes/visual edges (a
+   * tldraw snapshot); knowledge lives in objects and objectRelations. */
+  canvases: Record<string, CanvasDoc>;
+  canvasOrder: string[];
+  /** Which canvas fills the main area — transient, like a view. */
+  openCanvasId: string | null;
+  openCanvas: (id: string | null) => void;
+  /** Creates a canvas seeded with the current workbench set (the bench is
+   * the canvas's entry point per #133) and returns its id. */
+  createCanvasFromWorkbench: (name: string) => string;
+  saveCanvasSnapshot: (id: string, snapshot: unknown) => void;
+  renameCanvas: (id: string, name: string) => void;
+  /** Deletes the canvas DOCUMENT only — objectRelations deliberately
+   * survive (#133: relationships outlive the canvas). */
+  deleteCanvas: (id: string) => void;
+
+  /** Knowledge relationships between objects (issue #133) — created on a
+   * canvas, stored independently of any canvas. Deduped by
+   * source+target+type; visual-edge deletion does NOT remove these. */
+  objectRelations: ObjectRelation[];
+  addObjectRelation: (
+    rel: Omit<ObjectRelation, "id" | "createdAt">
+  ) => void;
+  removeObjectRelation: (id: string) => void;
+
   /** Bottom Discovery membrane (issue #134) — transient like
    * workbenchOpen; the compartment's own content decides what discovery
    * means for the current view. */
@@ -411,6 +439,9 @@ type PersistedState = Pick<
   | "deletedMymindIds"
   | "localTagRemovals"
   | "workbenchIds"
+  | "canvases"
+  | "canvasOrder"
+  | "objectRelations"
   | "localUserTags"
   | "sidebarCollapsed"
 >;
@@ -955,6 +986,71 @@ export const useStore = create<State>()(
       flashNotice: null,
       setFlashNotice: (notice) => set({ flashNotice: notice }),
 
+      canvases: {},
+      canvasOrder: [],
+      openCanvasId: null,
+      openCanvas: (id) => set({ openCanvasId: id }),
+      createCanvasFromWorkbench: (name) => {
+        const id = makeId("canvas");
+        const s = get();
+        const doc: CanvasDoc = {
+          id,
+          name: name.trim() || "Untitled canvas",
+          createdAt: new Date().toISOString(),
+          seedObjectIds: [...s.workbenchIds],
+        };
+        set((st) => ({
+          canvases: { ...st.canvases, [id]: doc },
+          canvasOrder: [...st.canvasOrder, id],
+        }));
+        return id;
+      },
+      saveCanvasSnapshot: (id, snapshot) =>
+        set((st) => {
+          const doc = st.canvases[id];
+          if (!doc) return {};
+          return { canvases: { ...st.canvases, [id]: { ...doc, snapshot } } };
+        }),
+      renameCanvas: (id, name) =>
+        set((st) => {
+          const doc = st.canvases[id];
+          if (!doc || !name.trim()) return {};
+          return { canvases: { ...st.canvases, [id]: { ...doc, name: name.trim() } } };
+        }),
+      deleteCanvas: (id) =>
+        set((st) => {
+          const canvases = { ...st.canvases };
+          delete canvases[id];
+          return {
+            canvases,
+            canvasOrder: st.canvasOrder.filter((x) => x !== id),
+            openCanvasId: st.openCanvasId === id ? null : st.openCanvasId,
+            // objectRelations untouched — knowledge outlives the canvas.
+          };
+        }),
+
+      objectRelations: [],
+      addObjectRelation: (rel) =>
+        set((st) => {
+          if (rel.sourceObjectId === rel.targetObjectId) return {};
+          if (!st.objects[rel.sourceObjectId] || !st.objects[rel.targetObjectId]) return {};
+          const exists = st.objectRelations.some(
+            (r) =>
+              r.sourceObjectId === rel.sourceObjectId &&
+              r.targetObjectId === rel.targetObjectId &&
+              r.relationType === rel.relationType
+          );
+          if (exists) return {};
+          return {
+            objectRelations: [
+              ...st.objectRelations,
+              { ...rel, id: makeId("rel"), createdAt: new Date().toISOString() },
+            ],
+          };
+        }),
+      removeObjectRelation: (id) =>
+        set((st) => ({ objectRelations: st.objectRelations.filter((r) => r.id !== id) })),
+
       discoveryOpen: false,
       setDiscoveryOpen: (open) => set({ discoveryOpen: open }),
 
@@ -1261,6 +1357,9 @@ export const useStore = create<State>()(
         deletedMymindIds: state.deletedMymindIds,
         localTagRemovals: state.localTagRemovals,
         workbenchIds: state.workbenchIds,
+        canvases: state.canvases,
+        canvasOrder: state.canvasOrder,
+        objectRelations: state.objectRelations,
         localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),

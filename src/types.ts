@@ -46,6 +46,42 @@ export type DesignObject = {
   arenaPlacements?: ArenaPlacement[];
 };
 
+/**
+ * A KNOWLEDGE relationship between two Organizer objects (issue #133) —
+ * created by connecting objects on a canvas, but deliberately stored
+ * OUTSIDE any canvas: it survives the canvas being deleted, an object
+ * appearing in several canvases, and the visual edge being removed. The
+ * canvas is one way of CREATING knowledge, not the place it lives.
+ * `canvasId` records provenance only.
+ */
+export type ObjectRelation = {
+  id: string;
+  sourceObjectId: string;
+  targetObjectId: string;
+  /** "related" for now — the door to typed edges ("inspired", "same
+   * series"…) later. */
+  relationType: string;
+  canvasId?: string;
+  createdAt: string;
+};
+
+/**
+ * One infinite-canvas document (issue #133). The canvas stores
+ * PRESENTATION (the tldraw snapshot: positions, sizes, visual arrows);
+ * Organizer's objects/relations store knowledge. Object shapes reference
+ * objects by id — never copies.
+ */
+export type CanvasDoc = {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** Objects laid out on first open (the workbench set at creation) —
+   * only used until a snapshot exists. */
+  seedObjectIds?: string[];
+  /** tldraw TLEditorSnapshot, JSON-serializable. Absent until first save. */
+  snapshot?: unknown;
+};
+
 /** One successful publication of an object as an Are.na block, remembered
  * so Organizer can show "already on Are.na" and link out. Modeled after the
  * export follow-up brief's shape. */

@@ -5,6 +5,7 @@ import {
   CaretRight,
   DotsThree,
   Folder,
+  Graph,
   FrameCorners,
   GearSix,
   GridFour,
@@ -665,6 +666,12 @@ export function Sidebar({
   // The rail capsule (quick controls) — hovering IT must not count as
   // expansion intent (issue #135); see the gutter's onPointerMove.
   const capsuleRef = useRef<HTMLDivElement>(null);
+  // Canvas documents (issue #133) — separate scoped subscriptions.
+  const canvases = useStore((s) => s.canvases);
+  const canvasOrder = useStore((s) => s.canvasOrder);
+  const openCanvasId = useStore((s) => s.openCanvasId);
+  const openCanvas = useStore((s) => s.openCanvas);
+  const deleteCanvas = useStore((s) => s.deleteCanvas);
 
   const [backupConfigured, setBackupConfigured] = useState(false);
   useEffect(() => {
@@ -936,6 +943,42 @@ export function Sidebar({
             />
           )}
         </div>
+
+        {/* Canvases (issue #133) — presentation documents over the same
+            objects. Deleting one keeps every relationship it created:
+            knowledge outlives the canvas. Section only exists once there
+            IS a canvas (no empty-state chrome). */}
+        {canvasOrder.length > 0 && (
+          <div className="mt-5 px-3">
+            <div className="px-2 mb-1">
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                Canvases
+              </span>
+            </div>
+            <div className="space-y-0.5">
+              {canvasOrder.map((id) => {
+                const doc = canvases[id];
+                if (!doc) return null;
+                return (
+                  <NavRow
+                    key={id}
+                    active={openCanvasId === id}
+                    onClick={() => openCanvas(id)}
+                    icon={<Graph size={13} className="shrink-0 text-muted" />}
+                    label={doc.name}
+                    actions={[
+                      {
+                        label: "Delete canvas",
+                        onSelect: () => deleteCanvas(id),
+                        danger: true,
+                      },
+                    ]}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="shrink-0 px-4 py-3 border-t border-line/70 font-mono text-[10px] text-muted space-y-1.5">

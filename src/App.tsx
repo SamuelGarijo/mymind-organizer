@@ -15,6 +15,7 @@ import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionL
 import { ClassifyPanel } from "./components/ClassifyPanel";
 import { Workbench } from "./components/Workbench";
 import { Membrane } from "./components/Membrane";
+import { CanvasView } from "./components/CanvasView";
 import { DiscoveryStrip } from "./components/DiscoveryStrip";
 import { ArrowLeft, X as XIcon } from "@phosphor-icons/react";
 import { ArenaExportModal } from "./components/ArenaExportModal";
@@ -110,6 +111,7 @@ export default function App() {
       workbenchOpen: s.workbenchOpen,
       discoveryOpen: s.discoveryOpen,
       setDiscoveryOpen: s.setDiscoveryOpen,
+      openCanvasId: s.openCanvasId,
       workbenchCount: s.workbenchIds.length,
       setWorkbenchOpen: s.setWorkbenchOpen,
       viewBackStack: s.viewBackStack,
@@ -1004,7 +1006,11 @@ export default function App() {
               ].join(" ")}
             />
           )}
-          {classifyOpen && activeRole ? (
+          {state.openCanvasId ? (
+            <div className="h-full pt-14">
+              <CanvasView canvasId={state.openCanvasId} />
+            </div>
+          ) : classifyOpen && activeRole ? (
             <div className="h-full flex flex-col">
               {/* Role picker stays reachable while classifying — contextual
                   chrome tied to the intent (N21). */}

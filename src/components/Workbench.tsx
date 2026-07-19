@@ -259,6 +259,20 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
           ) : (
             <div className="flex items-center gap-2 font-mono text-[11px]">
               <button
+                onClick={() => {
+                  const st = useStore.getState();
+                  const id = st.createCanvasFromWorkbench(
+                    `Canvas — ${new Date().toLocaleDateString()}`
+                  );
+                  st.openCanvas(id);
+                }}
+                className="text-ink/80 hover:text-ink hover:underline decoration-dotted underline-offset-2"
+                title="Lay this set out on an infinite canvas — arrange freely, connect objects to record relationships (#133)"
+              >
+                open as canvas
+              </button>
+              <span className="text-muted/40">·</span>
+              <button
                 onClick={() => setSaveMode("new")}
                 className="text-ink/80 hover:text-ink hover:underline decoration-dotted underline-offset-2"
                 title="Formalize this group as a new manual collection"

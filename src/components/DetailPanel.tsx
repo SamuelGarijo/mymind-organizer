@@ -140,6 +140,8 @@ export function DetailPanel({
       removeFromManualCollection: s.removeFromManualCollection,
       addManualCollection: s.addManualCollection,
       deleteObjectLocally: s.deleteObjectLocally,
+      objectRelations: s.objectRelations,
+      removeObjectRelation: s.removeObjectRelation,
     }))
   );
   const object = state.objects[objectId];
@@ -1534,6 +1536,53 @@ export function DetailPanel({
                 </div>
               )}
             </div>
+
+            {/* Knowledge relationships (issue #133) — created on a canvas,
+                living in the archive: visible and removable HERE, outside
+                any canvas. Section appears only once relationships exist. */}
+            {state.objectRelations.some(
+              (r) => r.sourceObjectId === object.id || r.targetObjectId === object.id
+            ) && (
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted mb-1">
+                  Connected
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {state.objectRelations
+                    .filter(
+                      (r) => r.sourceObjectId === object.id || r.targetObjectId === object.id
+                    )
+                    .map((r) => {
+                      const otherId =
+                        r.sourceObjectId === object.id ? r.targetObjectId : r.sourceObjectId;
+                      const other = state.objects[otherId];
+                      if (!other) return null;
+                      return (
+                        <div key={r.id} className="group flex items-center gap-1.5 text-[12px]">
+                          <span className="text-muted/70 font-mono text-[10px] shrink-0">
+                            {r.sourceObjectId === object.id ? "→" : "←"}
+                          </span>
+                          <button
+                            onClick={() => state.openDetail(otherId)}
+                            className="flex-1 min-w-0 text-left truncate text-ink/80 hover:text-ink hover:underline decoration-dotted underline-offset-2"
+                            title={other.title}
+                          >
+                            {other.title}
+                          </button>
+                          <button
+                            onClick={() => state.removeObjectRelation(r.id)}
+                            className="shrink-0 opacity-0 group-hover:opacity-100 text-muted hover:text-ink"
+                            aria-label={`Remove relationship with ${other.title}`}
+                            title="Remove this relationship from the archive"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
 
             <div>
               <div className="flex items-center justify-between mb-1">
