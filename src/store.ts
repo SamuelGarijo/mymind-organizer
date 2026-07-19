@@ -258,6 +258,21 @@ type State = {
   openClassificationPanel: () => void;
   closeClassificationPanel: () => void;
 
+  /** Workbench — a provisional, reversible worktable (a separate concept
+   * from Classify: no roles, no facets, no durable structure). Its
+   * CONTENTS persist across reloads so temporary work is never silently
+   * lost; whether the compartment is open is transient UI state. */
+  workbenchIds: string[];
+  workbenchOpen: boolean;
+  setWorkbenchOpen: (open: boolean) => void;
+  /** Dedupe-append — dragging the same thing twice never duplicates it. */
+  addToWorkbench: (ids: string[]) => void;
+  removeFromWorkbench: (id: string) => void;
+  /** Moves `id` to sit immediately before `beforeId` (or to the end when
+   * beforeId is null) — the drag-reorder primitive. */
+  reorderWorkbench: (id: string, beforeId: string | null) => void;
+  clearWorkbench: () => void;
+
   setSearchQuery: (query: string) => void;
   toggleFacetTag: (tag: string) => void;
   setFacetMode: (mode: FacetMode) => void;
@@ -341,6 +356,7 @@ type PersistedState = Pick<
   | "detailViewMode"
   | "deletedMymindIds"
   | "localTagRemovals"
+  | "workbenchIds"
   | "localUserTags"
   | "sidebarCollapsed"
 >;
@@ -823,6 +839,30 @@ export const useStore = create<State>()(
       openClassificationPanel: () => set({ classificationPanelOpen: true }),
       closeClassificationPanel: () => set({ classificationPanelOpen: false }),
 
+      workbenchIds: [],
+      workbenchOpen: false,
+      setWorkbenchOpen: (open) => set({ workbenchOpen: open }),
+      addToWorkbench: (ids) =>
+        set((s) => {
+          const existing = new Set(s.workbenchIds);
+          const fresh = ids.filter((id) => !existing.has(id) && s.objects[id]);
+          if (fresh.length === 0) return {};
+          return { workbenchIds: [...s.workbenchIds, ...fresh] };
+        }),
+      removeFromWorkbench: (id) =>
+        set((s) => ({ workbenchIds: s.workbenchIds.filter((x) => x !== id) })),
+      reorderWorkbench: (id, beforeId) =>
+        set((s) => {
+          if (id === beforeId) return {};
+          const rest = s.workbenchIds.filter((x) => x !== id);
+          if (beforeId === null) return { workbenchIds: [...rest, id] };
+          const idx = rest.indexOf(beforeId);
+          if (idx === -1) return {};
+          rest.splice(idx, 0, id);
+          return { workbenchIds: rest };
+        }),
+      clearWorkbench: () => set({ workbenchIds: [] }),
+
       setSearchQuery: (query) => set({ searchQuery: query }),
       toggleFacetTag: (tag) =>
         set((s) => ({
@@ -1101,6 +1141,7 @@ export const useStore = create<State>()(
         detailViewMode: state.detailViewMode,
         deletedMymindIds: state.deletedMymindIds,
         localTagRemovals: state.localTagRemovals,
+        workbenchIds: state.workbenchIds,
         localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),

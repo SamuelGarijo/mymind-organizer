@@ -721,6 +721,13 @@ export function Sidebar({
 
   const isView = (v: ViewSelection) => JSON.stringify(v) === JSON.stringify(selectedView);
   const totalCount = Object.keys(state.objects).length;
+  // Vertical-rail context: the active view's own count (collection counts
+  // are already computed; library-wide views read the totals directly).
+  const totalShownLabel = (
+    selectedView.kind === "collection"
+      ? counts.get(selectedView.collectionId) ?? 0
+      : totalCount
+  ).toLocaleString();
 
   function handleClearSamples() {
     const ok = window.confirm(
@@ -976,6 +983,20 @@ export function Sidebar({
             prefsControl={prefsControl}
             vertical
           />
+        </div>
+        {/* Breadcrumb context, demoted from the main horizontal workspace
+            to quiet vertical text in the rail (the mymind reference) — the
+            command bar owns the top now. */}
+        <div
+          className="absolute top-56 left-0 right-0 flex justify-center pointer-events-none select-none"
+          aria-hidden
+        >
+          <span
+            className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted/70 whitespace-nowrap"
+            style={{ writingMode: "vertical-rl" }}
+          >
+            {viewLabel(state)} · {totalShownLabel}
+          </span>
         </div>
       </div>
 

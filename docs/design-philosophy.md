@@ -246,6 +246,33 @@ Concrete direction per surface. Grounded in Samuel's cleaned Figma
 These evolve as we build — update this section when a screen's direction
 changes.
 
+### Command bar (the primary instrument)
+- **Target:** one adaptive, centered command bar owns the top — quiet and
+  compacted while scrolling, prominent under focus, with intent-adaptive
+  suggestions (tags / collections / types / item types as chips; Enter =
+  free text; alt-click = exclude). Active query state stays expressed as
+  the pills row beneath it. Breadcrumb/collection context is secondary —
+  it lives as vertical text in the sidebar rail, never as a horizontal
+  band. Advanced filter categories stay behind the φ summon inside the bar.
+
+### Workbench (the worktable)
+- **Concept split:** *Classify* is structured, intentional, durable
+  (roles/facets inside a collection). The *Workbench* is provisional,
+  exploratory, reversible — it exists to **delay formalization**: gather
+  things before they mean anything; only afterwards offer "save as
+  collection / add to existing / clear". Never turn it into another
+  collection system or metadata form.
+- **Spatial:** a compartment sliding flush from the right edge (membrane),
+  deliberately distinct from ClassifyPanel's floating module. They share
+  the right edge — opening one closes the other. ⌘J toggles.
+- **Non-destructive exploration:** "don't navigate away from a thought —
+  open space beside it." Same-vibe and related-item exploration land IN
+  the bench; the originating view, filters, scroll and selection stay
+  intact. Closing the bench returns to exactly the prior state.
+- **Safe temporary work:** contents persist across sessions
+  (store.workbenchIds); removals/clear are undoable in place; no
+  confirmation dialogs during normal flow.
+
 ### Top bar
 - **Target:** one large, calm **search field, centered**, as the single
   primary action. A quiet secondary row (`Group by` / `Sort by` / `View as`)

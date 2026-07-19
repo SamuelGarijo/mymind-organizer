@@ -971,13 +971,27 @@ export function DetailPanel({
             <span className="text-[11px] uppercase tracking-wide text-muted">✦ Similar to this</span>
             <button
               onClick={() => {
-                state.setSelectedView({ kind: "similar", objectId: object.id });
-                onClose();
+                // Non-destructive (design-philosophy: "don't navigate away
+                // from a thought — open space beside it"): the same-vibe
+                // batch lands in the Workbench, the current view, filters,
+                // scroll and this panel all stay exactly where they are.
+                const { objects, addToWorkbench, setWorkbenchOpen, closeClassificationPanel } =
+                  useStore.getState();
+                const all = Object.values(objects);
+                const ranked = rankByHybridSimilarity(
+                  object,
+                  all.filter((o) => o.id !== object.id),
+                  all,
+                  20
+                );
+                addToWorkbench([object.id, ...ranked.map((r) => r.id)]);
+                closeClassificationPanel();
+                setWorkbenchOpen(true);
               }}
               className="text-[11px] text-accent hover:underline"
-              title="Ranks your whole library by a local hybrid score (tags, color palette, matching facet fields, keywords) — no mymind embedding needed, works for any object regardless of source"
+              title="Gathers this item and its 20 nearest same-vibe neighbours into the Workbench — your current view stays untouched"
             >
-              See more →
+              Open in workbench →
             </button>
           </div>
           {similarStrip.length > 0 ? (

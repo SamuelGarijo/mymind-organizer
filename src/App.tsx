@@ -13,6 +13,7 @@ import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { TopBar } from "./components/TopBar";
 import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionLedger";
 import { ClassifyPanel } from "./components/ClassifyPanel";
+import { Workbench } from "./components/Workbench";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
@@ -110,6 +111,9 @@ export default function App() {
       classificationPanelOpen: s.classificationPanelOpen,
       openClassificationPanel: s.openClassificationPanel,
       closeClassificationPanel: s.closeClassificationPanel,
+      workbenchOpen: s.workbenchOpen,
+      workbenchCount: s.workbenchIds.length,
+      setWorkbenchOpen: s.setWorkbenchOpen,
       syncMymindObjects: s.syncMymindObjects,
       reconcileMymindDeletions: s.reconcileMymindDeletions,
       exportDataString: s.exportDataString,
@@ -332,6 +336,26 @@ export default function App() {
     }
   }, []);
 
+  // ⌘J toggles the Workbench — the bench and the classify panel share the
+  // right edge, so opening one closes the other (one compartment at a
+  // time; no duplicated right-side systems).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        const st = useStore.getState();
+        if (st.workbenchOpen) {
+          st.setWorkbenchOpen(false);
+        } else {
+          st.closeClassificationPanel();
+          st.setWorkbenchOpen(true);
+        }
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   // Closes the Preferences menu on an outside click — sync/backup controls
   // are used occasionally, not constantly (issue #74), so this is a plain
   // dropdown rather than a modal that blocks the rest of the view.
@@ -392,7 +416,11 @@ export default function App() {
   // viewKey transitions, deliberately reading the freshly-computed
   // primaryFacetNames of the view just entered.
   useEffect(() => {
-    if (view.kind === "collection" && primaryFacetNames.length > 0) {
+    if (
+      view.kind === "collection" &&
+      primaryFacetNames.length > 0 &&
+      !useStore.getState().workbenchOpen
+    ) {
       state.openClassificationPanel();
     } else {
       state.closeClassificationPanel();
@@ -577,6 +605,7 @@ export default function App() {
       state.closeClassificationPanel();
       return;
     }
+    state.setWorkbenchOpen(false);
     const ids = baseObjects.map((o) => o.id);
     if (distinctRoleKeys(baseObjects).size === 0) {
       const assignments: { objectId: string; role: string }[] = [];
@@ -841,6 +870,16 @@ export default function App() {
           isCollection={view.kind === "collection"}
           boardOpen={state.classificationPanelOpen}
           onClassifyClick={handleClassifyClick}
+          workbenchOpen={state.workbenchOpen}
+          workbenchCount={state.workbenchCount}
+          onWorkbenchClick={() => {
+            if (state.workbenchOpen) {
+              state.setWorkbenchOpen(false);
+            } else {
+              state.closeClassificationPanel();
+              state.setWorkbenchOpen(true);
+            }
+          }}
           topTags={topTags}
           objectTypes={objectTypes}
           roleTypes={roleTypes}
@@ -875,7 +914,7 @@ export default function App() {
               </div>
             </div>
           ) : state.viewMode === "table" ? (
-            <div className="h-full p-5">
+            <div className={state.workbenchOpen ? "h-full p-5 pr-[24rem]" : "h-full p-5"}>
               <Table
                 objects={visibleObjects}
                 facetColumns={facetColumns}
@@ -887,7 +926,10 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="h-full overflow-y-auto px-5 pt-4 pb-5">
+            <div className={[
+              "h-full overflow-y-auto pl-5 pt-4 pb-5 transition-[padding] duration-200",
+              state.workbenchOpen ? "pr-[24rem]" : "pr-5",
+            ].join(" ")}>
               {/* The collection's workspace header is CONTENT, not chrome —
                   it scrolls away with the grid (are.na channel-header move;
                   design-philosophy Principle 8 + N1). */}
@@ -921,6 +963,8 @@ export default function App() {
           )}
         </div>
       </main>
+
+      <AnimatePresence>{state.workbenchOpen && <Workbench onOpenDetail={state.openDetail} />}</AnimatePresence>
 
       <AnimatePresence>
       {classifyOpen && activeRole && (

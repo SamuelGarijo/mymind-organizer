@@ -65,6 +65,9 @@ export function TopBar({
   isCollection,
   boardOpen,
   onClassifyClick,
+  workbenchOpen,
+  workbenchCount,
+  onWorkbenchClick,
   topTags,
   objectTypes,
   roleTypes,
@@ -80,6 +83,11 @@ export function TopBar({
   isCollection: boolean;
   boardOpen: boolean;
   onClassifyClick: () => void;
+  /** Workbench toggle — the temporary worktable compartment (⌘J). Visible
+   * in every view, unlike Classify which is collection-scoped. */
+  workbenchOpen: boolean;
+  workbenchCount: number;
+  onWorkbenchClick: () => void;
   /** Empty-query suggestions inside the popover's Tag category — the old
    * resident tag wall, demoted to summoned (choreography, not subtraction). */
   topTags: TagFrequency[];
@@ -110,6 +118,9 @@ export function TopBar({
     setRoleFilter,
     groupBy,
     setGroupBy,
+    collections,
+    collectionOrder,
+    setSelectedView,
   } = useStore(
     useShallow((s) => ({
       searchQuery: s.searchQuery,
@@ -131,10 +142,32 @@ export function TopBar({
       setRoleFilter: s.setRoleFilter,
       groupBy: s.groupBy,
       setGroupBy: s.setGroupBy,
+      collections: s.collections,
+      collectionOrder: s.collectionOrder,
+      setSelectedView: s.setSelectedView,
     }))
   );
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  // Deliberate downward scrolling compacts the bar (diving into the
+  // things); any upward intent restores it. Focus always wins.
+  const [compact, setCompact] = useState(false);
+  const wheelAccum = useRef(0);
+  useEffect(() => {
+    function onWheel(e: WheelEvent) {
+      if ((e.target as HTMLElement | null)?.closest?.("[data-command-bar]")) return;
+      if (e.deltaY > 0) {
+        wheelAccum.current += e.deltaY;
+        if (wheelAccum.current > 80) setCompact(true);
+      } else if (e.deltaY < 0) {
+        wheelAccum.current = 0;
+        setCompact(false);
+      }
+    }
+    document.addEventListener("wheel", onWheel, { passive: true });
+    return () => document.removeEventListener("wheel", onWheel);
+  }, []);
   const [category, setCategory] = useState<Category>("tag");
   const [query, setQuery] = useState("");
   // Field category is a two-step pick (field, then value) — kept separate
@@ -150,12 +183,13 @@ export function TopBar({
 
   function closeMenu() {
     setMenuOpen(false);
+    setSuggestOpen(false);
     setQuery("");
     setPendingField(null);
   }
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !suggestOpen) return;
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) closeMenu();
     }
@@ -168,7 +202,7 @@ export function TopBar({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [menuOpen]);
+  }, [menuOpen, suggestOpen]);
 
   const pills: Pill[] = [];
   if (typeFilter) {
@@ -266,54 +300,196 @@ export function TopBar({
     );
   }
 
+  // Adaptive suggestions — the bar reads intent from the query: empty =
+  // a calm overview of this view's vocabulary; typed = matches across
+  // tags, types, item types and collections. Chips act (click = include,
+  // alt-click = exclude for tags); Enter is always plain text search.
+  const q = norm(query || searchQuery);
+  const collectionList = collectionOrder
+    .map((id) => collections[id])
+    .filter((c): c is NonNullable<typeof c> => Boolean(c));
+  const suggestTags = (q === "" ? topTags.slice(0, 8) : searchTags(fieldFilterPool, q).slice(0, 8)).filter(
+    ({ tag }) => !facetTags.includes(tag) && !excludedTags.includes(tag)
+  );
+  const suggestTypes = objectTypes
+    .filter(({ type }) => q === "" || norm(type).includes(q))
+    .slice(0, 6);
+  const suggestRoles = roleTypes
+    .filter(({ type }) => q === "" || norm(type).includes(q))
+    .slice(0, 6);
+  const suggestCollections = collectionList
+    .filter((c) => (q === "" ? true : norm(c.name).includes(q)))
+    .slice(0, 6);
+
   return (
     <div className="shrink-0">
-      {/* No band, no border — breadcrumb sits directly on the canvas and the
-          controls float as pills (the "breathing" register: elements, not
-          sections). */}
-      <div className="px-5 pt-3.5 pb-1.5 flex items-center gap-3">
-        <div className="flex items-baseline gap-2 min-w-0 font-mono">
-          <span className="text-[13px] text-muted shrink-0">Organizer</span>
-          <span className="text-[13px] text-muted/60 shrink-0">/</span>
-          <h1 className="text-[13px] font-bold truncate">{title}</h1>
-          <span className="text-[11px] text-muted shrink-0">{count.toLocaleString()}</span>
-        </div>
-
-        <div className="flex-1" />
-
-        <div className="relative shrink-0">
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search…"
-            title="Fuzzy search — title matches outrank tag/summary matches"
-            className="w-72 focus:w-[26rem] transition-[width,box-shadow] duration-200 rounded-full border border-line/60 bg-panel shadow-card pl-4 pr-8 py-2 text-[13px] font-mono outline-none focus:border-accent/40 focus:shadow-cardHover"
-          />
-          {searchQuery !== "" && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
-              aria-label="Clear search"
-            >
-              ×
-            </button>
-          )}
-        </div>
-
-        <div className="relative shrink-0" ref={menuRef}>
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
+      {/* The command bar is the primary instrument — centered, adaptive,
+          quiet while scrolling, prominent under intent. Breadcrumb context
+          moved to the sidebar rail (vertical text). */}
+      <div className="px-5 pt-3 pb-1.5 flex justify-center relative" data-command-bar>
+        <div
+          ref={menuRef}
+          className="relative w-full transition-[max-width] duration-200 ease-out"
+          style={{ maxWidth: suggestOpen || menuOpen ? 760 : compact ? 420 : 640 }}
+        >
+          <div
             className={[
-              "w-9 h-9 flex items-center justify-center rounded-full border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
-              hasAnyFilter || menuOpen
-                ? "border-accent/50 text-accent"
-                : "border-line/60 text-muted hover:text-ink",
+              "flex items-center gap-1 rounded-full border bg-panel transition-[box-shadow,border-color,padding] duration-200",
+              suggestOpen || menuOpen
+                ? "border-accent/40 shadow-cardHover"
+                : "border-line/60 shadow-card",
+              compact && !suggestOpen ? "pl-4 pr-1 py-0.5" : "pl-5 pr-1.5 py-1.5",
             ].join(" ")}
-            title="Filter — tags, types, fields, color, grouping"
-            aria-label="Filter"
           >
-            <FilterIcon active={hasAnyFilter} />
-          </button>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => {
+                setSuggestOpen(true);
+                setCompact(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") closeMenu();
+                if (e.key === "Enter") setSuggestOpen(false);
+              }}
+              placeholder="Search your archive…"
+              title="Fuzzy search — title matches outrank tag/summary matches. Click a suggestion chip to filter."
+              className="flex-1 min-w-0 bg-transparent font-mono text-[13px] outline-none py-1"
+            />
+            {searchQuery !== "" && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="shrink-0 text-muted hover:text-ink px-1"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setMenuOpen((v) => !v);
+                setSuggestOpen(false);
+              }}
+              className={[
+                "shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors",
+                hasAnyFilter || menuOpen
+                  ? "text-accent"
+                  : "text-muted hover:text-ink hover:bg-line/40",
+              ].join(" ")}
+              title="Advanced filters — tags, types, fields, color, grouping"
+              aria-label="Filter"
+              aria-expanded={menuOpen}
+            >
+              <FilterIcon active={hasAnyFilter} />
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {suggestOpen && !menuOpen && (
+              <motion.div
+                custom={{ x: 0, y: -8 }}
+                variants={surfaceVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="absolute z-40 top-full mt-2 left-0 right-0 rounded-2xl border border-line/70 bg-panel/95 backdrop-blur shadow-cardHover p-3"
+              >
+                {suggestTags.length > 0 && (
+                  <div className="mb-2.5">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
+                      Tags
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {suggestTags.map(({ tag, count: c }) => (
+                        <button
+                          key={tag}
+                          onClick={(e) =>
+                            e.altKey ? toggleExcludeTag(tag) : toggleFacetTag(tag)
+                          }
+                          className="tag-chip gap-1 font-mono hover:border-accent/40"
+                          title={`${tag} — click to filter, option/alt-click to exclude`}
+                        >
+                          {tag}
+                          <span className="text-muted/60">{c}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {suggestCollections.length > 0 && (
+                  <div className="mb-2.5">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
+                      Collections
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {suggestCollections.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => {
+                            setSelectedView({ kind: "collection", collectionId: c.id });
+                            closeMenu();
+                          }}
+                          className="tag-chip gap-1 font-mono hover:border-accent/40"
+                          title={`Open ${c.name}`}
+                        >
+                          {c.type === "smart" ? "⚡" : "▤"} {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-x-6 gap-y-2.5">
+                  {suggestTypes.length > 0 && (
+                    <div>
+                      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
+                        Type
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {suggestTypes.map(({ type, count: c }) => (
+                          <button
+                            key={type}
+                            onClick={() => setTypeFilter(typeFilter === type ? "" : type)}
+                            className={[
+                              "tag-chip gap-1 font-mono",
+                              typeFilter === type ? "border-accent/40 bg-accent/5 text-ink" : "hover:border-accent/40",
+                            ].join(" ")}
+                          >
+                            {type}
+                            <span className="text-muted/60">{c}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {suggestRoles.length > 0 && (
+                    <div>
+                      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
+                        Item type
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {suggestRoles.map(({ type, count: c }) => (
+                          <button
+                            key={type}
+                            onClick={() => setRoleFilter(roleFilter === type ? "" : type)}
+                            className={[
+                              "tag-chip gap-1 font-mono",
+                              roleFilter === type ? "border-accent/40 bg-accent/5 text-ink" : "hover:border-accent/40",
+                            ].join(" ")}
+                          >
+                            {type}
+                            <span className="text-muted/60">{c}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2.5 font-mono text-[10px] text-muted/60">
+                  enter to search · click a chip to filter · alt-click a tag to exclude · esc to close
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <AnimatePresence>
           {menuOpen && (
             <motion.div
@@ -570,7 +746,27 @@ export function TopBar({
           </AnimatePresence>
         </div>
 
-        {isCollection && (
+        <div className="absolute right-5 top-3 flex items-center gap-1.5">
+          <button
+            onClick={onWorkbenchClick}
+            onDragOver={(e) => {
+              // Dragging a card toward the pill is intent enough — open the
+              // compartment so the drop can land inside it.
+              e.preventDefault();
+              if (!workbenchOpen) onWorkbenchClick();
+            }}
+            className={[
+              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded-full border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
+              workbenchOpen
+                ? "border-accent/50 text-ink"
+                : "border-line/60 text-muted hover:text-ink",
+            ].join(" ")}
+            title="Workbench — a temporary worktable for gathering references before they mean anything (⌘J)"
+            aria-pressed={workbenchOpen}
+          >
+            ▣ Bench{workbenchCount > 0 ? ` ${workbenchCount}` : ""}
+          </button>
+          {isCollection && (
           <button
             onClick={onClassifyClick}
             className={[
@@ -583,7 +779,8 @@ export function TopBar({
           >
             {boardOpen ? "✦ Classifying" : "✦ Classify"}
           </button>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Summoned by state, recedes with it — exists only while filtering. */}
