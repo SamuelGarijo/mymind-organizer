@@ -14,6 +14,7 @@ import { TopBar } from "./components/TopBar";
 import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionLedger";
 import { ClassifyPanel } from "./components/ClassifyPanel";
 import { Workbench } from "./components/Workbench";
+import { ArrowLeft, X as XIcon } from "@phosphor-icons/react";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
@@ -33,6 +34,7 @@ import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
 import { parseBackup } from "./lib/backupValidation";
 import { norm } from "./lib/ruleEngine";
 import { surfaceVariants } from "./lib/chrome";
+import { viewTitle } from "./lib/viewLabel";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
 import { suggestRole } from "./lib/roleSuggestion";
@@ -66,17 +68,6 @@ type SyncStatus =
        * and found nothing to remove". */
       removedCount?: number;
     };
-
-function viewTitle(state: VisibilityState): string {
-  const view = state.selectedView;
-  if (view.kind === "all") return "All items";
-  if (view.kind === "unclassified") return "Unclassified";
-  if (view.kind === "similar") {
-    const target = state.objects[view.objectId];
-    return target ? `Similar to: ${target.title}` : "Similar to…";
-  }
-  return state.collections[view.collectionId]?.name ?? "Collection";
-}
 
 export default function App() {
   // A shallow-selected subset, not the whole store — with a bare useStore()
@@ -114,6 +105,9 @@ export default function App() {
       workbenchOpen: s.workbenchOpen,
       workbenchCount: s.workbenchIds.length,
       setWorkbenchOpen: s.setWorkbenchOpen,
+      viewBackStack: s.viewBackStack,
+      popViewSnapshot: s.popViewSnapshot,
+      dismissViewBackStack: s.dismissViewBackStack,
       syncMymindObjects: s.syncMymindObjects,
       reconcileMymindDeletions: s.reconcileMymindDeletions,
       exportDataString: s.exportDataString,
@@ -864,7 +858,7 @@ export default function App() {
               </div>
               {/* The reservoir IS the main space (N8): the not-yet-folded
                   things keep the sacred area; folders float beside them. */}
-              <div className="flex-1 overflow-y-auto pl-5 pr-[26rem] pt-16 pb-5">
+              <div className="flex-1 overflow-y-auto pl-5 pr-[26rem] pt-16 pb-5" data-content-scroll>
                 <Grid
                   objects={reservoirObjects}
                   facetColumns={facetColumns}
@@ -893,10 +887,13 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className={[
-              "h-full overflow-y-auto pl-5 pt-16 pb-5 transition-[padding] duration-200",
-              state.workbenchOpen ? "pr-[24rem]" : "pr-5",
-            ].join(" ")}>
+            <div
+              className={[
+                "h-full overflow-y-auto pl-5 pt-16 pb-5 transition-[padding] duration-200",
+                state.workbenchOpen ? "pr-[24rem]" : "pr-5",
+              ].join(" ")}
+              data-content-scroll
+            >
               {/* The collection's workspace header is CONTENT, not chrome —
                   it scrolls away with the grid (are.na channel-header move;
                   design-philosophy Principle 8 + N1). */}
@@ -946,6 +943,47 @@ export default function App() {
 
       {/* Status toasts — floating, never a band that pushes content (N3).
           Success self-dismisses; errors and the backup warning persist. */}
+      {/* Exploration back-stack (non-destructive Same-vibe navigation,
+          #135): bottom-left so it never collides with the Adaptive Chrome
+          capsule (top-left) or the toasts (bottom-right). */}
+      <AnimatePresence>
+        {state.viewBackStack.length > 0 && (
+          <motion.div
+            key="view-back"
+            custom={{ x: 0, y: 12 }}
+            variants={surfaceVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="fixed bottom-4 left-4 z-40 flex items-center gap-1 rounded border border-line/70 bg-panel shadow-cardHover pl-1 pr-1 py-1 font-mono text-[11px]"
+          >
+            <button
+              onClick={() => {
+                const top = state.viewBackStack[state.viewBackStack.length - 1];
+                state.popViewSnapshot();
+                requestAnimationFrame(() => {
+                  const el = document.querySelector("[data-content-scroll]") as HTMLElement | null;
+                  if (el) el.scrollTop = top.scrollTop;
+                });
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-line/40 text-ink/80 hover:text-ink"
+              title="Return to exactly where you were — view, filters and scroll position"
+            >
+              <ArrowLeft size={12} />
+              Back to {state.viewBackStack[state.viewBackStack.length - 1].label}
+            </button>
+            <button
+              onClick={() => state.dismissViewBackStack()}
+              className="w-6 h-6 flex items-center justify-center rounded text-muted hover:text-ink hover:bg-line/40"
+              aria-label="Dismiss — stay on this exploratory view"
+              title="Dismiss (stay here)"
+            >
+              <XIcon size={11} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 max-w-sm">
         <AnimatePresence initial={false}>
         {restoreNotice && (

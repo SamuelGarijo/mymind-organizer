@@ -28,6 +28,29 @@ import { addMymindTag } from "./lib/mymindWrite";
 export type ViewMode = "grid" | "table";
 export type DetailViewMode = "side" | "centered";
 
+/** One entry in the exploration back-stack (non-destructive navigation,
+ * design-philosophy: "don't navigate away from a thought — open space
+ * beside it"). Captures everything a "Same vibe" jump would otherwise
+ * clobber, so returning restores it exactly — the browser-back-button
+ * model, not the Workbench (that stays reserved for deliberate curation,
+ * see #135 feedback: forcing same-vibe results into the Workbench hijacked
+ * its drag-and-drop worktable for a purely exploratory glance). */
+type ViewSnapshot = {
+  view: ViewSelection;
+  searchQuery: string;
+  facetTags: string[];
+  facetMode: FacetMode;
+  excludedTags: string[];
+  facetFieldFilter: { field: string; value: string } | null;
+  colorFilter: ColorFilter | null;
+  typeFilter: string;
+  roleFilter: string;
+  groupBy: string | null;
+  scrollTop: number;
+  /** What we're leaving — shown on the "← Back to {label}" pill. */
+  label: string;
+};
+
 type State = {
   objects: Record<string, DesignObject>;
   collections: Record<string, Collection>;
@@ -262,6 +285,18 @@ type State = {
    * from Classify: no roles, no facets, no durable structure). Its
    * CONTENTS persist across reloads so temporary work is never silently
    * lost; whether the compartment is open is transient UI state. */
+  /** Ephemeral — never persisted, same treatment as workbenchOpen (a hard
+   * reload starting fresh is fine; this is a browsing convenience, not
+   * durable state). */
+  viewBackStack: ViewSnapshot[];
+  /** Snapshots the CURRENT view+filters+scroll onto the stack, labeled
+   * with what's being left, then jumps to `next`. */
+  pushViewSnapshot: (next: ViewSelection, label: string, scrollTop: number) => void;
+  /** Restores the top snapshot's view+filters (scroll restoration is the
+   * caller's job — it needs the popped scrollTop after the DOM re-renders). */
+  popViewSnapshot: () => void;
+  dismissViewBackStack: () => void;
+
   workbenchIds: string[];
   workbenchOpen: boolean;
   setWorkbenchOpen: (open: boolean) => void;
@@ -838,6 +873,48 @@ export const useStore = create<State>()(
       classificationPanelOpen: false,
       openClassificationPanel: () => set({ classificationPanelOpen: true }),
       closeClassificationPanel: () => set({ classificationPanelOpen: false }),
+
+      viewBackStack: [],
+      pushViewSnapshot: (next, label, scrollTop) =>
+        set((s) => ({
+          viewBackStack: [
+            ...s.viewBackStack,
+            {
+              view: s.selectedView,
+              searchQuery: s.searchQuery,
+              facetTags: s.facetTags,
+              facetMode: s.facetMode,
+              excludedTags: s.excludedTags,
+              facetFieldFilter: s.facetFieldFilter,
+              colorFilter: s.colorFilter,
+              typeFilter: s.typeFilter,
+              roleFilter: s.roleFilter,
+              groupBy: s.groupBy,
+              scrollTop,
+              label,
+            },
+          ],
+          selectedView: next,
+        })),
+      popViewSnapshot: () =>
+        set((s) => {
+          const top = s.viewBackStack[s.viewBackStack.length - 1];
+          if (!top) return {};
+          return {
+            viewBackStack: s.viewBackStack.slice(0, -1),
+            selectedView: top.view,
+            searchQuery: top.searchQuery,
+            facetTags: top.facetTags,
+            facetMode: top.facetMode,
+            excludedTags: top.excludedTags,
+            facetFieldFilter: top.facetFieldFilter,
+            colorFilter: top.colorFilter,
+            typeFilter: top.typeFilter,
+            roleFilter: top.roleFilter,
+            groupBy: top.groupBy,
+          };
+        }),
+      dismissViewBackStack: () => set({ viewBackStack: [] }),
 
       workbenchIds: [],
       workbenchOpen: false,

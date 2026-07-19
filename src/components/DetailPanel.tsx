@@ -20,6 +20,7 @@ import {
 } from "../lib/mymindWrite";
 import { buildDownloadFilename } from "../lib/downloadFilename";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
+import { viewTitle } from "../lib/viewLabel";
 import { RolePackageModal } from "./RolePackageModal";
 import { DRAG_MIME } from "./Sidebar";
 import type { DesignObject, FacetField, ManualCollection } from "../types";
@@ -972,26 +973,25 @@ export function DetailPanel({
             <button
               onClick={() => {
                 // Non-destructive (design-philosophy: "don't navigate away
-                // from a thought — open space beside it"): the same-vibe
-                // batch lands in the Workbench, the current view, filters,
-                // scroll and this panel all stay exactly where they are.
-                const { objects, addToWorkbench, setWorkbenchOpen, closeClassificationPanel } =
-                  useStore.getState();
-                const all = Object.values(objects);
-                const ranked = rankByHybridSimilarity(
-                  object,
-                  all.filter((o) => o.id !== object.id),
-                  all,
-                  20
+                // from a thought — open space beside it") WITHOUT hijacking
+                // the Workbench (#135 feedback — that's reserved for
+                // deliberate drag-curation, forcing same-vibe glances into
+                // it ate the space meant for the user's own piles). The
+                // current view/filters/scroll snapshot onto the back-stack;
+                // a floating pill (App.tsx) restores them exactly on "back".
+                const cur = useStore.getState();
+                const scrollEl = document.querySelector("[data-content-scroll]") as HTMLElement | null;
+                cur.pushViewSnapshot(
+                  { kind: "similar", objectId: object.id },
+                  viewTitle(cur),
+                  scrollEl?.scrollTop ?? 0
                 );
-                addToWorkbench([object.id, ...ranked.map((r) => r.id)]);
-                closeClassificationPanel();
-                setWorkbenchOpen(true);
+                onClose();
               }}
               className="text-[11px] text-accent hover:underline"
-              title="Gathers this item and its 20 nearest same-vibe neighbours into the Workbench — your current view stays untouched"
+              title="Opens a full similarity view beside this one — a '← Back' pill returns you to exactly where you were (view, filters, scroll)"
             >
-              Open in workbench →
+              See more →
             </button>
           </div>
           {similarStrip.length > 0 ? (
@@ -1269,7 +1269,7 @@ export function DetailPanel({
                       }
                     }}
                     placeholder="new type…"
-                    className="w-24 rounded-full border border-line bg-panel px-2 py-0.5 text-[11px] outline-none focus:border-accent"
+                    className="w-24 rounded border border-line bg-panel px-2 py-0.5 text-[11px] outline-none focus:border-accent"
                   />
                 </div>
               </div>

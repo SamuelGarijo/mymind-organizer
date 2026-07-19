@@ -487,6 +487,7 @@ export function Table({
       </div>
       <div
         ref={parentRef}
+        data-content-scroll
         className="flex-1 min-h-0 overflow-auto border border-line rounded-card bg-panel"
       >
         <div style={{ minWidth }}>

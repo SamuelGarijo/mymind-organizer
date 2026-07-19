@@ -17,8 +17,20 @@ export default {
         line: "#e7e5e0",
         accent: "#6a5cff",
       },
+      // Sharp corners everywhere (Samuel: "borde radios afilados, máximo 2
+      // píxeles") — the ONE deliberate exception is `full`, left at
+      // Tailwind's default 9999px so the search capsule (and its attached
+      // φ button) keeps its pill shape. Every other radius utility
+      // (sm/md/lg/xl/2xl/card) collapses to 2px globally from here, so no
+      // component className needs touching — this is the single source.
       borderRadius: {
-        card: "14px",
+        sm: "2px",
+        DEFAULT: "2px",
+        md: "2px",
+        lg: "2px",
+        xl: "2px",
+        "2xl": "2px",
+        card: "2px",
       },
       boxShadow: {
         card: "0 1px 2px rgba(0,0,0,0.04), 0 4px 14px rgba(0,0,0,0.05)",

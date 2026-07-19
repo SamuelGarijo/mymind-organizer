@@ -25,6 +25,6 @@ body {
 
 @layer components {
   .tag-chip {
-    @apply inline-flex items-center rounded-full bg-canvas border border-line px-2 py-0.5 text-[11px] leading-4 text-ink/70;
+    @apply inline-flex items-center rounded bg-canvas border border-line px-2 py-0.5 text-[11px] leading-4 text-ink/70;
   }
 }

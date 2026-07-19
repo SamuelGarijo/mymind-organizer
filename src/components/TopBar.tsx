@@ -740,7 +740,7 @@ export function TopBar({
               if (!workbenchOpen) onWorkbenchClick();
             }}
             className={[
-              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded-full border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
+              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
               workbenchOpen
                 ? "border-accent/50 text-ink"
                 : "border-line/60 text-muted hover:text-ink",
@@ -755,7 +755,7 @@ export function TopBar({
           <button
             onClick={onClassifyClick}
             className={[
-              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded-full border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
+              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
               boardOpen
                 ? "border-accent/50 text-ink"
                 : "border-line/60 text-muted hover:text-ink",

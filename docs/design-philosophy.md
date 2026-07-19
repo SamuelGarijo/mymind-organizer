@@ -265,13 +265,20 @@ changes.
 - **Spatial:** a compartment sliding flush from the right edge (membrane),
   deliberately distinct from ClassifyPanel's floating module. They share
   the right edge — opening one closes the other. ⌘J toggles.
-- **Non-destructive exploration:** "don't navigate away from a thought —
-  open space beside it." Same-vibe and related-item exploration land IN
-  the bench; the originating view, filters, scroll and selection stay
-  intact. Closing the bench returns to exactly the prior state.
 - **Safe temporary work:** contents persist across sessions
   (store.workbenchIds); removals/clear are undoable in place; no
   confirmation dialogs during normal flow.
+- **Same-vibe is NOT a Workbench action** (corrected 2026-07-19 — the first
+  cut routed "See more" into the bench, which hijacked its drag-curation
+  space for a purely exploratory glance). Non-destructive exploration is
+  its own mechanism: `store.viewBackStack` snapshots the current
+  view/filters/scroll before jumping to the `similar` view, surfaced as a
+  dismissible "← Back to {label}" pill (bottom-left, clear of both the
+  Adaptive Chrome capsule and the toasts). Popping it restores everything
+  exactly, browser-back-style. The Workbench stays reserved for deliberate
+  drag-and-drop curation; its own per-item ✦ (pulling more same-vibe
+  neighbours into an existing pile) is the one legitimate overlap, since
+  that's an explicit in-bench enrichment action, not a navigation.
 
 ### Top bar
 - **Target:** one large, calm **search field, centered**, as the single
