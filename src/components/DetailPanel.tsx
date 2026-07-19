@@ -162,6 +162,12 @@ export function DetailPanel({
   // existing collection this object isn't already in, or type a name that
   // doesn't match one to create it and add in one step (same creatable
   // pattern as a facet's "+ new" option above).
+  // While a drag that STARTED inside this panel is in flight, the whole
+  // overlay goes pointer-transparent and the dark backdrop fades — so the
+  // sidebar collections, the workbench, and the grid beneath become live
+  // drop targets (issue #132 follow-up: the modal layer was swallowing
+  // every dragover, making drag-out from the detail view impossible).
+  const [dragPassThrough, setDragPassThrough] = useState(false);
   const [addingToCollection, setAddingToCollection] = useState(false);
   const [addCollectionDraft, setAddCollectionDraft] = useState("");
   // "New type…" input draft in the item-type picker, and whether the
@@ -880,8 +886,17 @@ export function DetailPanel({
           ? "fixed inset-0 z-40 flex items-center justify-center p-6"
           : "fixed inset-0 z-40 flex justify-end"
       }
+      onDragStartCapture={() => setDragPassThrough(true)}
+      onDragEndCapture={() => setDragPassThrough(false)}
+      style={dragPassThrough ? { pointerEvents: "none" } : undefined}
     >
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div
+        className={[
+          "absolute inset-0 bg-black/30 transition-opacity duration-150",
+          dragPassThrough ? "opacity-0" : "opacity-100",
+        ].join(" ")}
+        onClick={onClose}
+      />
       <div
         ref={panelRef}
         role="dialog"

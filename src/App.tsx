@@ -17,6 +17,7 @@ import { Workbench } from "./components/Workbench";
 import { ArrowLeft, X as XIcon } from "@phosphor-icons/react";
 import { ArenaExportModal } from "./components/ArenaExportModal";
 import { fetchArenaAccount, type ArenaAccount } from "./lib/arenaExport";
+import { DRAG_MIME, readDraggedIds } from "./lib/objectDrag";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
@@ -277,6 +278,11 @@ export default function App() {
 
   const [modal, setModal] = useState<Modal>(null);
   const [arenaExportId, setArenaExportId] = useState<string | null>(null);
+  // The sacred space itself as a drop target (issue #132 follow-up): while
+  // a collection is open, dropping an object anywhere on the content area
+  // files it into THAT collection — no detour to the sidebar. Smart
+  // collections explain instead of silently mutating their rule (N24).
+  const [gridDropOver, setGridDropOver] = useState(false);
   const [arenaExportObjectId, setArenaExportObjectId] = useState<string | null>(null);
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
@@ -954,7 +960,46 @@ export default function App() {
           setColorFilter={state.setColorFilter}
         />
 
-        <div className="flex-1 overflow-hidden">
+        <div
+          className="flex-1 overflow-hidden relative"
+          onDragOver={(e) => {
+            if (view.kind !== "collection" || !currentCollection) return;
+            if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
+            e.preventDefault();
+            setGridDropOver(true);
+          }}
+          onDragLeave={(e) => {
+            if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+              setGridDropOver(false);
+            }
+          }}
+          onDrop={(e) => {
+            setGridDropOver(false);
+            if (view.kind !== "collection" || !currentCollection) return;
+            const ids = readDraggedIds(e);
+            if (ids.length === 0) return;
+            e.preventDefault();
+            const st = useStore.getState();
+            if (currentCollection.type === "manual") {
+              for (const id of ids) st.assignToManualCollection(id, currentCollection.id);
+              st.setFlashNotice(
+                `Added ${ids.length} item${ids.length === 1 ? "" : "s"} to "${currentCollection.name}"`
+              );
+            } else {
+              st.setFlashNotice(
+                `"${currentCollection.name}" fills itself by rule — edit its rule (⋯ → Edit), or drop into a manual collection.`
+              );
+            }
+          }}
+        >
+          {gridDropOver && currentCollection && (
+            <div
+              className={[
+                "absolute inset-2 z-10 pointer-events-none rounded ring-2 ring-inset",
+                currentCollection.type === "manual" ? "ring-accent/50" : "ring-amber-400/70",
+              ].join(" ")}
+            />
+          )}
           {classifyOpen && activeRole ? (
             <div className="h-full flex flex-col">
               {/* Role picker stays reachable while classifying — contextual
