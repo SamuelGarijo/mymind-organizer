@@ -76,10 +76,17 @@ the mount-time auto-sync bug below for what that costs in practice.
   local proxy — never commit, never paste into chat, never let it appear
   in a client-side bundle. `ARENA_TOKEN` (Are.na personal access token,
   `server/arenaClient.js` / `server/arenaRoutes.js`, POST
-  `/api/setup/arena-token`) is separate project scope from mymind
-  entirely — its own write path (create a channel, add blocks to it),
-  never touches mymind's credentials or endpoints. Same rule applies: only
-  Samuel pastes it in, via the ARE.NA section of Preferences.
+  `/api/setup/arena-token`, disconnect via `/api/setup/arena-disconnect`)
+  is separate project scope from mymind entirely — never touches mymind's
+  credentials or endpoints. Its write path: create a channel, add blocks
+  (image blocks upload the asset's bytes to Are.na via the v3
+  presign→PUT→create flow, since mymind's `/api/mymind/image/...` URLs
+  aren't publicly fetchable — see `server/arenaClient.js`); plus GET reads
+  (`/me` identity, the user's channels) that power the destination-account
+  UI and single-object channel picker. The Organizer→Are.na block-type
+  translation lives in ONE place, `src/lib/arenaMapping.ts`. Same rule
+  applies: only Samuel pastes the token in, via the ARE.NA section of
+  Preferences.
 - `organizer-backup.json` (~190MB real personal export) never gets
   committed — already gitignored.
 - Never handle/type/paste the user's actual credentials.

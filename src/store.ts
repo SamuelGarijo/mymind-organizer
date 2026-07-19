@@ -10,6 +10,7 @@ import type {
   SmartCollection,
   TagGroups,
   ViewSelection,
+  ArenaPlacement,
 } from "./types";
 import { makeId } from "./lib/id";
 import { matchesSmartCollection, norm } from "./lib/ruleEngine";
@@ -297,6 +298,12 @@ type State = {
   popViewSnapshot: () => void;
   dismissViewBackStack: () => void;
 
+  /** Remembers a successful Are.na publication on the object itself, so the
+   * export is not fire-and-forget (issue: Are.na follow-up #5). Appends to
+   * the object's arenaPlacements; de-dupes by blockId so re-recording the
+   * same block is idempotent. */
+  recordArenaPlacement: (objectId: string, placement: ArenaPlacement) => void;
+
   workbenchIds: string[];
   workbenchOpen: boolean;
   setWorkbenchOpen: (open: boolean) => void;
@@ -543,6 +550,9 @@ export const useStore = create<State>()(
                   ...obj,
                   tags,
                   manualCollectionIds: existing.manualCollectionIds,
+                  // Local-only, never from mymind — a resync must not wipe
+                  // it (same invariant as manualCollectionIds above).
+                  arenaPlacements: existing.arenaPlacements,
                   createdAt: existing.createdAt,
                   // Embeddings are opt-in per sync (large payload) — a sync
                   // that didn't request them shouldn't erase one fetched
@@ -915,6 +925,20 @@ export const useStore = create<State>()(
           };
         }),
       dismissViewBackStack: () => set({ viewBackStack: [] }),
+
+      recordArenaPlacement: (objectId, placement) =>
+        set((st) => {
+          const obj = st.objects[objectId];
+          if (!obj) return {};
+          const existing = obj.arenaPlacements ?? [];
+          if (existing.some((p) => p.blockId === placement.blockId)) return {};
+          return {
+            objects: {
+              ...st.objects,
+              [objectId]: { ...obj, arenaPlacements: [...existing, placement] },
+            },
+          };
+        }),
 
       workbenchIds: [],
       workbenchOpen: false,

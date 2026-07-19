@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { router } from "./routes.js";
 import { arenaRouter } from "./arenaRoutes.js";
-import { writeArenaToken, writeCredentials } from "./setup.js";
+import { clearArenaToken, writeArenaToken, writeCredentials } from "./setup.js";
 
 const app = express();
 // Only needed for the one write route (POST tags) — every other route is a
@@ -66,6 +66,17 @@ app.post("/api/setup/arena-token", (req, res) => {
     res.status(204).end();
   } catch (err) {
     console.error("[are.na proxy] failed to write token", err);
+    res.status(500).json({ type: "InternalError", status: 500, detail: String(err) });
+  }
+});
+
+// POST /api/setup/arena-disconnect — removes ARENA_TOKEN locally.
+app.post("/api/setup/arena-disconnect", (_req, res) => {
+  try {
+    clearArenaToken();
+    res.status(204).end();
+  } catch (err) {
+    console.error("[are.na proxy] failed to clear token", err);
     res.status(500).json({ type: "InternalError", status: 500, detail: String(err) });
   }
 });

@@ -16,6 +16,7 @@ import { ClassifyPanel } from "./components/ClassifyPanel";
 import { Workbench } from "./components/Workbench";
 import { ArrowLeft, X as XIcon } from "@phosphor-icons/react";
 import { ArenaExportModal } from "./components/ArenaExportModal";
+import { fetchArenaAccount, type ArenaAccount } from "./lib/arenaExport";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import {
   applyExcludedTags,
@@ -274,6 +275,7 @@ export default function App() {
 
   const [modal, setModal] = useState<Modal>(null);
   const [arenaExportId, setArenaExportId] = useState<string | null>(null);
+  const [arenaExportObjectId, setArenaExportObjectId] = useState<string | null>(null);
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -307,6 +309,7 @@ export default function App() {
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const autoSyncedOnMount = useRef(false);
   const [arenaConfigured, setArenaConfigured] = useState(false);
+  const [arenaAccount, setArenaAccount] = useState<ArenaAccount | null>(null);
   const [arenaTokenDraft, setArenaTokenDraft] = useState("");
   const [arenaSaving, setArenaSaving] = useState(false);
   const [arenaError, setArenaError] = useState<string | null>(null);
@@ -322,6 +325,7 @@ export default function App() {
       .then((data: { credentialsConfigured: boolean; arenaConfigured: boolean }) => {
         if (!data.credentialsConfigured) setCredentialsModal({ dismissible: false });
         setArenaConfigured(data.arenaConfigured);
+        if (data.arenaConfigured) fetchArenaAccount().then(setArenaAccount);
       })
       .catch(() => {});
   }, []);
@@ -343,10 +347,20 @@ export default function App() {
       }
       setArenaTokenDraft("");
       setArenaConfigured(true);
+      fetchArenaAccount().then(setArenaAccount);
     } catch (err) {
       setArenaError((err as Error).message);
     } finally {
       setArenaSaving(false);
+    }
+  }
+
+  async function disconnectArena() {
+    try {
+      await fetch("/api/setup/arena-disconnect", { method: "POST" });
+    } finally {
+      setArenaConfigured(false);
+      setArenaAccount(null);
     }
   }
 
@@ -841,9 +855,26 @@ export default function App() {
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">Are.na</div>
           {arenaConfigured ? (
-            <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5 mb-1.5">
-              Connected. Paste a different token below to replace it.
-            </p>
+            <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5 mb-1.5 flex items-center justify-between gap-2">
+              <span className="truncate">
+                Connected
+                {arenaAccount ? (
+                  <>
+                    {" as "}
+                    <span className="font-bold">@{arenaAccount.slug}</span>
+                  </>
+                ) : (
+                  ""
+                )}
+              </span>
+              <button
+                onClick={disconnectArena}
+                className="shrink-0 text-emerald-800/70 hover:text-emerald-900 underline decoration-dotted"
+                title="Remove the Are.na token from this machine"
+              >
+                disconnect
+              </button>
+            </div>
           ) : (
             <p className="text-[11px] text-muted mb-1.5">
               Create a personal access token at are.na/settings/personal-access-tokens (with{" "}
@@ -1117,6 +1148,7 @@ export default function App() {
           contextObjects={baseObjects}
           onOpenCarousel={state.openCarousel}
           carouselOpen={!!state.carouselObjectId}
+          onPublishArena={(id) => setArenaExportObjectId(id)}
         />
       )}
       {state.carouselObjectId && (
@@ -1151,8 +1183,8 @@ export default function App() {
 
       {arenaExportId && (
         <ArenaExportModal
-          collectionName={state.collections[arenaExportId]?.name ?? "Untitled"}
-          collectionDescription={state.collections[arenaExportId]?.description}
+          defaultTitle={state.collections[arenaExportId]?.name ?? "Untitled"}
+          defaultDescription={state.collections[arenaExportId]?.description}
           objects={getVisibleObjects({
             objects: state.objects,
             collections: state.collections,
@@ -1160,6 +1192,14 @@ export default function App() {
             tagGroups: state.tagGroups,
           })}
           onClose={() => setArenaExportId(null)}
+        />
+      )}
+
+      {arenaExportObjectId && state.objects[arenaExportObjectId] && (
+        <ArenaExportModal
+          defaultTitle={state.objects[arenaExportObjectId].title}
+          objects={[state.objects[arenaExportObjectId]]}
+          onClose={() => setArenaExportObjectId(null)}
         />
       )}
     </div>

@@ -45,3 +45,11 @@ export function writeArenaToken(token) {
   fs.writeFileSync(ENV_PATH, lines.join("\n") + "\n", { mode: 0o600 });
   process.env.ARENA_TOKEN = token;
 }
+
+/** Removes ARENA_TOKEN from .env and process.env (the "Disconnect Are.na"
+ * action) — local-only, never touches Are.na or mymind. */
+export function clearArenaToken() {
+  const lines = readEnvLines().filter((l) => !l.startsWith("ARENA_TOKEN="));
+  fs.writeFileSync(ENV_PATH, lines.join("\n") + "\n", { mode: 0o600 });
+  delete process.env.ARENA_TOKEN;
+}

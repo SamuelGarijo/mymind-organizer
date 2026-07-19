@@ -39,6 +39,26 @@ export type DesignObject = {
    * role's field package determines which classification fields this object
    * gets everywhere it appears. Local-only — never written to mymind. */
   role?: string;
+  /** Where this object has been published on Are.na (issue: Are.na export
+   * follow-up). A LIST, not a single field — one object can be a block in
+   * several channels, and each publication is its own placement. Local-only
+   * (never from/to mymind), survives resync like manualCollectionIds. */
+  arenaPlacements?: ArenaPlacement[];
+};
+
+/** One successful publication of an object as an Are.na block, remembered
+ * so Organizer can show "already on Are.na" and link out. Modeled after the
+ * export follow-up brief's shape. */
+export type ArenaPlacement = {
+  blockId: number;
+  blockUrl: string;
+  channelId: number;
+  channelTitle: string;
+  channelUrl: string;
+  /** The Are.na account (slug) that owns the block — matters once more than
+   * one account can ever be connected. */
+  account: string;
+  publishedAt: string;
 };
 
 /** Where a tag actually came from — powers Curated Piles (only "user" tags

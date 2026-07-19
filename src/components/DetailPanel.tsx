@@ -83,6 +83,7 @@ export function DetailPanel({
   contextObjects = [],
   onOpenCarousel,
   carouselOpen = false,
+  onPublishArena,
 }: {
   objectId: string;
   onClose: () => void;
@@ -109,6 +110,9 @@ export function DetailPanel({
    * its own Escape/keyboard handling should win, not this panel's, or
    * Escape would close both at once instead of just the overlay on top. */
   carouselOpen?: boolean;
+  /** Opens the single-object Are.na publisher for this object (export
+   * follow-up #4 — objects are actionable wherever they're rendered). */
+  onPublishArena: (id: string) => void;
 }) {
   // Shallow-selected — while a detail panel is open, typing in the main
   // search box (or anything else touching unrelated store fields) shouldn't
@@ -1507,6 +1511,40 @@ export function DetailPanel({
                     placeholder="New collection…"
                     className="tag-chip w-32 outline-none focus:border-accent"
                   />
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[11px] uppercase tracking-wide text-muted">On Are.na</div>
+                <button
+                  onClick={() => onPublishArena(object.id)}
+                  className="text-muted hover:text-ink text-[13px] leading-none px-1"
+                  aria-label="Publish to Are.na"
+                  title="Publish this object to an Are.na channel (existing or new)"
+                >
+                  +
+                </button>
+              </div>
+              {object.arenaPlacements && object.arenaPlacements.length > 0 ? (
+                <div className="flex flex-col gap-0.5">
+                  {object.arenaPlacements.map((p) => (
+                    <a
+                      key={p.blockId}
+                      href={p.blockUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[12px] text-accent hover:underline truncate"
+                      title={`Published to ${p.channelTitle} as @${p.account}`}
+                    >
+                      ↗ {p.channelTitle}
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[12px] text-muted/70">
+                  Not published — use + to add it to a channel.
                 </div>
               )}
             </div>

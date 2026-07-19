@@ -1,5 +1,9 @@
 const BASE_URL = "https://api.are.na/v3";
 const USER_AGENT = "the-organizer/0.1 (local dev proxy)";
+/** Are.na's own guidance: bare S3 object URL for an uploaded file's `value`
+ * is `https://s3.amazonaws.com/arena_images-temp/<key>` (query string
+ * stripped) — the presign response's `key` slots straight in here. */
+const S3_PUBLIC_BASE = "https://s3.amazonaws.com/arena_images-temp";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,6 +59,51 @@ async function arenaFetch(path, options = {}) {
   return res.json();
 }
 
+/** GET /v3/me — the connected account's identity, so the UI can always show
+ * WHOSE Are.na is about to receive an export (never publish blind). `slug`
+ * is Are.na's username-equivalent (there's no `username` field). */
+export function getMe() {
+  return arenaFetch("/me", { method: "GET" });
+}
+
+/**
+ * The account's own channels, for the single-object "add to which channel?"
+ * picker. Are.na has no channel-list endpoint filtered to the user, so this
+ * reads GET /v3/users/{slug}/contents (blocks + channels the user created)
+ * and keeps only the channels the user can actually add to. Reads only —
+ * never writes.
+ */
+export async function listMyChannels() {
+  const me = await getMe();
+  const slug = me?.slug ?? me?.id;
+  if (!slug) return { channels: [], me };
+  // The contents feed mixes blocks and channels, newest-first, paginated
+  // ({meta, data}). Channels aren't separable by a type filter, so walk a
+  // few pages collecting the Channel items — bounded at 4 pages (≤400
+  // recent items) so a huge library can't turn one picker into dozens of
+  // requests; the user's active channels are recent by construction.
+  const byId = new Map();
+  for (let page = 1; page <= 4; page++) {
+    const res = await arenaFetch(
+      `/users/${encodeURIComponent(slug)}/contents?per=100&page=${page}`,
+      { method: "GET" }
+    );
+    const items = Array.isArray(res?.data) ? res.data : [];
+    for (const it of items) {
+      if (it?.type === "Channel" && it?.can?.add_to !== false && !byId.has(it.id)) {
+        byId.set(it.id, {
+          id: it.id,
+          slug: it.slug,
+          title: it.title,
+          visibility: it.visibility,
+        });
+      }
+    }
+    if (!res?.meta?.has_more_pages) break;
+  }
+  return { channels: [...byId.values()], me };
+}
+
 /**
  * POST /v3/channels — `title` is the only required field. `visibility`
  * defaults to Are.na's own default ("closed" — link-only, not publicly
@@ -96,13 +145,62 @@ export function createBlock({
       ...(title ? { title } : {}),
       ...(description ? { description } : {}),
       ...(altText ? { alt_text: altText } : {}),
-      // Attribution (v3 spec) — set when `value` is the object's own
-      // image but it was itself saved FROM somewhere else, so the
-      // original page stays reachable from the block instead of only the
-      // bare image.
       ...(originalSourceUrl ? { original_source_url: originalSourceUrl } : {}),
       ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
       channel_ids: [channelId],
     }),
+  });
+}
+
+/**
+ * The full upload path for a file whose bytes are NOT publicly reachable by
+ * Are.na (every mymind asset — its image/blob URLs sit behind our
+ * authenticated proxy). Three steps, per the v3 spec:
+ *   1. POST /v3/uploads/presign → a presigned S3 PUT URL + a `key`.
+ *   2. PUT the raw bytes to that URL (auth is baked into the query string;
+ *      Content-Type must match what we presigned).
+ *   3. Create the block with `value` = the bare S3 object URL for that key;
+ *      Are.na infers Image vs Attachment from the content type.
+ * Steps 1 and 3 count against the Are.na rate limit; step 2 hits S3
+ * directly and doesn't.
+ */
+export async function createBlockFromBytes({
+  bytes,
+  contentType,
+  filename,
+  title,
+  description,
+  altText,
+  channelId,
+  metadata,
+  originalSourceUrl,
+}) {
+  const presign = await arenaFetch("/uploads/presign", {
+    method: "POST",
+    body: JSON.stringify({ files: [{ filename, content_type: contentType }] }),
+  });
+  const file = presign?.files?.[0];
+  if (!file?.upload_url || !file?.key) {
+    throw new ArenaApiError(502, { message: "Are.na presign returned no upload URL" });
+  }
+
+  const put = await fetch(file.upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: bytes,
+  });
+  if (!put.ok) {
+    throw new ArenaApiError(put.status, { message: `S3 upload failed (${put.status})` });
+  }
+
+  const value = `${S3_PUBLIC_BASE}/${file.key}`;
+  return createBlock({
+    value,
+    title,
+    description,
+    altText,
+    channelId,
+    metadata,
+    originalSourceUrl,
   });
 }
