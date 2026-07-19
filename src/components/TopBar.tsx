@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { useStore } from "../store";
+import { MOTION, surfaceVariants } from "../lib/chrome";
 import { useShallow } from "zustand/react/shallow";
 import {
   computeFieldValueFrequency,
@@ -302,7 +304,7 @@ export function TopBar({
           <button
             onClick={() => setMenuOpen((v) => !v)}
             className={[
-              "w-9 h-9 flex items-center justify-center rounded-full border bg-panel shadow-card transition-all hover:shadow-cardHover",
+              "w-9 h-9 flex items-center justify-center rounded-full border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
               hasAnyFilter || menuOpen
                 ? "border-accent/50 text-accent"
                 : "border-line/60 text-muted hover:text-ink",
@@ -312,8 +314,15 @@ export function TopBar({
           >
             <FilterIcon active={hasAnyFilter} />
           </button>
+          <AnimatePresence>
           {menuOpen && (
-            <div className="absolute z-40 top-full mt-2 right-0 w-80 rounded-2xl border border-line/70 bg-panel/95 backdrop-blur shadow-cardHover overflow-hidden">
+            <motion.div
+              custom={{ x: 0, y: -8 }}
+              variants={surfaceVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="absolute z-40 top-full mt-2 right-0 w-80 rounded-2xl border border-line/70 bg-panel/95 backdrop-blur shadow-cardHover overflow-hidden">
               <div className="px-3 pt-3 pb-2 flex items-center gap-1 flex-wrap font-mono">
                 {(
                   [
@@ -556,15 +565,16 @@ export function TopBar({
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
 
         {isCollection && (
           <button
             onClick={onClassifyClick}
             className={[
-              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded-full border bg-panel shadow-card transition-all hover:shadow-cardHover",
+              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded-full border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
               boardOpen
                 ? "border-accent/50 text-ink"
                 : "border-line/60 text-muted hover:text-ink",
@@ -577,7 +587,14 @@ export function TopBar({
       </div>
 
       {/* Summoned by state, recedes with it — exists only while filtering. */}
+      <AnimatePresence initial={false}>
       {hasAnyFilter && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1, transition: { duration: MOTION.reveal, ease: MOTION.easeOut } }}
+          exit={{ height: 0, opacity: 0, transition: { duration: MOTION.micro, ease: MOTION.easeIn } }}
+          className="overflow-hidden"
+        >
         <div className="px-5 pb-1.5 flex flex-wrap items-center gap-2">
           {pills.map(renderPill)}
 
@@ -617,7 +634,9 @@ export function TopBar({
             clear all
           </button>
         </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

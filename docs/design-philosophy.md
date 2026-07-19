@@ -192,6 +192,18 @@ yes/no.
 - N12. Expansion/contraction is **animated and continuous**, never a hard
   cut — the space itself is a feature, so its changes should read as the
   space breathing, not as elements popping.
+- N12a. All motion goes through the shared tokens in `src/lib/chrome.ts`
+  (Adaptive Chrome): 120ms micro / 180ms reveal / 220ms panel, ease-out
+  entrances, ease-in exits, no springs, no `transition-all`. Motion says
+  where a surface came from or went — never decorates. `MotionConfig
+  reducedMotion="user"` is the accessibility floor.
+- N12b. Temporary chrome never reflows the workspace: peeks and drag
+  reveals **overlay** the content (the sidebar's floating capsule + overlay
+  pattern); only the explicit *pinned* state participates in layout.
+  Sidebar chrome states — compact / peek / drag-reveal / pinned — resolve
+  in one place (`useWorkspaceChrome`), from the two store primitives that
+  already existed (`sidebarCollapsed`, `dragRevealSidebar`); transient
+  intent (hover, grace timers, scroll-away) never touches persisted state.
 
 **Per-collection workspace**
 - N13. A collection's header filters by **that collection's key facets**

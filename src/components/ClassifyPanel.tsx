@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
+import { panelVariants } from "../lib/chrome";
 import { useStore } from "../store";
 import { orderedFacetBuckets } from "../lib/primaryFacets";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
@@ -160,7 +162,13 @@ export function ClassifyPanel({
 
   if (!activeField) {
     return (
-      <aside className="fixed right-4 top-20 bottom-6 w-[380px] z-30 flex flex-col rounded-2xl border border-line bg-panel/95 backdrop-blur shadow-cardHover p-5">
+      <motion.aside
+        custom={{ x: 24, y: 0 }}
+        variants={panelVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="fixed right-4 top-20 bottom-6 w-[380px] z-30 flex flex-col rounded-2xl border border-line bg-panel/95 backdrop-blur shadow-cardHover p-5">
         <div className="flex items-center justify-between mb-3">
           <PanelLabel>Classifying · {activeRole.name}</PanelLabel>
           <button onClick={onClose} className="text-muted hover:text-ink" aria-label="Close">
@@ -171,7 +179,7 @@ export function ClassifyPanel({
           "{activeRole.name}" has no primary facets pinned yet — pin some in Item Types (★ next to
           a field) to lay out folders here.
         </p>
-      </aside>
+      </motion.aside>
     );
   }
 
@@ -227,7 +235,12 @@ export function ClassifyPanel({
   }
 
   return (
-    <aside
+    <motion.aside
+      custom={{ x: 24, y: 0 }}
+      variants={panelVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
       className="fixed right-4 top-20 bottom-6 w-[380px] z-30 flex flex-col rounded-2xl border border-line bg-panel/95 backdrop-blur shadow-cardHover overflow-hidden"
       aria-label="Classification folders"
     >
@@ -322,6 +335,6 @@ export function ClassifyPanel({
           </div>
         </div>
       )}
-    </aside>
+    </motion.aside>
   );
 }

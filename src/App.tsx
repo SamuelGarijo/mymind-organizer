@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
 import { getVisibleObjects, useStore, type VisibilityState } from "./store";
 import { useDebouncedValue } from "./lib/useDebouncedValue";
@@ -30,6 +31,7 @@ import { describeMymindError, fetchAllMymindIds, syncFull, syncIncremental } fro
 import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
 import { parseBackup } from "./lib/backupValidation";
 import { norm } from "./lib/ruleEngine";
+import { surfaceVariants } from "./lib/chrome";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
 import { suggestRole } from "./lib/roleSuggestion";
@@ -695,8 +697,15 @@ export default function App() {
       >
         ⚙
       </button>
+      <AnimatePresence>
       {prefsOpen && (
-        <div className="absolute left-full top-0 ml-2 w-64 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-lg border border-line bg-panel shadow-cardHover p-3 z-20 text-[12px]">
+        <motion.div
+          custom={{ x: -8, y: 0 }}
+          variants={surfaceVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          className="absolute left-full top-0 ml-2 w-64 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl border border-line/70 bg-panel shadow-cardHover p-3 z-50 text-[12px]">
           <div className="text-[11px] uppercase tracking-wide text-muted mb-1.5">Sync</div>
           <label
             className="flex items-center gap-1.5 text-muted mb-2"
@@ -808,8 +817,9 @@ export default function App() {
           >
             mymind API credentials
           </button>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 
@@ -912,6 +922,7 @@ export default function App() {
         </div>
       </main>
 
+      <AnimatePresence>
       {classifyOpen && activeRole && (
         <ClassifyPanel
           roleObjects={roleObjects}
@@ -925,12 +936,14 @@ export default function App() {
           onOpen={state.openDetail}
         />
       )}
+      </AnimatePresence>
 
       {/* Status toasts — floating, never a band that pushes content (N3).
           Success self-dismisses; errors and the backup warning persist. */}
       <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 max-w-sm">
+        <AnimatePresence initial={false}>
         {restoreNotice && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
+          <motion.div key="restore" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
             <span>Your data is back and ready to use!</span>
             <button
               onClick={() => setRestoreNotice(false)}
@@ -939,10 +952,10 @@ export default function App() {
             >
               ×
             </button>
-          </div>
+          </motion.div>
         )}
         {syncState.status === "error" && (
-          <div className="rounded-lg border border-red-200 bg-red-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-red-800 flex items-start justify-between gap-3">
+          <motion.div key="sync-error" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-red-200 bg-red-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-red-800 flex items-start justify-between gap-3">
             <span>{syncState.message}</span>
             <button
               onClick={() => setSyncState({ status: "idle" })}
@@ -951,10 +964,10 @@ export default function App() {
             >
               ×
             </button>
-          </div>
+          </motion.div>
         )}
         {syncState.status === "done" && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
+          <motion.div key="sync-done" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
             <span>
               {syncState.count === 0
                 ? "Already up to date — no new or changed items."
@@ -973,17 +986,18 @@ export default function App() {
             >
               ×
             </button>
-          </div>
+          </motion.div>
         )}
         {syncState.status === "done" && syncState.backupSuspect && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-amber-900">
+          <motion.div key="backup-suspect" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-amber-200 bg-amber-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-amber-900">
             ⚠ This sync's backup was written as <code>-SUSPECT.json</code> instead of rotating in
             normally — it has 20%+ fewer objects than the last good backup. That can happen
             legitimately (e.g. right after deleting a lot locally), but it's also what a corrupted
             local store looks like — check the file before trusting it, and use an older backup to
             roll back if needed.
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       {state.detailObjectId && (

@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore, isSampleObject } from "../store";
 import { matchesSmartCollection } from "../lib/ruleEngine";
 import { chooseBackupFile, getStoredBackupHandle, isAutoBackupSupported } from "../lib/autoBackup";
+import { panelVariants, surfaceVariants, useWorkspaceChrome } from "../lib/chrome";
 import { makeId } from "../lib/id";
 import type { Collection, FilterGroup, ManualCollection, ViewSelection } from "../types";
 
@@ -57,6 +60,138 @@ function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+type RowAction = { label: string; onSelect: () => void; danger?: boolean };
+
+/** Floating surface anchored to a rect, rendered through a portal so it's
+ * never clipped by the sidebar's own scroll container (and stays correct
+ * inside the motion-transformed overlay, where `fixed` descendants would
+ * otherwise resolve against the transform). */
+function AnchoredSurface({
+  anchor,
+  side,
+  width,
+  onHold,
+  onRelease,
+  children,
+}: {
+  anchor: DOMRect;
+  /** "right" flies out laterally (nested children); "below" drops under
+   * the anchor (row menu). */
+  side: "right" | "below";
+  width: number;
+  onHold?: () => void;
+  onRelease?: () => void;
+  children: React.ReactNode;
+}) {
+  const style =
+    side === "right"
+      ? {
+          top: Math.max(8, Math.min(anchor.top - 4, window.innerHeight - 320)),
+          left: anchor.right + 6,
+          width,
+        }
+      : {
+          top: anchor.bottom + 4,
+          left: Math.min(anchor.left, window.innerWidth - width - 12),
+          width,
+        };
+  return createPortal(
+    <motion.div
+      className="fixed z-[60] rounded-xl border border-line/70 bg-panel shadow-cardHover p-1"
+      style={style}
+      custom={side === "right" ? { x: -8, y: 0 } : { x: 0, y: -6 }}
+      variants={surfaceVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      onPointerEnter={onHold}
+      onPointerLeave={onRelease}
+    >
+      {children}
+    </motion.div>,
+    document.body
+  );
+}
+
+/** The ⋯ row menu — replaces the old pile of inline hover icons that
+ * crowded the collection name (✎ × 📁+ ⚡+). One quiet trigger, one small
+ * labeled surface. */
+function RowMenu({ label, actions }: { label: string; actions: RowAction[] }) {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    }
+    function onPointerDown(e: MouseEvent) {
+      const t = e.target as HTMLElement;
+      if (buttonRef.current?.contains(t)) return;
+      if (t.closest("[data-row-menu]")) return;
+      setOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          setAnchor(buttonRef.current?.getBoundingClientRect() ?? null);
+          setOpen((v) => !v);
+        }}
+        className={[
+          "shrink-0 w-5 h-5 inline-flex items-center justify-center rounded text-muted hover:text-ink hover:bg-line/50 transition-opacity",
+          open ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+        ].join(" ")}
+        aria-label={`Actions for ${label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Actions"
+      >
+        ⋯
+      </button>
+      <AnimatePresence>
+        {open && anchor && (
+          <AnchoredSurface anchor={anchor} side="below" width={176}>
+            <div data-row-menu role="menu">
+              {actions.map((a) => (
+                <button
+                  key={a.label}
+                  role="menuitem"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpen(false);
+                    a.onSelect();
+                  }}
+                  className={[
+                    "w-full text-left px-2.5 py-1.5 rounded-lg font-mono text-[12px] hover:bg-line/30",
+                    a.danger ? "text-red-700/80 hover:text-red-700" : "text-ink/85",
+                  ].join(" ")}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </AnchoredSurface>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
 function NavRow({
   active,
   onClick,
@@ -64,10 +199,10 @@ function NavRow({
   label,
   count,
   onDrop,
-  onDelete,
-  onEdit,
-  onAddNestedManual,
-  onAddNestedSmart,
+  actions,
+  hasChildren,
+  childrenOpen,
+  onToggleChildren,
   disabled,
 }: {
   active: boolean;
@@ -76,14 +211,13 @@ function NavRow({
   label: string;
   count?: number;
   onDrop?: (objectId: string) => void;
-  onDelete?: () => void;
-  onEdit?: () => void;
-  /** Nesting (issue #126) — only ever offered on a manual collection row,
-   * since only manual collections can hold children. Two separate handlers
-   * (rather than one "add nested" gesture) because a manual collection can
-   * hold either type of child. */
-  onAddNestedManual?: () => void;
-  onAddNestedSmart?: () => void;
+  /** Row actions collapse into one ⋯ menu (never a pile of inline icons). */
+  actions?: RowAction[];
+  /** Lateral flyout affordance (issue #126 nesting) — the chevron is the
+   * keyboard/touch path; hover on the row is the pointer path. */
+  hasChildren?: boolean;
+  childrenOpen?: boolean;
+  onToggleChildren?: () => void;
   disabled?: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -122,58 +256,160 @@ function NavRow({
     >
       {icon}
       <span className="flex-1 truncate">{label}</span>
-      {typeof count === "number" && <span className="text-muted/70">{count}</span>}
-      {onEdit && (
+      {typeof count === "number" && (
+        <span className="text-muted/70 group-hover:hidden">{count}</span>
+      )}
+      {actions && actions.length > 0 && <RowMenu label={label} actions={actions} />}
+      {hasChildren && (
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onEdit();
+            onToggleChildren?.();
           }}
-          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
-          aria-label={`Edit ${label}`}
-          title="Edit"
+          className="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded text-muted hover:text-ink hover:bg-line/50"
+          aria-label={`${childrenOpen ? "Hide" : "Show"} collections inside ${label}`}
+          aria-expanded={childrenOpen}
+          title="Nested collections"
         >
-          ✎
+          <span
+            className={[
+              "inline-block text-[9px] transition-transform",
+              childrenOpen ? "rotate-90" : "",
+            ].join(" ")}
+          >
+            ▶
+          </span>
         </button>
       )}
-      {onDelete && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
-          aria-label={`Delete ${label}`}
-        >
-          ×
-        </button>
-      )}
-      {onAddNestedManual && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddNestedManual();
-          }}
-          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
-          aria-label={`New nested manual collection in ${label}`}
-          title="New nested manual collection"
-        >
-          📁+
-        </button>
-      )}
-      {onAddNestedSmart && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddNestedSmart();
-          }}
-          className="hidden group-hover:inline-flex px-1 text-muted hover:text-ink"
-          aria-label={`New nested smart collection in ${label}`}
-          title="New nested smart collection"
-        >
-          ⚡+
-        </button>
-      )}
+    </div>
+  );
+}
+
+/** Everything a collection row needs from the Sidebar — bundled so
+ * CollectionNode can live at module level (its flyout state must survive
+ * re-renders) and recurse without threading a dozen props. */
+type NodeCtx = {
+  counts: Map<string, number>;
+  isView: (v: ViewSelection) => boolean;
+  setSelectedView: (v: ViewSelection) => void;
+  childrenOf: (parentId: string) => Collection[];
+  assignToManualCollection: (objectId: string, collectionId: string) => void;
+  deleteCollection: (id: string) => void;
+  onEditSmart: (id: string) => void;
+  onEditManual: (id: string) => void;
+  onNewSmart: (parentId?: string) => void;
+  onNewManual: (parentId?: string) => void;
+};
+
+/**
+ * One collection row. A manual collection with children reveals them as a
+ * lateral flyout (outward, portal-anchored) instead of growing the sidebar
+ * vertically — hover opens with a small intent delay, the chevron is the
+ * click/keyboard/touch path, and a grace timer keeps the surface stable
+ * while the pointer crosses the gap. Recursive: nested manual collections
+ * fly out again from inside the flyout.
+ */
+function CollectionNode({ collection, ctx }: { collection: Collection; ctx: NodeCtx }) {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const openTimer = useRef<number | null>(null);
+  const closeTimer = useRef<number | null>(null);
+
+  const isManual = collection.type === "manual";
+  const children = isManual ? ctx.childrenOf(collection.id) : [];
+  const hasChildren = children.length > 0;
+
+  function openNow() {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+    setAnchor(rowRef.current?.getBoundingClientRect() ?? null);
+    setOpen(true);
+  }
+  function scheduleOpen() {
+    if (!hasChildren || open) return;
+    if (openTimer.current) return;
+    openTimer.current = window.setTimeout(() => {
+      openTimer.current = null;
+      openNow();
+    }, 150);
+  }
+  function scheduleClose() {
+    if (openTimer.current) window.clearTimeout(openTimer.current);
+    openTimer.current = null;
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      setOpen(false);
+    }, 250);
+  }
+  function holdOpen() {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }
+  useEffect(
+    () => () => {
+      if (openTimer.current) window.clearTimeout(openTimer.current);
+      if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    },
+    []
+  );
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const actions: RowAction[] = isManual
+    ? [
+        { label: "Edit", onSelect: () => ctx.onEditManual(collection.id) },
+        { label: "New folder inside", onSelect: () => ctx.onNewManual(collection.id) },
+        { label: "New smart inside", onSelect: () => ctx.onNewSmart(collection.id) },
+        { label: "Delete", onSelect: () => ctx.deleteCollection(collection.id), danger: true },
+      ]
+    : [
+        { label: "Edit", onSelect: () => ctx.onEditSmart(collection.id) },
+        { label: "Delete", onSelect: () => ctx.deleteCollection(collection.id), danger: true },
+      ];
+
+  return (
+    <div ref={rowRef} onPointerEnter={scheduleOpen} onPointerLeave={scheduleClose}>
+      <NavRow
+        active={ctx.isView({ kind: "collection", collectionId: collection.id })}
+        onClick={() => ctx.setSelectedView({ kind: "collection", collectionId: collection.id })}
+        icon={isManual ? <FolderIcon /> : <SmartIcon />}
+        label={collection.name}
+        count={ctx.counts.get(collection.id) ?? 0}
+        onDrop={
+          isManual
+            ? (objectId) => ctx.assignToManualCollection(objectId, collection.id)
+            : undefined
+        }
+        actions={actions}
+        hasChildren={hasChildren}
+        childrenOpen={open}
+        onToggleChildren={() => (open ? setOpen(false) : openNow())}
+      />
+      <AnimatePresence>
+        {open && anchor && hasChildren && (
+          <AnchoredSurface
+            anchor={anchor}
+            side="right"
+            width={224}
+            onHold={holdOpen}
+            onRelease={scheduleClose}
+          >
+            <div className="max-h-72 overflow-y-auto">
+              {children.map((child) => (
+                <CollectionNode key={child.id} collection={child} ctx={ctx} />
+              ))}
+            </div>
+          </AnchoredSurface>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -305,8 +541,15 @@ function CondensedControls({
         >
           ⛶
         </button>
+        <AnimatePresence>
         {zoomOpen && (
-          <div className="absolute left-full top-0 ml-2 w-40 rounded-xl border border-line/70 bg-panel shadow-cardHover p-2.5 z-20">
+          <motion.div
+            custom={{ x: -8, y: 0 }}
+            variants={surfaceVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="absolute left-full top-0 ml-2 w-40 rounded-xl border border-line/70 bg-panel shadow-cardHover p-2.5 z-50">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
               Card size
             </div>
@@ -320,8 +563,9 @@ function CondensedControls({
               className="w-full"
               aria-label="Card size slider"
             />
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       <button
@@ -393,6 +637,10 @@ export function Sidebar({
     }))
   );
   const { collections, collectionOrder, selectedView, setSelectedView } = state;
+
+  // Adaptive Chrome (lib/chrome.ts): resolves compact / peek / drag-reveal /
+  // pinned from the two existing store primitives plus transient intent.
+  const chrome = useWorkspaceChrome();
 
   const [backupConfigured, setBackupConfigured] = useState(false);
   useEffect(() => {
@@ -505,87 +753,61 @@ export function Sidebar({
     onEditSmart(id);
   }
 
-  // Recursive tree render (issue #126) — a manual collection's children
-  // (either type, no depth limit) render indented directly beneath it.
-  // Re-filters allCollections per node rather than precomputing a tree
-  // shape — collections are few enough that this is cheap, and it avoids a
-  // second data structure that could drift from `collections` itself.
-  function renderManualNode(c: ManualCollection, depth: number): React.ReactNode {
-    const children = childrenOf(c.id);
-    return (
-      <div key={c.id}>
-        <div style={{ paddingLeft: depth * 14 }}>
-          <NavRow
-            active={isView({ kind: "collection", collectionId: c.id })}
-            onClick={() => setSelectedView({ kind: "collection", collectionId: c.id })}
-            icon={<FolderIcon />}
-            label={c.name}
-            count={counts.get(c.id) ?? 0}
-            onDrop={(objectId) => state.assignToManualCollection(objectId, c.id)}
-            onEdit={() => onEditManual(c.id)}
-            onDelete={() => state.deleteCollection(c.id)}
-            onAddNestedManual={() => onNewManual(c.id)}
-            onAddNestedSmart={() => onNewSmart(c.id)}
-          />
-        </div>
-        {children.map((child) =>
-          child.type === "manual" ? (
-            renderManualNode(child, depth + 1)
-          ) : (
-            <div key={child.id} style={{ paddingLeft: (depth + 1) * 14 }}>
-              <NavRow
-                active={isView({ kind: "collection", collectionId: child.id })}
-                onClick={() => setSelectedView({ kind: "collection", collectionId: child.id })}
-                icon={<SmartIcon />}
-                label={child.name}
-                count={counts.get(child.id) ?? 0}
-                onEdit={() => onEditSmart(child.id)}
-                onDelete={() => state.deleteCollection(child.id)}
-              />
-            </div>
-          )
-        )}
-      </div>
-    );
-  }
+  // Context bag for the recursive CollectionNode rows (nesting now reveals
+  // laterally as a flyout — issue #126's tree no longer grows vertically).
+  const nodeCtx: NodeCtx = {
+    counts,
+    isView,
+    setSelectedView,
+    childrenOf,
+    assignToManualCollection: state.assignToManualCollection,
+    deleteCollection: state.deleteCollection,
+    onEditSmart,
+    onEditManual,
+    onNewSmart,
+    onNewManual,
+  };
 
-  if (state.sidebarCollapsed && !state.dragRevealSidebar) {
-    return (
-      <aside className="w-10 shrink-0 border-r border-line/70 bg-panel h-full flex flex-col items-center pt-4 gap-2">
-        <button
-          onClick={() => state.setSidebarCollapsed(false)}
-          className="w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40 mb-1"
-          aria-label="Show sidebar"
-          title="Show sidebar"
-        >
-          <SidebarToggleIcon collapsed />
-        </button>
-        <CondensedControls
-          viewMode={state.viewMode}
-          setViewMode={state.setViewMode}
-          gridZoom={state.gridZoom}
-          setGridZoom={state.setGridZoom}
-          prefsControl={prefsControl}
-          vertical
-        />
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="w-64 shrink-0 border-r border-line/70 bg-panel h-full flex flex-col">
+  // Shared by the pinned in-flow aside and the temporary overlay — same
+  // content, different frame. The header's affordance differs: pinned shows
+  // "unpin/hide", the overlay shows "pin" (make this permanent) + close.
+  const sidebarBody = (variant: "pinned" | "overlay") => (
+    <>
       <div className="px-4 pt-4 pb-1 flex items-center justify-between gap-2">
         <div className="font-mono text-[13px] font-bold tracking-tight truncate">
           The Organizer
         </div>
-        <button
-          onClick={() => state.setSidebarCollapsed(true)}
-          className="w-7 h-7 shrink-0 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"
-          aria-label="Hide sidebar"
-          title="Hide sidebar"
-        >
-          <SidebarToggleIcon collapsed={false} />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {variant === "overlay" ? (
+            <>
+              <button
+                onClick={chrome.pin}
+                className="w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"
+                aria-label="Pin sidebar open"
+                title="Pin open"
+              >
+                <SidebarToggleIcon collapsed={false} />
+              </button>
+              <button
+                onClick={chrome.closePeek}
+                className="w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40 text-[14px]"
+                aria-label="Close sidebar"
+                title="Close"
+              >
+                ×
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={chrome.unpin}
+              className="w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"
+              aria-label="Unpin sidebar"
+              title="Unpin — collapses to the floating rail"
+            >
+              <SidebarToggleIcon collapsed={false} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="px-3.5 pb-2">
@@ -598,83 +820,81 @@ export function Sidebar({
         />
       </div>
 
-      <div className="px-3 pt-2 space-y-0.5">
-        <NavRow
-          active={isView({ kind: "all" })}
-          onClick={() => setSelectedView({ kind: "all" })}
-          label="All items"
-          count={totalCount}
-        />
-        <NavRow
-          active={isView({ kind: "unclassified" })}
-          onClick={() => setSelectedView({ kind: "unclassified" })}
-          label="Unclassified"
-        />
-      </div>
-
-      <div className="mt-5 px-3">
-        <div className="flex items-center justify-between px-2 mb-1">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-            Smart collections
-          </span>
-          <button
-            onClick={() => onNewSmart()}
-            className="text-muted hover:text-ink text-[15px] leading-none px-1"
-            aria-label="New smart collection"
-            title="New smart collection"
-          >
-            +
-          </button>
+      <div className="flex-1 min-h-0 overflow-y-auto pb-2">
+        <div className="px-3 pt-2 space-y-0.5">
+          <NavRow
+            active={isView({ kind: "all" })}
+            onClick={() => setSelectedView({ kind: "all" })}
+            label="All items"
+            count={totalCount}
+          />
+          <NavRow
+            active={isView({ kind: "unclassified" })}
+            onClick={() => setSelectedView({ kind: "unclassified" })}
+            label="Unclassified"
+          />
         </div>
-        <div className="space-y-0.5">
-          {smart.length === 0 && (
-            <div className="px-2.5 py-1 font-mono text-[11px] text-muted/60">
-              none yet — saved searches live here
-            </div>
-          )}
-          {smart.map((c) => (
-            <NavRow
-              key={c.id}
-              active={isView({ kind: "collection", collectionId: c.id })}
-              onClick={() => setSelectedView({ kind: "collection", collectionId: c.id })}
-              icon={<SmartIcon />}
-              label={c.name}
-              count={counts.get(c.id) ?? 0}
-              onEdit={() => onEditSmart(c.id)}
-              onDelete={() => state.deleteCollection(c.id)}
+
+        <div className="mt-5 px-3">
+          <div className="flex items-center justify-between px-2 mb-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              Smart collections
+            </span>
+            <button
+              onClick={() => onNewSmart()}
+              className="text-muted hover:text-ink text-[15px] leading-none px-1"
+              aria-label="New smart collection"
+              title="New smart collection"
+            >
+              +
+            </button>
+          </div>
+          <div className="space-y-0.5">
+            {smart.length === 0 && (
+              <div className="px-2.5 py-1 font-mono text-[11px] text-muted/60">
+                none yet — saved searches live here
+              </div>
+            )}
+            {smart.map((c) => (
+              <CollectionNode key={c.id} collection={c} ctx={nodeCtx} />
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 px-3">
+          <div className="flex items-center justify-between px-2 mb-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              Manual collections
+            </span>
+            <button
+              onClick={() => onNewManual()}
+              className="text-muted hover:text-ink text-[15px] leading-none px-1"
+              aria-label="New manual collection"
+              title="New manual collection"
+            >
+              +
+            </button>
+          </div>
+          <div className="space-y-0.5">
+            {manual.length === 0 && (
+              <div className="px-2.5 py-1 font-mono text-[11px] text-muted/60">
+                none yet — drag things here
+              </div>
+            )}
+            {manual.map((c) => (
+              <CollectionNode key={c.id} collection={c} ctx={nodeCtx} />
+            ))}
+          </div>
+          {dragging && (
+            <CreateDropZone
+              onDropManual={handleDropCreateManual}
+              onDropSmart={handleDropCreateSmart}
             />
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-5 px-3">
-        <div className="flex items-center justify-between px-2 mb-1">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-            Manual collections
-          </span>
-          <button
-            onClick={() => onNewManual()}
-            className="text-muted hover:text-ink text-[15px] leading-none px-1"
-            aria-label="New manual collection"
-            title="New manual collection"
-          >
-            +
-          </button>
-        </div>
-        <div className="space-y-0.5">
-          {manual.length === 0 && (
-            <div className="px-2.5 py-1 font-mono text-[11px] text-muted/60">
-              none yet — drag things here
-            </div>
           )}
-          {manual.map((c) => renderManualNode(c, 0))}
         </div>
-        {dragging && (
-          <CreateDropZone onDropManual={handleDropCreateManual} onDropSmart={handleDropCreateSmart} />
-        )}
       </div>
 
-      <div className="mt-auto px-4 py-3 border-t border-line/70 font-mono text-[10px] text-muted space-y-1.5">
+      <div className="shrink-0 px-4 py-3 border-t border-line/70 font-mono text-[10px] text-muted space-y-1.5">
         {isAutoBackupSupported() ? (
           backupConfigured ? (
             <div className="flex items-center justify-between">
@@ -708,8 +928,87 @@ export function Sidebar({
           </button>
         )}
       </div>
-    </aside>
+    </>
   );
+
+  // Pinned: the sidebar participates in layout (a deliberate, explicit
+  // state). Everything else: a stable narrow gutter holds a floating
+  // utility capsule, and any temporary expansion OVERLAYS the workspace —
+  // the main content never shifts for a peek or a drag (Adaptive Chrome).
+  if (chrome.pinned) {
+    return (
+      <aside className="w-64 shrink-0 border-r border-line/70 bg-panel h-full flex flex-col">
+        {sidebarBody("pinned")}
+      </aside>
+    );
+  }
+
+  const inCollection = selectedView.kind === "collection";
+
+  return (
+    <>
+      <div
+        className="w-12 shrink-0 relative"
+        onPointerEnter={() => chrome.openPeek()}
+        onPointerLeave={chrome.scheduleClose}
+      >
+        <div className="absolute top-3 left-1.5 flex flex-col items-center gap-1 rounded-2xl border border-line/60 bg-panel shadow-card p-1.5">
+          <button
+            onClick={() => (chrome.overlayVisible ? chrome.closePeek() : chrome.openPeek(true))}
+            className="relative w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"
+            aria-label="Collections"
+            aria-expanded={chrome.overlayVisible}
+            aria-controls="sidebar-overlay"
+            title={`Collections — ${viewLabel(state)}`}
+          >
+            <SidebarToggleIcon collapsed />
+            {/* Active-collection context survives compaction: a quiet
+                accent dot instead of a label. */}
+            {inCollection && (
+              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent" />
+            )}
+          </button>
+          <CondensedControls
+            viewMode={state.viewMode}
+            setViewMode={state.setViewMode}
+            gridZoom={state.gridZoom}
+            setGridZoom={state.setGridZoom}
+            prefsControl={prefsControl}
+            vertical
+          />
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {chrome.overlayVisible && (
+          <motion.aside
+            id="sidebar-overlay"
+            data-sidebar-overlay
+            custom={{ x: -24, y: 0 }}
+            variants={panelVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            onPointerEnter={chrome.holdOpen}
+            onPointerLeave={chrome.scheduleClose}
+            className="fixed left-2 top-2 bottom-2 w-64 z-40 flex flex-col rounded-2xl border border-line/70 bg-panel/95 backdrop-blur shadow-cardHover overflow-hidden"
+            aria-label="Collections"
+          >
+            {sidebarBody("overlay")}
+          </motion.aside>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+/** Human name of the current view for the capsule tooltip. */
+function viewLabel(state: { selectedView: ViewSelection; collections: Record<string, Collection> }): string {
+  const v = state.selectedView;
+  if (v.kind === "all") return "All items";
+  if (v.kind === "unclassified") return "Unclassified";
+  if (v.kind === "similar") return "Similar view";
+  return state.collections[v.collectionId]?.name ?? "Collection";
 }
 
 export { DRAG_MIME };
