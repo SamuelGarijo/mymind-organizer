@@ -1094,12 +1094,14 @@ export default function App() {
             edge="bottom"
             open={state.discoveryOpen}
             onToggle={() => state.setDiscoveryOpen(!state.discoveryOpen)}
-            size={200}
-            seamLabel="Discover — similar things outside this collection"
+            size={224}
+            seamLabel="Discover — expand this collection's research outward"
             id="discovery-membrane"
           >
-            {state.discoveryOpen && (
+            {state.discoveryOpen && currentCollection && (
               <DiscoveryStrip
+                collectionId={currentCollection.id}
+                collectionName={currentCollection.name}
                 members={baseObjects}
                 memberIds={collectionIds}
                 allObjects={allObjectsList}

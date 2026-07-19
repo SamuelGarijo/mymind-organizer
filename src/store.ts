@@ -13,6 +13,8 @@ import type {
   ArenaPlacement,
   CanvasDoc,
   ObjectRelation,
+  DiscoverySession,
+  ExternalSource,
 } from "./types";
 import { makeId } from "./lib/id";
 import { matchesSmartCollection, norm } from "./lib/ruleEngine";
@@ -353,6 +355,30 @@ type State = {
   discoveryOpen: boolean;
   setDiscoveryOpen: (open: boolean) => void;
 
+  /** The current discovery investigation (external discovery brief §6) — a
+   * navigation entity: returnable, regeneratable, editable, and it
+   * remembers which collection it grew from. Persisted so the last
+   * search survives a reload. */
+  discoverySession: DiscoverySession | null;
+  setDiscoverySession: (session: DiscoverySession | null) => void;
+  patchDiscoverySession: (patch: Partial<DiscoverySession>) => void;
+
+  /** Imports an externally discovered thing as a real Organizer object —
+   * keeping provider, original URL/id, the query that surfaced it, and
+   * the context it grew from (ExternalSource provenance). Lands on the
+   * workbench (the importing hand's natural destination). Idempotent per
+   * provider id: re-importing the same block just returns the existing
+   * object's id. */
+  importExternalObject: (input: {
+    title: string;
+    imageUrl: string;
+    sourceUrl: string;
+    provider: ExternalSource["provider"];
+    externalId?: string;
+    discoveryQuery?: string;
+    discoveredFromObjectIds?: string[];
+  }) => string;
+
   workbenchIds: string[];
   workbenchOpen: boolean;
   setWorkbenchOpen: (open: boolean) => void;
@@ -451,6 +477,7 @@ type PersistedState = Pick<
   | "canvases"
   | "canvasOrder"
   | "objectRelations"
+  | "discoverySession"
   | "localUserTags"
   | "sidebarCollapsed"
 >;
@@ -1071,6 +1098,50 @@ export const useStore = create<State>()(
       discoveryOpen: false,
       setDiscoveryOpen: (open) => set({ discoveryOpen: open }),
 
+      discoverySession: null,
+      setDiscoverySession: (session) => set({ discoverySession: session }),
+      patchDiscoverySession: (patch) =>
+        set((s) => (s.discoverySession ? { discoverySession: { ...s.discoverySession, ...patch } } : {})),
+
+      importExternalObject: (input) => {
+        const existingId = input.externalId ? `${input.provider}_${input.externalId}` : null;
+        const s = get();
+        if (existingId && s.objects[existingId]) {
+          s.addToWorkbench([existingId]);
+          return existingId;
+        }
+        const id = existingId ?? makeId("ext");
+        const now = new Date().toISOString();
+        const obj: DesignObject = {
+          id,
+          title: input.title || input.sourceUrl,
+          imageUrl: input.imageUrl,
+          tags: [],
+          fields: {
+            ...(input.sourceUrl ? { source_url: input.sourceUrl } : {}),
+            provider: input.provider,
+            ...(input.discoveryQuery ? { discovery_query: input.discoveryQuery } : {}),
+          },
+          manualCollectionIds: [],
+          sourceUrl: input.sourceUrl || undefined,
+          createdAt: now,
+          updatedAt: now,
+          source: input.provider === "arena" ? "arena" : "external",
+          externalSource: {
+            provider: input.provider,
+            sourceUrl: input.sourceUrl,
+            ...(input.externalId ? { externalId: input.externalId } : {}),
+            ...(input.discoveryQuery ? { discoveryQuery: input.discoveryQuery } : {}),
+            ...(input.discoveredFromObjectIds?.length
+              ? { discoveredFromObjectIds: input.discoveredFromObjectIds }
+              : {}),
+          },
+        };
+        set((st) => ({ objects: { ...st.objects, [id]: obj } }));
+        get().addToWorkbench([id]);
+        return id;
+      },
+
       workbenchIds: [],
       workbenchOpen: false,
       setWorkbenchOpen: (open) => set({ workbenchOpen: open }),
@@ -1377,6 +1448,7 @@ export const useStore = create<State>()(
         canvases: state.canvases,
         canvasOrder: state.canvasOrder,
         objectRelations: state.objectRelations,
+        discoverySession: state.discoverySession,
         localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),

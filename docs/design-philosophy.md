@@ -287,8 +287,16 @@ changes.
   drag-hint state (the seam brightens while any object drag is in
   flight; dropping on the seam opens it). Right membrane = Workbench
   (⌘J); bottom membrane = Discovery, which opens BENEATH the current
-  collection (first tenant: internal similar-outside; external sources
-  are future tenants). ClassifyPanel deliberately stays a floating
+  collection — a research-expansion system, not "more images". Query
+  generation is separate from execution: Same content / Same form build
+  an EDITABLE phrase from the collection's own vocabulary; sources are
+  per-tab, never blended (Organizer = internal search/same-vibe; Are.na =
+  real embedded API results importable with full ExternalSource
+  provenance — provider, id, query, origin objects; Web = delegated
+  Pinterest/Google/Yandex searches in a new tab + paste-a-URL import,
+  because those providers expose no adequate public search APIs and we
+  don't scrape). The DiscoverySession persists (returnable,
+  regeneratable, remembers which collection it grew from). ClassifyPanel deliberately stays a floating
   conditional module — the classify/bench distinction is conceptual, not
   just visual. The bench and classify still share the right region —
   opening one closes the other.

@@ -24,10 +24,16 @@ export type DesignObject = {
    * origin resolution (Curated Piles); unrelated to our own local
    * tagGroups. */
   tagFlags?: Record<string, number>;
-  /** Where this object came from: locally imported test data ("sample") or
-   * a real mymind sync ("mymind"). Optional because objects created before
-   * this field existed lack it — treat fields.mymind_id as the tiebreaker. */
-  source?: "sample" | "mymind";
+  /** Where this object came from: locally imported test data ("sample"),
+   * a real mymind sync ("mymind"), or an external discovery import
+   * ("arena" — via the Are.na search API; "external" — a pasted URL).
+   * Optional because objects created before this field existed lack it —
+   * treat fields.mymind_id as the tiebreaker. */
+  source?: "sample" | "mymind" | "arena" | "external";
+  /** Discovery provenance (bottom membrane, external discovery): HOW this
+   * object was found, not just where it points. Organizer remembers the
+   * query and the context objects the discovery grew from. */
+  externalSource?: ExternalSource;
   /** mymind's own embedding vector (from GET /objects?include=embeddings),
    * present only when a sync explicitly opted in — large, so not fetched by
    * default. Used entirely client-side for local cosine-similarity ranking;
@@ -44,6 +50,36 @@ export type DesignObject = {
    * several channels, and each publication is its own placement. Local-only
    * (never from/to mymind), survives resync like manualCollectionIds. */
   arenaPlacements?: ArenaPlacement[];
+};
+
+/** Provenance of an externally discovered object (bottom membrane). */
+export type ExternalSource = {
+  provider: "arena" | "pinterest" | "google" | "other";
+  sourceUrl: string;
+  /** Provider-native id when one exists (e.g. the Are.na block id). */
+  externalId?: string;
+  /** The query that surfaced it. */
+  discoveryQuery?: string;
+  /** The Organizer objects the discovery session grew from. */
+  discoveredFromObjectIds?: string[];
+};
+
+/**
+ * One discovery investigation (bottom membrane) — a navigation entity, so
+ * a search can be returned to, regenerated, edited, and remembered as
+ * "born from this collection". Persisted (the last session survives a
+ * reload).
+ */
+export type DiscoverySession = {
+  /** Where it grew from. */
+  sourceContext: { kind: "collection"; id: string; label: string };
+  /** Same content (topic/subjects) vs same form (composition/style). */
+  mode: "content" | "form";
+  /** The editable query — generated, then the user's to change. */
+  query: string;
+  /** Active source tab. */
+  activeSource: "organizer" | "arena" | "web";
+  createdAt: string;
 };
 
 /**

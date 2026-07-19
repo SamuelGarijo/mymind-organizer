@@ -105,6 +105,24 @@ export async function listMyChannels() {
 }
 
 /**
+ * GET /v3/search — text search over Are.na (v3; requires auth and is
+ * currently Premium-gated upstream). Returns the raw {meta, data} page;
+ * the route maps it to a compact DTO. A 402/403 from Are.na surfaces as
+ * a structured error so the UI can explain the Premium gate instead of
+ * failing opaquely.
+ */
+export function searchArena({ query, type = "Image", page = 1, per = 24 }) {
+  const params = new URLSearchParams({
+    query,
+    type,
+    page: String(page),
+    per: String(per),
+    sort: "score_desc",
+  });
+  return arenaFetch(`/search?${params}`, { method: "GET" });
+}
+
+/**
  * POST /v3/channels — `title` is the only required field. `visibility`
  * defaults to Are.na's own default ("closed" — link-only, not publicly
  * listed) when the caller doesn't specify one.

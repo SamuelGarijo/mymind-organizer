@@ -6,6 +6,7 @@ import {
   createChannel,
   getMe,
   listMyChannels,
+  searchArena,
 } from "./arenaClient.js";
 import { getMymindResource } from "./mymindClient.js";
 
@@ -37,6 +38,41 @@ arenaRouter.get("/channels", async (_req, res) => {
   try {
     const { channels } = await listMyChannels();
     res.json({ channels });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// GET /api/arena/search?q=&type=&page=
+// Maps Are.na's block records to the compact shape the Discovery strip
+// renders: id, title, a displayable image URL, the block's own page, and
+// the original source URL when the block has one.
+arenaRouter.get("/search", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (!q) {
+    res.status(400).json({ type: "BadRequest", status: 400, detail: "`q` is required" });
+    return;
+  }
+  const type = typeof req.query.type === "string" ? req.query.type : "Image";
+  const page = req.query.page ? Number(req.query.page) : 1;
+  try {
+    const result = await searchArena({ query: q, type, page });
+    const items = (Array.isArray(result?.data) ? result.data : [])
+      .map((b) => ({
+        id: b.id,
+        title: b.title || "",
+        imageUrl:
+          b.image?.small?.url ||
+          b.image?.thumb?.url ||
+          b.image?.src ||
+          b.image?.original?.url ||
+          "",
+        blockUrl: `https://www.are.na/block/${b.id}`,
+        sourceUrl: b.source?.url || "",
+        author: b.user?.name || "",
+      }))
+      .filter((b) => b.id);
+    res.json({ items, totalCount: result?.meta?.total_count ?? items.length });
   } catch (err) {
     sendError(res, err);
   }
