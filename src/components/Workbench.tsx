@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { panelVariants } from "../lib/chrome";
-import { DRAG_MIME } from "../lib/objectDrag";
+import { applyDragGhost, DRAG_MIME } from "../lib/objectDrag";
 import type { DesignObject, ManualCollection } from "../types";
 
 /** Internal reorder payload — distinct from DRAG_MIME so dragging a bench
@@ -320,6 +320,7 @@ function BenchRow({
         e.dataTransfer.setData(BENCH_MIME, object.id);
         e.dataTransfer.setData(DRAG_MIME, JSON.stringify([object.id]));
         e.dataTransfer.effectAllowed = "copyMove";
+        applyDragGhost(e, 1);
       }}
       onDragOver={(e) => {
         e.preventDefault();

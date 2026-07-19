@@ -22,6 +22,7 @@ import { buildDownloadFilename } from "../lib/downloadFilename";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { viewTitle } from "../lib/viewLabel";
 import { RolePackageModal } from "./RolePackageModal";
+import { ArrowsInSimple } from "@phosphor-icons/react";
 import { DRAG_MIME, objectDragProps } from "../lib/objectDrag";
 import type { DesignObject, FacetField, ManualCollection } from "../types";
 
@@ -883,17 +884,22 @@ export function DetailPanel({
     <div
       className={
         isCentered
-          ? "fixed inset-0 z-40 flex items-center justify-center p-6"
-          : "fixed inset-0 z-40 flex justify-end"
+          ? "fixed inset-0 z-40 flex items-center justify-center p-6 pointer-events-none"
+          : "fixed inset-0 z-40 flex justify-end pointer-events-none"
       }
       onDragStartCapture={() => setDragPassThrough(true)}
       onDragEndCapture={() => setDragPassThrough(false)}
-      style={dragPassThrough ? { pointerEvents: "none" } : undefined}
     >
+      {/* The backdrop is a SIBLING of the panel, so toggling its
+          pointer-events mid-drag is safe (toggling an ancestor of the drag
+          source cancels the drag in Chromium — the earlier root-level
+          approach killed every drag one frame in). While a drag from the
+          panel is in flight it fades out and lets every target beneath
+          (sidebar, bench, grid) receive the drop. */}
       <div
         className={[
           "absolute inset-0 bg-black/30 transition-opacity duration-150",
-          dragPassThrough ? "opacity-0" : "opacity-100",
+          dragPassThrough ? "opacity-0 pointer-events-none" : "opacity-100 pointer-events-auto",
         ].join(" ")}
         onClick={onClose}
       />
@@ -905,8 +911,8 @@ export function DetailPanel({
         tabIndex={-1}
         className={
           isCentered
-            ? "relative w-full max-w-3xl max-h-[90vh] bg-panel border border-line rounded-2xl shadow-2xl outline-none overflow-y-auto"
-            : "relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto"
+            ? "relative w-full max-w-3xl max-h-[90vh] bg-panel border border-line rounded-2xl shadow-2xl outline-none overflow-y-auto pointer-events-auto"
+            : "relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto pointer-events-auto"
         }
       >
         <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex items-center justify-between">
@@ -937,21 +943,16 @@ export function DetailPanel({
         {!isNote && object.imageUrl && !coverFailed && (
           <button
             type="button"
-            draggable
-            onDragStart={(e) => {
-              // Same drag contract as a grid Card (issue follow-up: drag the
-              // expanded detail view straight onto a sidebar folder, no need
-              // to close the panel and find the card in the grid first).
-              const { sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
-              e.dataTransfer.setData(DRAG_MIME, JSON.stringify([object.id]));
-              e.dataTransfer.effectAllowed = "copy";
-              if (sidebarCollapsed) setDragRevealSidebar(true);
-            }}
-            onDragEnd={() => useStore.getState().setDragRevealSidebar(false)}
+            {...objectDragProps([object.id])}
             onClick={() => onOpenCarousel(object.id)}
-            className="block w-full cursor-zoom-in active:cursor-grabbing"
-            title="Click to view fullscreen — drag onto a sidebar folder to add to a collection"
+            className="group relative block w-full cursor-zoom-in active:cursor-grabbing"
+            title="Click to view fullscreen — drag anywhere: a collection, the workbench, the grid"
           >
+            {/* Graspable affordance: the anchor chip appears on hover so the
+                image reads as something you can pick up, not just view. */}
+            <span className="absolute top-2 left-2 z-10 w-7 h-7 rounded bg-panel/85 backdrop-blur shadow-card flex items-center justify-center text-muted opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+              <ArrowsInSimple size={14} />
+            </span>
             <img
               src={detailImageSrc}
               alt={object.title}
