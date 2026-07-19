@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { MagnifyingGlass, SlidersHorizontal, Sparkle, Tray } from "@phosphor-icons/react";
 import { useStore } from "../store";
 import { MOTION, surfaceVariants } from "../lib/chrome";
 import { useShallow } from "zustand/react/shallow";
@@ -23,29 +24,9 @@ type Category = "tag" | "type" | "role" | "field" | "color" | "group";
  * disconnected controls (issue #120). */
 type Pill = { key: string; label: string; tone: "include" | "exclude"; onRemove: () => void };
 
-/** The φφφ sliders glyph from Samuel's sketch — the filter summon. */
+/** The φφφ sliders from Samuel's sketch — Phosphor's own glyph for it. */
 function FilterIcon({ active }: { active: boolean }) {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" className="shrink-0">
-      {[
-        { y: 3.5, knob: 10.5 },
-        { y: 8, knob: 5.5 },
-        { y: 12.5, knob: 11.5 },
-      ].map(({ y, knob }) => (
-        <g key={y}>
-          <line x1="1.5" y1={y} x2="14.5" y2={y} stroke="currentColor" strokeWidth="1.2" />
-          <circle
-            cx={knob}
-            cy={y}
-            r="2.2"
-            fill={active ? "currentColor" : "#ffffff"}
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-        </g>
-      ))}
-    </svg>
-  );
+  return <SlidersHorizontal size={16} weight={active ? "fill" : "regular"} />;
 }
 
 /**
@@ -322,14 +303,16 @@ export function TopBar({
     .slice(0, 6);
 
   return (
-    <div className="shrink-0">
+    <div className="absolute top-0 left-0 right-0 z-20 pointer-events-none">
       {/* The command bar is the primary instrument — centered, adaptive,
-          quiet while scrolling, prominent under intent. Breadcrumb context
-          moved to the sidebar rail (vertical text). */}
+          quiet while scrolling, prominent under intent. It FLOATS over the
+          workspace with a transparent background, so the things visibly
+          slide away beneath it on scroll (the mymind reference). Breadcrumb
+          context lives in the sidebar rail. */}
       <div className="px-5 pt-3 pb-1.5 flex justify-center relative" data-command-bar>
         <div
           ref={menuRef}
-          className="relative w-full transition-[max-width] duration-200 ease-out"
+          className="relative w-full transition-[max-width] duration-200 ease-out pointer-events-auto"
           style={{ maxWidth: suggestOpen || menuOpen ? 760 : compact ? 420 : 640 }}
         >
           <div
@@ -341,6 +324,7 @@ export function TopBar({
               compact && !suggestOpen ? "pl-4 pr-1 py-0.5" : "pl-5 pr-1.5 py-1.5",
             ].join(" ")}
           >
+            <MagnifyingGlass size={14} className="shrink-0 text-muted mr-2" />
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -746,7 +730,7 @@ export function TopBar({
           </AnimatePresence>
         </div>
 
-        <div className="absolute right-5 top-3 flex items-center gap-1.5">
+        <div className="absolute right-5 top-3 flex items-center gap-1.5 pointer-events-auto">
           <button
             onClick={onWorkbenchClick}
             onDragOver={(e) => {
@@ -764,7 +748,8 @@ export function TopBar({
             title="Workbench — a temporary worktable for gathering references before they mean anything (⌘J)"
             aria-pressed={workbenchOpen}
           >
-            ▣ Bench{workbenchCount > 0 ? ` ${workbenchCount}` : ""}
+            <Tray size={13} className="inline -mt-0.5 mr-1" />
+            Bench{workbenchCount > 0 ? ` ${workbenchCount}` : ""}
           </button>
           {isCollection && (
           <button
@@ -777,7 +762,8 @@ export function TopBar({
             ].join(" ")}
             title="Open this collection's folders — sets up a type and starter facets automatically if none exist yet"
           >
-            {boardOpen ? "✦ Classifying" : "✦ Classify"}
+            <Sparkle size={13} weight={boardOpen ? "fill" : "regular"} className="inline -mt-0.5 mr-1" />
+            {boardOpen ? "Classifying" : "Classify"}
           </button>
           )}
         </div>
@@ -792,7 +778,7 @@ export function TopBar({
           exit={{ height: 0, opacity: 0, transition: { duration: MOTION.micro, ease: MOTION.easeIn } }}
           className="overflow-hidden"
         >
-        <div className="px-5 pb-1.5 flex flex-wrap items-center gap-2">
+        <div className="px-5 pb-1.5 flex flex-wrap items-center gap-2 pointer-events-auto">
           {pills.map(renderPill)}
 
           {facetTags.length > 1 && (

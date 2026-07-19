@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
+import {
+  CaretRight,
+  DotsThree,
+  Folder,
+  FrameCorners,
+  GearSix,
+  GridFour,
+  Lightning,
+  Rows,
+  SidebarSimple,
+  X,
+} from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore, isSampleObject } from "../store";
 import { matchesSmartCollection } from "../lib/ruleEngine";
@@ -24,40 +36,18 @@ function timeSince(iso?: string): string {
 const DRAG_MIME = "application/x-organizer-object-id";
 
 function SmartIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" className="shrink-0">
-      <path
-        d="M9 1 3 9h4l-1 6 6-8H8l1-6Z"
-        fill="currentColor"
-        className="text-accent"
-      />
-    </svg>
-  );
+  return <Lightning size={13} weight="fill" className="shrink-0 text-accent" />;
 }
 
 function FolderIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" className="shrink-0">
-      <path
-        d="M1.5 3.5A1 1 0 0 1 2.5 2.5h3l1.2 1.5H13.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-8.5Z"
-        fill="currentColor"
-        className="text-muted"
-      />
-    </svg>
-  );
+  return <Folder size={13} weight="fill" className="shrink-0 text-muted" />;
 }
 
 /** Shows the sidebar's CURRENT state (shaded left panel = visible), not the
  * action the click performs — same convention as most apps' sidebar-toggle
  * icon (VSCode, Notion, etc.). */
 function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" className="shrink-0">
-      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" strokeWidth="1.2" />
-      {!collapsed && <rect x="2.4" y="3.4" width="3" height="9.2" fill="currentColor" opacity="0.5" />}
-    </svg>
-  );
+  return <SidebarSimple size={15} weight={collapsed ? "regular" : "fill"} className="shrink-0" />;
 }
 
 type RowAction = { label: string; onSelect: () => void; danger?: boolean };
@@ -161,7 +151,7 @@ function RowMenu({ label, actions }: { label: string; actions: RowAction[] }) {
         aria-expanded={open}
         title="Actions"
       >
-        ⋯
+        <DotsThree size={15} weight="bold" />
       </button>
       <AnimatePresence>
         {open && anchor && (
@@ -271,14 +261,10 @@ function NavRow({
           aria-expanded={childrenOpen}
           title="Nested collections"
         >
-          <span
-            className={[
-              "inline-block text-[9px] transition-transform",
-              childrenOpen ? "rotate-90" : "",
-            ].join(" ")}
-          >
-            ▶
-          </span>
+          <CaretRight
+            size={11}
+            className={["transition-transform", childrenOpen ? "rotate-90" : ""].join(" ")}
+          />
         </button>
       )}
     </div>
@@ -485,14 +471,18 @@ function CondensedControls({
   setViewMode,
   gridZoom,
   setGridZoom,
-  prefsControl,
+  prefsActive,
+  onPrefsClick,
   vertical = false,
 }: {
   viewMode: "grid" | "table";
   setViewMode: (mode: "grid" | "table") => void;
   gridZoom: number;
   setGridZoom: (zoom: number) => void;
-  prefsControl: React.ReactNode;
+  /** Preferences render as an inline section inside the sidebar body (one
+   * instance, owned by App) — this is just the trigger. */
+  prefsActive: boolean;
+  onPrefsClick: () => void;
   /** Collapsed-rail placement stacks the icons; expanded lays them in a row. */
   vertical?: boolean;
 }) {
@@ -539,7 +529,7 @@ function CondensedControls({
           aria-label="Card size"
           title="Card size"
         >
-          ⛶
+          <FrameCorners size={15} />
         </button>
         <AnimatePresence>
         {zoomOpen && (
@@ -574,7 +564,7 @@ function CondensedControls({
         aria-label="Masonry grid"
         title="Masonry grid"
       >
-        ▦
+        <GridFour size={15} />
       </button>
       <button
         onClick={() => setViewMode("table")}
@@ -582,10 +572,18 @@ function CondensedControls({
         aria-label="Table with columns"
         title="Table with columns"
       >
-        ☰
+        <Rows size={15} />
       </button>
 
-      {prefsControl}
+      <button
+        onClick={onPrefsClick}
+        className={ghost(prefsActive)}
+        aria-label="Organizer preferences"
+        aria-expanded={prefsActive}
+        title="Organizer preferences — sync and backup"
+      >
+        <GearSix size={15} />
+      </button>
     </div>
   );
 }
@@ -595,7 +593,9 @@ export function Sidebar({
   onNewManual,
   onEditSmart,
   onEditManual,
-  prefsControl,
+  prefsOpen,
+  onTogglePrefs,
+  prefsBody,
 }: {
   /** `parentId` (issue #126) nests the new collection under a manual
    * collection — omitted for a top-level create. */
@@ -603,11 +603,12 @@ export function Sidebar({
   onNewManual: (parentId?: string) => void;
   onEditSmart: (collectionId: string) => void;
   onEditManual: (collectionId: string) => void;
-  /** The preferences gear button + its popover (issue #128), fully built by
-   * App.tsx (which owns all the sync/backup/credentials state and handlers
-   * behind it) — Sidebar only decides where in its condensed control
-   * column to place it. */
-  prefsControl: React.ReactNode;
+  /** Preferences (issue #128, reworked): App owns the state/handlers and
+   * hands the CONTENT here; Sidebar expands it inline inside its own body
+   * — settings unfold within the bar itself, never a floating popover. */
+  prefsOpen: boolean;
+  onTogglePrefs: () => void;
+  prefsBody: React.ReactNode;
 }) {
   // Shallow-selected — Sidebar has nothing to do with search/facet/type
   // filters or which detail panel is open, so it shouldn't re-render (and
@@ -823,22 +824,34 @@ export function Sidebar({
           setViewMode={state.setViewMode}
           gridZoom={state.gridZoom}
           setGridZoom={state.setGridZoom}
-          prefsControl={prefsControl}
+          prefsActive={prefsOpen}
+          onPrefsClick={onTogglePrefs}
         />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto pb-2">
+        {/* Preferences unfold inside the bar itself — one instance, no
+            floating popover (the double-popup bug's root cause). */}
+        <AnimatePresence initial={false}>
+          {prefsOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] } }}
+              exit={{ height: 0, opacity: 0, transition: { duration: 0.12, ease: [0.55, 0, 0.55, 0.2] } }}
+              className="overflow-hidden"
+            >
+              <div className="mx-3 mb-2 rounded-xl border border-line/60 bg-canvas/50 p-3">
+                {prefsBody}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div className="px-3 pt-2 space-y-0.5">
           <NavRow
             active={isView({ kind: "all" })}
             onClick={() => setSelectedView({ kind: "all" })}
             label="All items"
             count={totalCount}
-          />
-          <NavRow
-            active={isView({ kind: "unclassified" })}
-            onClick={() => setSelectedView({ kind: "unclassified" })}
-            label="Unclassified"
           />
         </div>
 
@@ -959,7 +972,12 @@ export function Sidebar({
         onPointerEnter={() => chrome.openPeek()}
         onPointerLeave={chrome.scheduleClose}
       >
-        <div className="absolute top-3 left-1.5 flex flex-col items-center gap-1 rounded-2xl border border-line/60 bg-panel shadow-card p-1.5">
+        <div
+          className={[
+            "absolute top-3 left-1.5 flex flex-col items-center gap-1 rounded-2xl border border-line/60 bg-panel shadow-card p-1.5 transition-opacity duration-150",
+            chrome.overlayVisible ? "opacity-0 pointer-events-none" : "opacity-100",
+          ].join(" ")}
+        >
           <button
             onClick={() => (chrome.overlayVisible ? chrome.closePeek() : chrome.openPeek(true))}
             className="relative w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"
@@ -980,23 +998,44 @@ export function Sidebar({
             setViewMode={state.setViewMode}
             gridZoom={state.gridZoom}
             setGridZoom={state.setGridZoom}
-            prefsControl={prefsControl}
+            prefsActive={prefsOpen}
+            onPrefsClick={() => {
+              // From the rail, settings need somewhere to unfold — open the
+              // overlay and the prefs section in one gesture.
+              chrome.openPeek(true);
+              if (!prefsOpen) onTogglePrefs();
+            }}
             vertical
           />
         </div>
         {/* Breadcrumb context, demoted from the main horizontal workspace
-            to quiet vertical text in the rail (the mymind reference) — the
-            command bar owns the top now. */}
-        <div
-          className="absolute top-56 left-0 right-0 flex justify-center pointer-events-none select-none"
-          aria-hidden
-        >
-          <span
-            className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted/70 whitespace-nowrap"
-            style={{ writingMode: "vertical-rl" }}
+            to quiet vertical text in the rail (the mymind reference) —
+            rotated to read UPWARD, root always reachable, current world in
+            bold: ALL ITEMS / TYPOGRAPHY. */}
+        <div className="absolute top-56 bottom-4 left-0 right-0 flex flex-col items-center justify-start select-none">
+          <button
+            onClick={() => setSelectedView({ kind: "all" })}
+            className="font-mono text-[10px] uppercase tracking-[0.18em] whitespace-nowrap text-muted/70 hover:text-ink"
+            style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+            title="Back to all items"
           >
-            {viewLabel(state)} · {totalShownLabel}
-          </span>
+            {/* Rotated vertical-rl puts the FIRST DOM content at the
+                bottom — so reading upward gives ALL ITEMS / NAME, root
+                first, exactly the breadcrumb order. */}
+            {selectedView.kind === "collection" ? (
+              <>
+                <span>All items</span>
+                <span className="text-muted/50">{" / "}</span>
+                <span className="font-bold text-ink/80">
+                  {viewLabel(state)} · {totalShownLabel}
+                </span>
+              </>
+            ) : (
+              <span className="font-bold text-ink/70">
+                {viewLabel(state)} · {totalShownLabel}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -1005,11 +1044,20 @@ export function Sidebar({
           <motion.aside
             id="sidebar-overlay"
             data-sidebar-overlay
-            custom={{ x: -24, y: 0 }}
-            variants={panelVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
+            style={{ transformOrigin: "top left" }}
+            initial={{ opacity: 0, scaleX: 0.35, scaleY: 0.85 }}
+            animate={{
+              opacity: 1,
+              scaleX: 1,
+              scaleY: 1,
+              transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+            }}
+            exit={{
+              opacity: 0,
+              scaleX: 0.5,
+              scaleY: 0.9,
+              transition: { duration: 0.12, ease: [0.55, 0, 0.55, 0.2] },
+            }}
             onPointerEnter={chrome.holdOpen}
             onPointerLeave={chrome.scheduleClose}
             className="fixed left-2 top-2 bottom-2 w-64 z-40 flex flex-col rounded-2xl border border-line/70 bg-panel/95 backdrop-blur shadow-cardHover overflow-hidden"

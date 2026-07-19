@@ -21,3 +21,6 @@ Backup-folder/
 # not part of this project's own history
 Other repositories for reference - as LEGO pieces/
 Frontend Architecture Reference — 9 Building Blocks for The Organizer.md
+
+# Local RTF scratch notes (can contain pasted credentials) — never in git
+*.rtf

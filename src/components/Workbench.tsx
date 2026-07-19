@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
+import { Sparkle, X } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
@@ -167,7 +168,7 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
           aria-label="Close workbench"
           title="Close (⌘J)"
         >
-          ×
+          <X size={14} />
         </button>
       </div>
 
@@ -181,7 +182,7 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="grid grid-cols-2 gap-2">
             {items.map((o) => (
               <BenchRow
                 key={o.id}
@@ -340,50 +341,45 @@ function BenchRow({
         onDragOverRow(false);
       }}
       className={[
-        "group flex items-center gap-2.5 rounded-lg p-1.5 cursor-grab active:cursor-grabbing",
-        dragOver ? "ring-2 ring-accent/50 bg-accent/5" : "hover:bg-line/30",
+        // Objects as visual entities on a table, not a text list — image
+        // first, a whisper of a caption, controls only on hover.
+        "group relative rounded-lg overflow-hidden cursor-grab active:cursor-grabbing bg-panel shadow-card hover:shadow-cardHover transition-shadow",
+        dragOver ? "ring-2 ring-accent/60" : "",
       ].join(" ")}
     >
-      <button
-        onClick={onOpen}
-        className="shrink-0 w-11 h-11 rounded-md overflow-hidden bg-line/20 border border-line/60"
-        title={object.title}
-      >
+      <button onClick={onOpen} className="block w-full" title={object.title}>
         {object.imageUrl && !imgFailed ? (
           <img
             src={object.imageUrl}
             alt=""
-            className="w-full h-full object-cover pointer-events-none"
+            className="w-full aspect-square object-cover pointer-events-none"
             onError={() => setImgFailed(true)}
           />
         ) : (
-          <span className="block w-full h-full p-1 text-[7px] leading-tight text-muted text-left overflow-hidden pointer-events-none">
+          <span className="flex w-full aspect-square p-2 font-mono text-[9px] leading-snug text-ink/70 text-left overflow-hidden pointer-events-none bg-line/15">
             {object.title}
           </span>
         )}
+        <span className="block px-1.5 py-1 font-mono text-[9px] text-muted truncate text-left">
+          {object.title}
+        </span>
       </button>
-      <button onClick={onOpen} className="flex-1 min-w-0 text-left" title={object.title}>
-        <span className="block font-mono text-[11px] text-ink/85 truncate">{object.title}</span>
-        {object.role && (
-          <span className="block font-mono text-[10px] text-muted/70 truncate">{object.role}</span>
-        )}
-      </button>
-      <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={onVibes}
-          className="w-6 h-6 rounded-md flex items-center justify-center text-muted hover:text-accent hover:bg-accent/10 text-[11px]"
-          title="Pull this item's same-vibe neighbours into the bench"
+          className="w-6 h-6 rounded-md flex items-center justify-center bg-panel/85 backdrop-blur text-muted hover:text-accent shadow-card"
+          title="Pull this item's same-vibe neighbours onto the bench"
           aria-label={`Add items similar to ${object.title}`}
         >
-          ✦
+          <Sparkle size={12} />
         </button>
         <button
           onClick={onRemove}
-          className="w-6 h-6 rounded-md flex items-center justify-center text-muted hover:text-ink hover:bg-line/50 text-[13px]"
+          className="w-6 h-6 rounded-md flex items-center justify-center bg-panel/85 backdrop-blur text-muted hover:text-ink shadow-card"
           title="Remove from bench (undoable)"
           aria-label={`Remove ${object.title} from workbench`}
         >
-          ×
+          <X size={12} />
         </button>
       </div>
     </div>

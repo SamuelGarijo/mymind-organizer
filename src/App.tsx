@@ -309,7 +309,6 @@ export default function App() {
   const [credentialsModal, setCredentialsModal] = useState<{ dismissible: boolean } | null>(null);
   const [restoreNotice, setRestoreNotice] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
-  const prefsRef = useRef<HTMLDivElement>(null);
   const autoSyncedOnMount = useRef(false);
 
   // First run: no MYMIND_KID/MYMIND_SECRET in .env yet means every mymind
@@ -355,20 +354,6 @@ export default function App() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
-
-  // Closes the Preferences menu on an outside click — sync/backup controls
-  // are used occasionally, not constantly (issue #74), so this is a plain
-  // dropdown rather than a modal that blocks the rest of the view.
-  useEffect(() => {
-    if (!prefsOpen) return;
-    function onPointerDown(e: MouseEvent) {
-      if (prefsRef.current && !prefsRef.current.contains(e.target as Node)) {
-        setPrefsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [prefsOpen]);
 
   const view = state.selectedView;
   // Channel-style framing for the current collection, if any (issue #87) —
@@ -710,31 +695,12 @@ export default function App() {
 
   // The preferences trigger + popover (issue #128) — state/handlers all
   // stay right here (sync/backup/credentials are already owned by this
-  // component), just handed to Sidebar as a ready-built node so it can
-  // place the icon wherever its condensed control column wants it,
-  // without either component needing to know the other's internals.
-  const prefsControl = (
-    <div className="relative" ref={prefsRef}>
-      <button
-        onClick={() => setPrefsOpen((v) => !v)}
-        className={[
-          "w-7 h-7 flex items-center justify-center rounded-md text-[13px] transition-colors",
-          prefsOpen ? "bg-line/60 text-ink" : "text-muted hover:text-ink hover:bg-line/40",
-        ].join(" ")}
-        title="Organizer preferences — sync and backup"
-        aria-label="Organizer preferences"
-      >
-        ⚙
-      </button>
-      <AnimatePresence>
-      {prefsOpen && (
-        <motion.div
-          custom={{ x: -8, y: 0 }}
-          variants={surfaceVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          className="absolute left-full top-0 ml-2 w-64 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl border border-line/70 bg-panel shadow-cardHover p-3 z-50 text-[12px]">
+  // component), handed to Sidebar as CONTENT ONLY — Sidebar renders it as
+  // an inline expanding section inside itself (never a floating popover:
+  // the old element-in-two-places approach rendered the same popover from
+  // both the capsule and the overlay at once — the double-popup bug).
+  const prefsBody = (
+    <div className="text-[12px]">
           <div className="text-[11px] uppercase tracking-wide text-muted mb-1.5">Sync</div>
           <label
             className="flex items-center gap-1.5 text-muted mb-2"
@@ -846,9 +812,6 @@ export default function App() {
           >
             mymind API credentials
           </button>
-        </motion.div>
-      )}
-      </AnimatePresence>
     </div>
   );
 
@@ -859,10 +822,12 @@ export default function App() {
         onNewManual={(parentId) => setModal({ kind: "manual", parentId })}
         onEditSmart={(collectionId) => setModal({ kind: "smart", collectionId })}
         onEditManual={(collectionId) => setModal({ kind: "manual", collectionId })}
-        prefsControl={prefsControl}
+        prefsOpen={prefsOpen}
+        onTogglePrefs={() => setPrefsOpen((v) => !v)}
+        prefsBody={prefsBody}
       />
 
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 relative">
         {/* The single resident band (design-philosophy N1). */}
         <TopBar
           title={viewTitle(state)}
@@ -894,10 +859,12 @@ export default function App() {
             <div className="h-full flex flex-col">
               {/* Role picker stays reachable while classifying — contextual
                   chrome tied to the intent (N21). */}
-              <RoleStrip objects={baseObjects} roles={state.roles} roleFilter={state.roleFilter} />
+              <div className="pt-14">
+                <RoleStrip objects={baseObjects} roles={state.roles} roleFilter={state.roleFilter} />
+              </div>
               {/* The reservoir IS the main space (N8): the not-yet-folded
                   things keep the sacred area; folders float beside them. */}
-              <div className="flex-1 overflow-y-auto pl-5 pr-[26rem] pt-3 pb-5">
+              <div className="flex-1 overflow-y-auto pl-5 pr-[26rem] pt-16 pb-5">
                 <Grid
                   objects={reservoirObjects}
                   facetColumns={facetColumns}
@@ -914,7 +881,7 @@ export default function App() {
               </div>
             </div>
           ) : state.viewMode === "table" ? (
-            <div className={state.workbenchOpen ? "h-full p-5 pr-[24rem]" : "h-full p-5"}>
+            <div className={state.workbenchOpen ? "h-full p-5 pt-16 pr-[24rem]" : "h-full p-5 pt-16"}>
               <Table
                 objects={visibleObjects}
                 facetColumns={facetColumns}
@@ -927,7 +894,7 @@ export default function App() {
             </div>
           ) : (
             <div className={[
-              "h-full overflow-y-auto pl-5 pt-4 pb-5 transition-[padding] duration-200",
+              "h-full overflow-y-auto pl-5 pt-16 pb-5 transition-[padding] duration-200",
               state.workbenchOpen ? "pr-[24rem]" : "pr-5",
             ].join(" ")}>
               {/* The collection's workspace header is CONTENT, not chrome —
@@ -943,11 +910,6 @@ export default function App() {
                   localUserTags={state.localUserTags}
                   piles={curatedPiles}
                 />
-              )}
-              {view.kind !== "collection" && curatedPiles.length > 0 && (
-                <div className="pb-5">
-                  <PileChips piles={curatedPiles} />
-                </div>
               )}
               <Grid
                 objects={visibleObjects}
