@@ -278,9 +278,20 @@ changes.
   things before they mean anything; only afterwards offer "save as
   collection / add to existing / clear". Never turn it into another
   collection system or metadata form.
-- **Spatial:** a compartment sliding flush from the right edge (membrane),
-  deliberately distinct from ClassifyPanel's floating module. They share
-  the right edge — opening one closes the other. ⌘J toggles.
+- **Spatial (membranes, issue #134):** secondary workspaces are
+  COMPARTMENTS opened in the worktable, never floating panels. The
+  reusable pattern lives in `src/components/Membrane.tsx`: a resident
+  seam (slit) at the edge, a cavity that expands IN the flex layout (the
+  surface genuinely yields space), recessed canvas tone + inner shadow
+  cast from the main surface (no drop shadow, no elevation), and a
+  drag-hint state (the seam brightens while any object drag is in
+  flight; dropping on the seam opens it). Right membrane = Workbench
+  (⌘J); bottom membrane = Discovery, which opens BENEATH the current
+  collection (first tenant: internal similar-outside; external sources
+  are future tenants). ClassifyPanel deliberately stays a floating
+  conditional module — the classify/bench distinction is conceptual, not
+  just visual. The bench and classify still share the right region —
+  opening one closes the other.
 - **Safe temporary work:** contents persist across sessions
   (store.workbenchIds); removals/clear are undoable in place; no
   confirmation dialogs during normal flow.

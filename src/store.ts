@@ -310,6 +310,12 @@ type State = {
   flashNotice: string | null;
   setFlashNotice: (notice: string | null) => void;
 
+  /** Bottom Discovery membrane (issue #134) — transient like
+   * workbenchOpen; the compartment's own content decides what discovery
+   * means for the current view. */
+  discoveryOpen: boolean;
+  setDiscoveryOpen: (open: boolean) => void;
+
   workbenchIds: string[];
   workbenchOpen: boolean;
   setWorkbenchOpen: (open: boolean) => void;
@@ -948,6 +954,9 @@ export const useStore = create<State>()(
 
       flashNotice: null,
       setFlashNotice: (notice) => set({ flashNotice: notice }),
+
+      discoveryOpen: false,
+      setDiscoveryOpen: (open) => set({ discoveryOpen: open }),
 
       workbenchIds: [],
       workbenchOpen: false,

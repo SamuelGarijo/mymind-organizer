@@ -14,6 +14,8 @@ import { TopBar } from "./components/TopBar";
 import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionLedger";
 import { ClassifyPanel } from "./components/ClassifyPanel";
 import { Workbench } from "./components/Workbench";
+import { Membrane } from "./components/Membrane";
+import { DiscoveryStrip } from "./components/DiscoveryStrip";
 import { ArrowLeft, X as XIcon } from "@phosphor-icons/react";
 import { ArenaExportModal } from "./components/ArenaExportModal";
 import { fetchArenaAccount, type ArenaAccount } from "./lib/arenaExport";
@@ -106,6 +108,8 @@ export default function App() {
       openClassificationPanel: s.openClassificationPanel,
       closeClassificationPanel: s.closeClassificationPanel,
       workbenchOpen: s.workbenchOpen,
+      discoveryOpen: s.discoveryOpen,
+      setDiscoveryOpen: s.setDiscoveryOpen,
       workbenchCount: s.workbenchIds.length,
       setWorkbenchOpen: s.setWorkbenchOpen,
       viewBackStack: s.viewBackStack,
@@ -1026,7 +1030,7 @@ export default function App() {
               </div>
             </div>
           ) : state.viewMode === "table" ? (
-            <div className={state.workbenchOpen ? "h-full p-5 pt-16 pr-[24rem]" : "h-full p-5 pt-16"}>
+            <div className="h-full p-5 pt-16">
               <Table
                 objects={visibleObjects}
                 facetColumns={facetColumns}
@@ -1038,13 +1042,7 @@ export default function App() {
               />
             </div>
           ) : (
-            <div
-              className={[
-                "h-full overflow-y-auto pl-5 pt-16 pb-5 transition-[padding] duration-200",
-                state.workbenchOpen ? "pr-[24rem]" : "pr-5",
-              ].join(" ")}
-              data-content-scroll
-            >
+            <div className="h-full overflow-y-auto px-5 pt-16 pb-5" data-content-scroll>
               {/* The collection's workspace header is CONTENT, not chrome —
                   it scrolls away with the grid (are.na channel-header move;
                   design-philosophy Principle 8 + N1). */}
@@ -1072,9 +1070,52 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* Bottom membrane — Discovery (issue #134): explores BENEATH the
+            current collection instead of navigating away. Foundation
+            tenant: internal similar-outside; external sources come later. */}
+        {view.kind === "collection" && (
+          <Membrane
+            edge="bottom"
+            open={state.discoveryOpen}
+            onToggle={() => state.setDiscoveryOpen(!state.discoveryOpen)}
+            size={200}
+            seamLabel="Discover — similar things outside this collection"
+            id="discovery-membrane"
+          >
+            {state.discoveryOpen && (
+              <DiscoveryStrip
+                members={baseObjects}
+                memberIds={collectionIds}
+                allObjects={allObjectsList}
+                onOpen={state.openDetail}
+              />
+            )}
+          </Membrane>
+        )}
       </main>
 
-      <AnimatePresence>{state.workbenchOpen && <Workbench onOpenDetail={state.openDetail} />}</AnimatePresence>
+      {/* Right membrane — the Workbench compartment (issue #134): a hidden
+          cavity in the worktable, not a floating panel. The seam stays
+          resident; drag-toward opens it; the current view/filters/scroll
+          are untouched (the layout yields, nothing navigates). */}
+      <Membrane
+        edge="right"
+        open={state.workbenchOpen}
+        onToggle={() => {
+          if (state.workbenchOpen) {
+            state.setWorkbenchOpen(false);
+          } else {
+            state.closeClassificationPanel();
+            state.setWorkbenchOpen(true);
+          }
+        }}
+        size={360}
+        seamLabel="Workbench — a temporary worktable (⌘J)"
+        id="workbench-membrane"
+      >
+        <Workbench onOpenDetail={state.openDetail} />
+      </Membrane>
 
       <AnimatePresence>
       {classifyOpen && activeRole && (

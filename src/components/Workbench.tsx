@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "motion/react";
 import { Sparkle, X } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
-import { panelVariants } from "../lib/chrome";
 import { applyDragGhost, DRAG_MIME } from "../lib/objectDrag";
 import type { DesignObject, ManualCollection } from "../types";
 
@@ -136,12 +134,7 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
   }
 
   return (
-    <motion.aside
-      custom={{ x: 40, y: 0 }}
-      variants={panelVariants}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
+    <aside
       onDragOver={(e) => {
         e.preventDefault();
         setSurfaceDragOver(true);
@@ -153,8 +146,11 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
       }}
       onDrop={handleSurfaceDrop}
       className={[
-        "fixed right-0 top-0 bottom-0 w-[360px] z-30 flex flex-col bg-panel border-l",
-        surfaceDragOver ? "border-accent/60" : "border-line/70",
+        // The right Membrane (issue #134) owns position/depth/reveal — this
+        // is just the cavity's content: recessed canvas tone, a subtle ring
+        // when a drag hovers the surface, no chrome of its own.
+        "h-full flex flex-col",
+        surfaceDragOver ? "ring-2 ring-inset ring-accent/50" : "",
       ].join(" ")}
       aria-label="Workbench"
     >
@@ -289,7 +285,7 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
           )}
         </div>
       )}
-    </motion.aside>
+    </aside>
   );
 }
 
