@@ -7,7 +7,7 @@ import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { UNGROUPED_LABEL } from "../lib/grouping";
 import { norm } from "../lib/textNorm";
 import { asFieldString } from "../lib/mymindSync";
-import { DRAG_MIME } from "./Sidebar";
+import { DRAG_MIME, objectDragProps } from "../lib/objectDrag";
 import type { DesignObject, RoleDefinition } from "../types";
 
 /** Roles / mymind types that read as *text* — the cross-category bridge:
@@ -37,7 +37,11 @@ function Peek({ object, onOpen }: { object: DesignObject; onOpen: (id: string) =
     <button
       onClick={() => onOpen(object.id)}
       title={object.title}
-      className="shrink-0 w-12 h-12 rounded-md overflow-hidden border border-line bg-line/20 hover:border-accent/50"
+      // Universal drag (issue #132): a folder-sample or similar-outside
+      // peek is a full object — pick it up and drop it on the bench, a
+      // collection, or another folder, no navigation needed.
+      {...objectDragProps([object.id])}
+      className="shrink-0 w-12 h-12 rounded-md overflow-hidden border border-line bg-line/20 hover:border-accent/50 cursor-grab active:cursor-grabbing"
     >
       {object.imageUrl && !failed ? (
         <img
@@ -309,7 +313,8 @@ export function ClassifyPanel({
                 <button
                   key={object.id}
                   onClick={() => onOpen(object.id)}
-                  className="text-left group"
+                  {...objectDragProps([object.id])}
+                  className="text-left group cursor-grab active:cursor-grabbing"
                   title={object.title}
                 >
                   <span className="text-[12px] text-ink/80 group-hover:underline decoration-dotted underline-offset-2 line-clamp-1">

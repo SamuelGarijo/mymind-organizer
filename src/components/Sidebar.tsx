@@ -19,6 +19,7 @@ import { matchesSmartCollection } from "../lib/ruleEngine";
 import { chooseBackupFile, getStoredBackupHandle, isAutoBackupSupported } from "../lib/autoBackup";
 import { panelVariants, surfaceVariants, useWorkspaceChrome } from "../lib/chrome";
 import { makeId } from "../lib/id";
+import { DRAG_MIME } from "../lib/objectDrag";
 import type { Collection, FilterGroup, ManualCollection, ViewSelection } from "../types";
 
 function timeSince(iso?: string): string {
@@ -32,8 +33,6 @@ function timeSince(iso?: string): string {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
-
-const DRAG_MIME = "application/x-organizer-object-id";
 
 function SmartIcon() {
   return <Lightning size={13} weight="fill" className="shrink-0 text-accent" />;
@@ -189,6 +188,7 @@ function NavRow({
   label,
   count,
   onDrop,
+  explainDrop,
   actions,
   hasChildren,
   childrenOpen,
@@ -201,6 +201,11 @@ function NavRow({
   label: string;
   count?: number;
   onDrop?: (objectId: string) => void;
+  /** Smart-collection constraint (issue #132): the row accepts the drop
+   * gesture but explains WHY nothing was filed instead of silently
+   * ignoring it — a smart collection fills by rule, and a drop must never
+   * quietly mutate that rule. */
+  explainDrop?: string;
   /** Row actions collapse into one ⋯ menu (never a pile of inline icons). */
   actions?: RowAction[];
   /** Lateral flyout affordance (issue #126 nesting) — the chevron is the
@@ -211,7 +216,7 @@ function NavRow({
   disabled?: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
-  const isDropTarget = !!onDrop;
+  const isDropTarget = !!onDrop || !!explainDrop;
 
   return (
     <div
@@ -226,6 +231,10 @@ function NavRow({
         if (!isDropTarget) return;
         e.preventDefault();
         setDragOver(false);
+        if (!onDrop) {
+          if (explainDrop) useStore.getState().setFlashNotice(explainDrop);
+          return;
+        }
         const raw = e.dataTransfer.getData(DRAG_MIME);
         if (!raw) return;
         // Payload is always a JSON array of ids (issue #103) — one id for a
@@ -239,7 +248,8 @@ function NavRow({
         // whisper, not shout.
         "group flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-mono text-[12px] cursor-pointer select-none",
         active ? "bg-line/60 text-ink" : "text-ink/75 hover:bg-line/40",
-        dragOver ? "ring-2 ring-accent ring-offset-1 ring-offset-panel" : "",
+        dragOver && onDrop ? "ring-2 ring-accent ring-offset-1 ring-offset-panel" : "",
+        dragOver && !onDrop ? "ring-2 ring-amber-400/70 ring-offset-1 ring-offset-panel" : "",
         disabled ? "opacity-40 pointer-events-none" : "",
       ].join(" ")}
       title={isDropTarget ? "Drop an item here to add it to this collection" : undefined}
@@ -376,6 +386,11 @@ function CollectionNode({ collection, ctx }: { collection: Collection; ctx: Node
           isManual
             ? (objectId) => ctx.assignToManualCollection(objectId, collection.id)
             : undefined
+        }
+        explainDrop={
+          isManual
+            ? undefined
+            : `"${collection.name}" fills itself by rule — edit its rule (⋯ → Edit), or drop into a manual collection.`
         }
         actions={actions}
         hasChildren={hasChildren}
@@ -1086,4 +1101,3 @@ function viewLabel(state: { selectedView: ViewSelection; collections: Record<str
   return state.collections[v.collectionId]?.name ?? "Collection";
 }
 
-export { DRAG_MIME };

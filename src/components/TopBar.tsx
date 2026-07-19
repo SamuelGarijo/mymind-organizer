@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { MagnifyingGlass, SlidersHorizontal, Sparkle, Tray } from "@phosphor-icons/react";
+import { readDraggedIds } from "../lib/objectDrag";
 import { useStore } from "../store";
 import { MOTION, surfaceVariants } from "../lib/chrome";
 import { useShallow } from "zustand/react/shallow";
@@ -738,6 +739,13 @@ export function TopBar({
               // compartment so the drop can land inside it.
               e.preventDefault();
               if (!workbenchOpen) onWorkbenchClick();
+            }}
+            onDrop={(e) => {
+              // Dropping ON the pill itself also lands in the bench (issue
+              // #132: the pill is the bench's handle, not just its toggle).
+              e.preventDefault();
+              const ids = readDraggedIds(e);
+              if (ids.length > 0) useStore.getState().addToWorkbench(ids);
             }}
             className={[
               "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",

@@ -188,6 +188,22 @@ yes/no.
 - N11. Adding a feature must not increase the resting-state chrome band count
   (N1). If it would, it needs a home behind a summon (menu, icon, panel).
 
+**Universal drag & drop (issue #132)**
+- N22. **If you can see an object, you can pick it up.** Every rendered
+  object — grid cards, table rows, the open detail object, same-vibe
+  thumbs, classify-folder peeks, related-reading rows, bench cards — is a
+  drag source carrying the one shared payload (`lib/objectDrag.ts`,
+  DRAG_MIME id-array). New object surfaces MUST spread `objectDragProps`;
+  a view that renders objects without it is a dead end and a regression.
+- N23. Drops are **additive and reversible**, never destructive moves:
+  filing into a manual collection, adding to the bench (undoable), setting
+  a classify facet (editable) — nothing is removed from where it came
+  from, and dragging never forces navigation.
+- N24. A target that can't accept a drop **explains itself** instead of
+  ignoring the gesture — smart collections take the drop and answer with
+  a notice ("fills itself by rule — edit the rule or use a manual
+  collection"), amber ring on hover, never a silent rule mutation.
+
 **Motion & continuity**
 - N12. Expansion/contraction is **animated and continuous**, never a hard
   cut — the space itself is a feature, so its changes should read as the

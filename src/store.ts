@@ -304,6 +304,12 @@ type State = {
    * same block is idempotent. */
   recordArenaPlacement: (objectId: string, placement: ArenaPlacement) => void;
 
+  /** One-line ephemeral notice for interaction feedback (e.g. why a drop
+   * was rejected) — rendered in App's toast stack, auto-dismissed there.
+   * Transient UI state, never persisted. */
+  flashNotice: string | null;
+  setFlashNotice: (notice: string | null) => void;
+
   workbenchIds: string[];
   workbenchOpen: boolean;
   setWorkbenchOpen: (open: boolean) => void;
@@ -939,6 +945,9 @@ export const useStore = create<State>()(
             },
           };
         }),
+
+      flashNotice: null,
+      setFlashNotice: (notice) => set({ flashNotice: notice }),
 
       workbenchIds: [],
       workbenchOpen: false,

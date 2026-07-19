@@ -108,6 +108,8 @@ export default function App() {
       workbenchCount: s.workbenchIds.length,
       setWorkbenchOpen: s.setWorkbenchOpen,
       viewBackStack: s.viewBackStack,
+      flashNotice: s.flashNotice,
+      setFlashNotice: s.setFlashNotice,
       popViewSnapshot: s.popViewSnapshot,
       dismissViewBackStack: s.dismissViewBackStack,
       syncMymindObjects: s.syncMymindObjects,
@@ -304,6 +306,15 @@ export default function App() {
     const t = setTimeout(() => setSyncState({ status: "idle" }), 6000);
     return () => clearTimeout(t);
   }, [syncState]);
+  // Interaction notices (e.g. a rejected drop's explanation) fade on their
+  // own — feedback, not a dialog.
+  useEffect(() => {
+    if (!state.flashNotice) return;
+    const t = setTimeout(() => state.setFlashNotice(null), 5000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.flashNotice]);
+
   const [credentialsModal, setCredentialsModal] = useState<{ dismissible: boolean } | null>(null);
   const [restoreNotice, setRestoreNotice] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
@@ -1081,6 +1092,11 @@ export default function App() {
 
       <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 max-w-sm">
         <AnimatePresence initial={false}>
+        {state.flashNotice && (
+          <motion.div key="flash" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded border border-line bg-panel shadow-cardHover px-3.5 py-2.5 font-mono text-[12px] text-ink/80">
+            {state.flashNotice}
+          </motion.div>
+        )}
         {restoreNotice && (
           <motion.div key="restore" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
             <span>Your data is back and ready to use!</span>

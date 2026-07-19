@@ -11,7 +11,7 @@ import {
 } from "../lib/primaryFacets";
 import { addMymindTag } from "../lib/mymindWrite";
 import { norm } from "../lib/textNorm";
-import { DRAG_MIME } from "./Sidebar";
+import { DRAG_MIME } from "../lib/objectDrag";
 import type { Collection, DesignObject, FacetField, RoleDefinition } from "../types";
 
 const VISIBLE_VALUES = 6;

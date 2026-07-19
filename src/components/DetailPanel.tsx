@@ -22,7 +22,7 @@ import { buildDownloadFilename } from "../lib/downloadFilename";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { viewTitle } from "../lib/viewLabel";
 import { RolePackageModal } from "./RolePackageModal";
-import { DRAG_MIME } from "./Sidebar";
+import { DRAG_MIME, objectDragProps } from "../lib/objectDrag";
 import type { DesignObject, FacetField, ManualCollection } from "../types";
 
 /** Drag payload for "drag a tag onto an empty facet field" — distinct from
@@ -1004,7 +1004,11 @@ export function DetailPanel({
                 <button
                   key={o.id}
                   onClick={() => state.openDetail(o.id)}
-                  className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-line hover:border-accent"
+                  // Universal drag (issue #132): a same-vibe neighbour can go
+                  // straight to the bench or a collection while reading —
+                  // discovery never forces navigation.
+                  {...objectDragProps([o.id])}
+                  className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-line hover:border-accent cursor-grab active:cursor-grabbing"
                   title={o.title}
                 >
                   <StripThumb object={o} />

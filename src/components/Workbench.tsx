@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { panelVariants } from "../lib/chrome";
-import { DRAG_MIME } from "./Sidebar";
+import { DRAG_MIME } from "../lib/objectDrag";
 import type { DesignObject, ManualCollection } from "../types";
 
 /** Internal reorder payload — distinct from DRAG_MIME so dragging a bench

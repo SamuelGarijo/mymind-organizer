@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 import type { DesignObject } from "../types";
-import { DRAG_MIME } from "./Sidebar";
+import { objectDragProps } from "../lib/objectDrag";
 import { useStore } from "../store";
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
@@ -64,21 +64,16 @@ export const Card = memo(function Card({
       draggable
       onDragStart={(e) => {
         // Imperative getState() read, not a reactive subscription — this
-        // fires per-drag, not per-render, so it doesn't cost every one of
-        // the thousands of mounted cards a re-render subscription just for
-        // an event that only ever touches one of them at a time.
-        const { selectedObjectIds, sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
-        // Dragging a card that's part of an active multi-selection carries
-        // the whole group; dragging anything else (nothing selected, or
-        // only this card) carries just itself — same single-id shape as
-        // before #103 for the common case.
+        // fires per-drag, not per-render. Dragging a card that's part of an
+        // active multi-selection carries the whole group (issue #103);
+        // anything else carries just itself. The DRAG_MIME/reveal contract
+        // itself lives in lib/objectDrag (issue #132's unified model).
+        const { selectedObjectIds } = useStore.getState();
         const ids =
           selectedObjectIds.has(object.id) && selectedObjectIds.size > 1
             ? Array.from(selectedObjectIds)
             : [object.id];
-        e.dataTransfer.setData(DRAG_MIME, JSON.stringify(ids));
-        e.dataTransfer.effectAllowed = "copy";
-        if (sidebarCollapsed) setDragRevealSidebar(true);
+        objectDragProps(ids).onDragStart(e);
       }}
       onDragEnd={() => useStore.getState().setDragRevealSidebar(false)}
       onClick={(e) => onCardClick(object.id, e)}

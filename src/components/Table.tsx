@@ -4,7 +4,7 @@ import type { DesignObject, FacetField } from "../types";
 import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
 import { asFieldString } from "../lib/mymindSync";
 import { useStore } from "../store";
-import { DRAG_MIME } from "./Sidebar";
+import { DRAG_MIME, objectDragProps } from "../lib/objectDrag";
 import {
   groupObjects,
   ITEM_TYPE_GROUP,
@@ -91,17 +91,16 @@ const TableRow = memo(function TableRow({
     <div
       draggable
       onDragStart={(e) => {
-        const { selectedObjectIds, sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
         // Dragging a selected row carries the whole selection; dragging
-        // anything else (nothing selected, or only this row) carries just
-        // itself — identical contract to Card.tsx (issue #103).
+        // anything else carries just itself — identical contract to
+        // Card.tsx (issue #103), shared mechanics from lib/objectDrag
+        // (issue #132's unified model).
+        const { selectedObjectIds } = useStore.getState();
         const ids =
           selectedObjectIds.has(object.id) && selectedObjectIds.size > 1
             ? Array.from(selectedObjectIds)
             : [object.id];
-        e.dataTransfer.setData(DRAG_MIME, JSON.stringify(ids));
-        e.dataTransfer.effectAllowed = "copy";
-        if (sidebarCollapsed) setDragRevealSidebar(true);
+        objectDragProps(ids).onDragStart(e);
       }}
       onDragEnd={() => useStore.getState().setDragRevealSidebar(false)}
       onClick={(e) => onRowClick(object.id, e)}
