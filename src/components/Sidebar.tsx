@@ -662,6 +662,9 @@ export function Sidebar({
   // Adaptive Chrome (lib/chrome.ts): resolves compact / peek / drag-reveal /
   // pinned from the two existing store primitives plus transient intent.
   const chrome = useWorkspaceChrome();
+  // The rail capsule (quick controls) — hovering IT must not count as
+  // expansion intent (issue #135); see the gutter's onPointerMove.
+  const capsuleRef = useRef<HTMLDivElement>(null);
 
   const [backupConfigured, setBackupConfigured] = useState(false);
   useEffect(() => {
@@ -990,10 +993,20 @@ export function Sidebar({
     <>
       <div
         className="w-12 shrink-0 relative"
-        onPointerEnter={() => chrome.openPeek()}
+        // Dwell-based intent (issue #135), resolved per pointer MOVE rather
+        // than enter/leave pairs: while the pointer sits on a rail CONTROL
+        // (the capsule), the expand timer stays cancelled — quick controls
+        // never open navigation; while it rests on the rail background,
+        // the dwell arms. Move-based resolution is robust where synthetic
+        // enter/leave ordering is not.
+        onPointerMove={(e) => {
+          if (capsuleRef.current?.contains(e.target as Node)) chrome.cancelOpen();
+          else chrome.openPeek();
+        }}
         onPointerLeave={chrome.scheduleClose}
       >
         <div
+          ref={capsuleRef}
           className={[
             "absolute top-3 left-1.5 flex flex-col items-center gap-1 rounded-2xl border border-line/60 bg-panel shadow-card p-1.5 transition-opacity duration-150",
             chrome.overlayVisible ? "opacity-0 pointer-events-none" : "opacity-100",

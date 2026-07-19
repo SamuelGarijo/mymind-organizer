@@ -80,9 +80,12 @@ export const panelVariants = {
 /** Grace before a temporary surface actually closes after the pointer
  * leaves — forgiving hover boundaries, no flicker while crossing gaps. */
 const CLOSE_GRACE_MS = 300;
-/** Small intent delay before a hover opens the peek, so skimming the left
- * edge doesn't flash the overlay. */
-const OPEN_INTENT_MS = 120;
+/** Dwell before a bare hover on the rail BACKGROUND opens the peek
+ * (issue #135) — long enough that passing through the rail toward a
+ * button, or using a rail control, never expands anything. Deliberate
+ * paths stay instant: drag-toward (dragRevealSidebar), the explicit
+ * Collections click, keyboard activation. */
+const OPEN_INTENT_MS = 1500;
 /** Accumulated downward wheel travel (px) in the content area that reads
  * as "diving into the things" and closes a temporary peek. */
 const SCROLL_CLOSE_THRESHOLD = 90;
