@@ -320,11 +320,20 @@ type State = {
   /** Which canvas fills the main area — transient, like a view. */
   openCanvasId: string | null;
   openCanvas: (id: string | null) => void;
-  /** Creates a canvas seeded with the current workbench set (the bench is
-   * the canvas's entry point per #133) and returns its id. */
-  createCanvasFromWorkbench: (name: string) => string;
+  /** Creates a canvas seeded with the given objects (from the bench, a
+   * collection, anything) and returns its id. */
+  createCanvas: (name: string, seedObjectIds: string[]) => string;
   saveCanvasSnapshot: (id: string, snapshot: unknown) => void;
   renameCanvas: (id: string, name: string) => void;
+  /** Binds/unbinds a frame shape to a MEANING (issue #133 §7, semantic
+   * sections): dropping an object into a bound frame applies that
+   * metadata. Stored on the canvas doc (presentation layer owns which
+   * rectangle means what; the applied metadata itself lands on objects). */
+  setCanvasSemantic: (
+    canvasId: string,
+    frameId: string,
+    semantic: { kind: "tag" | "collection"; value: string; label: string } | null
+  ) => void;
   /** Deletes the canvas DOCUMENT only — objectRelations deliberately
    * survive (#133: relationships outlive the canvas). */
   deleteCanvas: (id: string) => void;
@@ -990,14 +999,13 @@ export const useStore = create<State>()(
       canvasOrder: [],
       openCanvasId: null,
       openCanvas: (id) => set({ openCanvasId: id }),
-      createCanvasFromWorkbench: (name) => {
+      createCanvas: (name, seedObjectIds) => {
         const id = makeId("canvas");
-        const s = get();
         const doc: CanvasDoc = {
           id,
           name: name.trim() || "Untitled canvas",
           createdAt: new Date().toISOString(),
-          seedObjectIds: [...s.workbenchIds],
+          seedObjectIds: [...seedObjectIds],
         };
         set((st) => ({
           canvases: { ...st.canvases, [id]: doc },
@@ -1010,6 +1018,15 @@ export const useStore = create<State>()(
           const doc = st.canvases[id];
           if (!doc) return {};
           return { canvases: { ...st.canvases, [id]: { ...doc, snapshot } } };
+        }),
+      setCanvasSemantic: (canvasId, frameId, semantic) =>
+        set((st) => {
+          const doc = st.canvases[canvasId];
+          if (!doc) return {};
+          const semantics = { ...(doc.semantics ?? {}) };
+          if (semantic) semantics[frameId] = semantic;
+          else delete semantics[frameId];
+          return { canvases: { ...st.canvases, [canvasId]: { ...doc, semantics } } };
         }),
       renameCanvas: (id, name) =>
         set((st) => {

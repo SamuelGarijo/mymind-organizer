@@ -15,7 +15,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore, isSampleObject } from "../store";
+import { useStore, isSampleObject, getVisibleObjects } from "../store";
 import { matchesSmartCollection } from "../lib/ruleEngine";
 import { chooseBackupFile, getStoredBackupHandle, isAutoBackupSupported } from "../lib/autoBackup";
 import { panelVariants, surfaceVariants, useWorkspaceChrome } from "../lib/chrome";
@@ -297,6 +297,9 @@ type NodeCtx = {
   onNewSmart: (parentId?: string) => void;
   onNewManual: (parentId?: string) => void;
   onExportArena: (id: string) => void;
+  /** Collection → canvas (issue #133 follow-up #3): seeds a new canvas
+   * with the collection's current members and opens it. */
+  onOpenAsCanvas: (id: string) => void;
 };
 
 /**
@@ -366,11 +369,13 @@ function CollectionNode({ collection, ctx }: { collection: Collection; ctx: Node
         { label: "Edit", onSelect: () => ctx.onEditManual(collection.id) },
         { label: "New folder inside", onSelect: () => ctx.onNewManual(collection.id) },
         { label: "New smart inside", onSelect: () => ctx.onNewSmart(collection.id) },
+        { label: "Open as canvas", onSelect: () => ctx.onOpenAsCanvas(collection.id) },
         { label: "Export to Are.na…", onSelect: () => ctx.onExportArena(collection.id) },
         { label: "Delete", onSelect: () => ctx.deleteCollection(collection.id), danger: true },
       ]
     : [
         { label: "Edit", onSelect: () => ctx.onEditSmart(collection.id) },
+        { label: "Open as canvas", onSelect: () => ctx.onOpenAsCanvas(collection.id) },
         { label: "Export to Are.na…", onSelect: () => ctx.onExportArena(collection.id) },
         { label: "Delete", onSelect: () => ctx.deleteCollection(collection.id), danger: true },
       ];
@@ -805,6 +810,19 @@ export function Sidebar({
     onNewSmart,
     onNewManual,
     onExportArena,
+    onOpenAsCanvas: (collectionId: string) => {
+      const st = useStore.getState();
+      const col = st.collections[collectionId];
+      if (!col) return;
+      const members = getVisibleObjects({
+        objects: st.objects,
+        collections: st.collections,
+        selectedView: { kind: "collection", collectionId },
+        tagGroups: st.tagGroups,
+      });
+      const id = st.createCanvas(col.name, members.map((o) => o.id));
+      st.openCanvas(id);
+    },
   };
 
   // Shared by the pinned in-flow aside and the temporary overlay — same

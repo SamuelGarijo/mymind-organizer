@@ -261,8 +261,9 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
               <button
                 onClick={() => {
                   const st = useStore.getState();
-                  const id = st.createCanvasFromWorkbench(
-                    `Canvas — ${new Date().toLocaleDateString()}`
+                  const id = st.createCanvas(
+                    `Canvas — ${new Date().toLocaleDateString()}`,
+                    st.workbenchIds
                   );
                   st.openCanvas(id);
                 }}

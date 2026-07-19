@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   BaseBoxShapeUtil,
   HTMLContainer,
@@ -9,9 +9,12 @@ import {
   getSnapshot,
   loadSnapshot,
   stopEventPropagation,
+  useEditor,
+  useValue,
   type Editor,
   type TLArrowShape,
   type TLEditorSnapshot,
+  type TLFrameShape,
   type TLShape,
 } from "tldraw";
 import "tldraw/tldraw.css";
@@ -21,11 +24,16 @@ import { DRAG_MIME } from "../lib/objectDrag";
 
 /**
  * The infinite canvas (issue #133) — tldraw as the ENGINE (pan/zoom/
- * selection/arrows/undo), Organizer as the KNOWLEDGE MODEL. Everything on
- * the canvas is a reference to an existing object by id, never a copy;
- * spatial state (positions, sizes, visual edges) lives in the canvas
- * document's snapshot; connecting two objects with an arrow persists a
- * knowledge relationship in the store that outlives this canvas.
+ * selection/arrows/undo), Organizer as the KNOWLEDGE MODEL. Spatially it
+ * is the WORKBENCH EVOLVED (follow-up #7): it lives in the right
+ * membrane, expanding right-to-left over the workspace while a slit of
+ * the sacred space stays visible on the left as the place to drag things
+ * from — it never replaces the archive view.
+ *
+ * Everything on the canvas references an object by id, never a copy;
+ * spatial state lives in the canvas doc's snapshot; arrows persist
+ * knowledge relationships; frames can be BOUND to a meaning (semantic
+ * sections): dropping an object into a bound frame applies that metadata.
  */
 
 // v5 registers custom shape types via module augmentation — this is what
@@ -125,55 +133,226 @@ function seedShapes(editor: Editor, objectIds: string[]) {
   editor.zoomToFit({ animation: { duration: 0 } });
 }
 
+/**
+ * Semantic-section binding panel (issue #133 §7) — appears when exactly
+ * one FRAME is selected. Deliberately styled in Organizer's register
+ * (mono, sharp, accent) while tldraw's native tools stay stock: anything
+ * that triggers an Organizer function wears Organizer's clothes
+ * (follow-up #6). Binding writes to the canvas doc; the frame's name gets
+ * a "§" prefix so bound frames read differently on the canvas too.
+ */
+function SemanticSectionPanel({ canvasId }: { canvasId: string }) {
+  const editor = useEditor();
+  const selectedFrame = useValue(
+    "selected-frame",
+    () => {
+      const sel = editor.getOnlySelectedShape();
+      return sel?.type === "frame" ? (sel as TLFrameShape) : null;
+    },
+    [editor]
+  );
+  const semantic = useStore((s) =>
+    selectedFrame ? s.canvases[canvasId]?.semantics?.[selectedFrame.id] ?? null : null
+  );
+  const collections = useStore((s) => s.collections);
+  const collectionOrder = useStore((s) => s.collectionOrder);
+  const [kind, setKind] = useState<"tag" | "collection">("tag");
+  const [draft, setDraft] = useState("");
+
+  if (!selectedFrame) return null;
+
+  const manuals = collectionOrder
+    .map((id) => collections[id])
+    .filter((c): c is NonNullable<typeof c> => c?.type === "manual");
+
+  function bind() {
+    if (!selectedFrame) return;
+    const st = useStore.getState();
+    if (kind === "tag") {
+      const tag = draft.trim();
+      if (!tag) return;
+      st.setCanvasSemantic(canvasId, selectedFrame.id, { kind: "tag", value: tag, label: tag });
+      editor.updateShape({ id: selectedFrame.id, type: "frame", props: { name: `§ #${tag}` } });
+    } else {
+      const col = manuals.find((c) => c.id === draft);
+      if (!col) return;
+      st.setCanvasSemantic(canvasId, selectedFrame.id, {
+        kind: "collection",
+        value: col.id,
+        label: col.name,
+      });
+      editor.updateShape({ id: selectedFrame.id, type: "frame", props: { name: `§ ${col.name}` } });
+    }
+    setDraft("");
+  }
+
+  return (
+    <div
+      className="absolute top-12 right-3 z-[300] w-60 rounded border border-accent/40 bg-panel/95 backdrop-blur shadow-cardHover p-2.5 font-mono"
+      onPointerDown={stopEventPropagation}
+      // Typing a tag name must not trigger tldraw's single-key tool
+      // shortcuts (t = text, f = frame…) — the editor listens on its
+      // container, so stopping propagation here is sufficient.
+      onKeyDown={(e) => e.stopPropagation()}
+      onKeyUp={(e) => e.stopPropagation()}
+    >
+      <div className="text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
+        Semantic section
+      </div>
+      {semantic ? (
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="truncate text-ink/85">
+            § {semantic.kind === "tag" ? `#${semantic.label}` : semantic.label}
+          </span>
+          <button
+            onClick={() => {
+              useStore.getState().setCanvasSemantic(canvasId, selectedFrame.id, null);
+              editor.updateShape({ id: selectedFrame.id, type: "frame", props: { name: "" } });
+            }}
+            className="shrink-0 text-muted hover:text-ink underline decoration-dotted"
+          >
+            unbind
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] text-muted/80 mb-1.5 leading-snug">
+            Objects dropped into this frame get this metadata.
+          </p>
+          <div className="flex gap-1 mb-1.5">
+            {(["tag", "collection"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => {
+                  setKind(k);
+                  setDraft("");
+                }}
+                className={[
+                  "flex-1 px-1.5 py-1 rounded border text-[10px] capitalize",
+                  kind === k
+                    ? "border-accent/50 bg-accent/5 text-ink"
+                    : "border-line text-muted hover:text-ink",
+                ].join(" ")}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+          {kind === "tag" ? (
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && bind()}
+              placeholder="tag name…"
+              className="w-full rounded border border-line px-2 py-1 text-[11px] outline-none focus:border-accent mb-1.5"
+            />
+          ) : (
+            <select
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="w-full rounded border border-line px-1.5 py-1 text-[11px] outline-none focus:border-accent mb-1.5 bg-panel"
+            >
+              <option value="">pick a collection…</option>
+              {manuals.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            onClick={bind}
+            disabled={!draft.trim()}
+            className="w-full px-2 py-1 rounded bg-ink text-white text-[11px] disabled:opacity-40"
+          >
+            Bind
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function CanvasView({ canvasId }: { canvasId: string }) {
   const doc = useStore((s) => s.canvases[canvasId]);
   const saveTimer = useRef<number | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+  const [savingAs, setSavingAs] = useState(false);
+  const [collectionDraft, setCollectionDraft] = useState("");
 
   const handleMount = useCallback(
     (editor: Editor) => {
+      editorRef.current = editor;
       const { canvases, saveCanvasSnapshot, addObjectRelation } = useStore.getState();
       const current = canvases[canvasId];
       if (current?.snapshot) {
         loadSnapshot(editor.store, current.snapshot as TLEditorSnapshot);
-      } else if (current?.seedObjectIds?.length) {
+      } else if (
+        current?.seedObjectIds?.length &&
+        // Idempotence guard: under StrictMode's dev double-mount the same
+        // in-memory tldraw store survives the remount, so seeding blindly
+        // planted every object TWICE (the reported duplicate cards).
+        !editor.getCurrentPageShapes().some((sh) => sh.type === "org-object")
+      ) {
         seedShapes(editor, current.seedObjectIds.filter((id) => useStore.getState().objects[id]));
       }
 
-      // Presentation persistence: debounced full-snapshot save on any user
-      // document change (positions, arrows, resizes…).
       const unlisten = editor.store.listen(
         (entry) => {
-          // Knowledge extraction: an arrow whose BOTH terminals are bound
-          // to object shapes persists a relationship in Organizer — the
-          // whole point of #133. Deduped store-side; deleting the visual
-          // edge later deliberately does NOT remove the relationship.
           const changed = [
             ...Object.values(entry.changes.added),
             ...Object.values(entry.changes.updated).map(([, to]) => to),
           ];
           for (const rec of changed) {
-            if ((rec as { typeName?: string }).typeName !== "binding") continue;
-            const binding = rec as { type: string; fromId: string };
-            if (binding.type !== "arrow") continue;
-            const arrow = editor.getShape(binding.fromId as Parameters<Editor["getShape"]>[0]);
-            if (!arrow || arrow.type !== "arrow") continue;
-            const bindings = getArrowBindings(editor, arrow as TLArrowShape);
-            if (!bindings.start || !bindings.end) continue;
-            const startShape = editor.getShape(bindings.start.toId);
-            const endShape = editor.getShape(bindings.end.toId);
-            if (startShape?.type !== "org-object" || endShape?.type !== "org-object") continue;
-            addObjectRelation({
-              sourceObjectId: (startShape as OrgShape).props.objectId,
-              targetObjectId: (endShape as OrgShape).props.objectId,
-              relationType: "related",
-              canvasId,
-            });
+            // Knowledge extraction 1: arrows between object shapes persist
+            // a relationship (deduped store-side; outlives the canvas).
+            if ((rec as { typeName?: string }).typeName === "binding") {
+              const binding = rec as { type: string; fromId: string };
+              if (binding.type !== "arrow") continue;
+              const arrow = editor.getShape(binding.fromId as Parameters<Editor["getShape"]>[0]);
+              if (!arrow || arrow.type !== "arrow") continue;
+              const bindings = getArrowBindings(editor, arrow as TLArrowShape);
+              if (!bindings.start || !bindings.end) continue;
+              const startShape = editor.getShape(bindings.start.toId);
+              const endShape = editor.getShape(bindings.end.toId);
+              if (startShape?.type !== "org-object" || endShape?.type !== "org-object") continue;
+              addObjectRelation({
+                sourceObjectId: (startShape as OrgShape).props.objectId,
+                targetObjectId: (endShape as OrgShape).props.objectId,
+                relationType: "related",
+                canvasId,
+              });
+            }
+          }
+
+          // Knowledge extraction 2 (semantic sections, §7): an object shape
+          // whose parent BECOMES a bound frame gets that meaning applied.
+          // Leaving a frame keeps the metadata (the notes' default).
+          for (const [from, to] of Object.values(entry.changes.updated)) {
+            const rec = to as { typeName?: string; type?: string; parentId?: string };
+            if (rec.typeName !== "shape" || rec.type !== "org-object") continue;
+            const prev = from as { parentId?: string };
+            if (!rec.parentId || rec.parentId === prev.parentId) continue;
+            const semantics = useStore.getState().canvases[canvasId]?.semantics;
+            const semantic = semantics?.[rec.parentId];
+            if (!semantic) continue;
+            const objectId = (to as OrgShape).props.objectId;
+            const st = useStore.getState();
+            if (semantic.kind === "tag") {
+              st.addObjectTag(objectId, semantic.value);
+              st.setFlashNotice(`#${semantic.label} → "${st.objects[objectId]?.title ?? ""}"`);
+            } else {
+              st.assignToManualCollection(objectId, semantic.value);
+              st.setFlashNotice(
+                `Filed "${st.objects[objectId]?.title ?? ""}" into ${semantic.label}`
+              );
+            }
           }
 
           if (saveTimer.current) window.clearTimeout(saveTimer.current);
           saveTimer.current = window.setTimeout(() => {
             saveCanvasSnapshot(canvasId, getSnapshot(editor.store));
-          }, 800);
+          }, 500);
         },
         { scope: "document", source: "user" }
       );
@@ -182,9 +361,7 @@ export function CanvasView({ canvasId }: { canvasId: string }) {
       // places them as shapes at the drop point — references, not copies.
       const container = editor.getContainer();
       const onDragOver = (e: DragEvent) => {
-        if (e.dataTransfer?.types.includes(DRAG_MIME)) {
-          e.preventDefault();
-        }
+        if (e.dataTransfer?.types.includes(DRAG_MIME)) e.preventDefault();
       };
       const onDrop = (e: DragEvent) => {
         const raw = e.dataTransfer?.getData(DRAG_MIME);
@@ -218,15 +395,38 @@ export function CanvasView({ canvasId }: { canvasId: string }) {
         unlisten();
         container.removeEventListener("dragover", onDragOver);
         container.removeEventListener("drop", onDrop);
-        if (saveTimer.current) {
-          window.clearTimeout(saveTimer.current);
-          // Flush the pending save so closing never loses layout.
-          useStore.getState().saveCanvasSnapshot(canvasId, getSnapshot(editor.store));
-        }
+        if (saveTimer.current) window.clearTimeout(saveTimer.current);
+        // Unconditional flush — closing (or switching canvases) must never
+        // lose layout, timer pending or not.
+        useStore.getState().saveCanvasSnapshot(canvasId, getSnapshot(editor.store));
+        editorRef.current = null;
       };
     },
     [canvasId]
   );
+
+  /** Canvas → collection (follow-up #3): gather every object on the
+   * canvas into a new manual collection. The canvas stays a canvas —
+   * this formalizes its contents, it doesn't convert the document. */
+  function saveAsCollection() {
+    const editor = editorRef.current;
+    const name = collectionDraft.trim();
+    if (!editor || !name) return;
+    const st = useStore.getState();
+    const ids = editor
+      .getCurrentPageShapes()
+      .filter((sh): sh is OrgShape => sh.type === "org-object")
+      .map((sh) => sh.props.objectId)
+      .filter((id, i, arr) => st.objects[id] && arr.indexOf(id) === i);
+    if (ids.length === 0) return;
+    const colId = st.addManualCollection(name);
+    for (const id of ids) st.assignToManualCollection(id, colId);
+    st.setFlashNotice(
+      `Saved ${ids.length} canvas object${ids.length === 1 ? "" : "s"} to "${name}"`
+    );
+    setSavingAs(false);
+    setCollectionDraft("");
+  }
 
   if (!doc) return null;
 
@@ -236,11 +436,45 @@ export function CanvasView({ canvasId }: { canvasId: string }) {
         shapeUtils={[OrganizerShapeUtil]}
         onMount={handleMount}
         components={{ PageMenu: null, MainMenu: null, DebugMenu: null, StylePanel: null }}
-      />
-      {/* Canvas header — name + close, floating over tldraw's own chrome. */}
+      >
+        <SemanticSectionPanel canvasId={canvasId} />
+      </Tldraw>
+      {/* Canvas header — Organizer-styled (mono/sharp/accent) vs tldraw's
+          stock tools: anything that triggers an Organizer function wears
+          Organizer's register (follow-up #6). */}
       <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[300] flex items-center gap-1.5 rounded border border-line/70 bg-panel/90 backdrop-blur px-2.5 py-1 shadow-card font-mono text-[11px]">
         <span className="uppercase tracking-[0.12em] text-muted">Canvas</span>
-        <span className="text-ink/85 max-w-[16rem] truncate">{doc.name}</span>
+        <span className="text-ink/85 max-w-[14rem] truncate">{doc.name}</span>
+        <span className="text-muted/40">·</span>
+        {savingAs ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveAsCollection();
+            }}
+            className="flex items-center gap-1"
+          >
+            <input
+              autoFocus
+              value={collectionDraft}
+              onChange={(e) => setCollectionDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setSavingAs(false)}
+              placeholder="collection name…"
+              className="w-36 rounded border border-line px-1.5 py-0.5 text-[11px] outline-none focus:border-accent"
+            />
+            <button type="submit" className="text-accent hover:underline">
+              save
+            </button>
+          </form>
+        ) : (
+          <button
+            onClick={() => setSavingAs(true)}
+            className="text-ink/70 hover:text-ink hover:underline decoration-dotted underline-offset-2"
+            title="Gather every object on this canvas into a new manual collection"
+          >
+            save as collection
+          </button>
+        )}
         <button
           onClick={() => useStore.getState().openCanvas(null)}
           className="w-5 h-5 flex items-center justify-center rounded text-muted hover:text-ink hover:bg-line/40"

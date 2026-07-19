@@ -80,6 +80,14 @@ export type CanvasDoc = {
   seedObjectIds?: string[];
   /** tldraw TLEditorSnapshot, JSON-serializable. Absent until first save. */
   snapshot?: unknown;
+  /** Semantic sections (issue #133 §7): frame shape id → the meaning that
+   * rectangle carries. Objects dragged INTO a bound frame get that
+   * metadata applied (tag added / filed into collection). Presentation
+   * decides which rectangle means what; the metadata lives on objects. */
+  semantics?: Record<
+    string,
+    { kind: "tag" | "collection"; value: string; label: string }
+  >;
 };
 
 /** One successful publication of an object as an Are.na block, remembered

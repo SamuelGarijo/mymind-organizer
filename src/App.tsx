@@ -289,6 +289,14 @@ export default function App() {
   // files it into THAT collection — no detour to the sidebar. Smart
   // collections explain instead of silently mutating their rule (N24).
   const [gridDropOver, setGridDropOver] = useState(false);
+  // Canvas membrane width tracks the window so the left slit (the sacred
+  // space strip you drag things from, follow-up #7) stays constant.
+  const [winW, setWinW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWinW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const [arenaExportObjectId, setArenaExportObjectId] = useState<string | null>(null);
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
@@ -406,7 +414,9 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         const st = useStore.getState();
-        if (st.workbenchOpen) {
+        if (st.openCanvasId) {
+          st.openCanvas(null);
+        } else if (st.workbenchOpen) {
           st.setWorkbenchOpen(false);
         } else {
           st.closeClassificationPanel();
@@ -950,7 +960,10 @@ export default function App() {
           workbenchOpen={state.workbenchOpen}
           workbenchCount={state.workbenchCount}
           onWorkbenchClick={() => {
-            if (state.workbenchOpen) {
+            if (state.openCanvasId) {
+              useStore.getState().openCanvas(null);
+              state.setWorkbenchOpen(true);
+            } else if (state.workbenchOpen) {
               state.setWorkbenchOpen(false);
             } else {
               state.closeClassificationPanel();
@@ -1006,11 +1019,7 @@ export default function App() {
               ].join(" ")}
             />
           )}
-          {state.openCanvasId ? (
-            <div className="h-full pt-14">
-              <CanvasView canvasId={state.openCanvasId} />
-            </div>
-          ) : classifyOpen && activeRole ? (
+          {classifyOpen && activeRole ? (
             <div className="h-full flex flex-col">
               {/* Role picker stays reachable while classifying — contextual
                   chrome tied to the intent (N21). */}
@@ -1101,26 +1110,38 @@ export default function App() {
         )}
       </main>
 
-      {/* Right membrane — the Workbench compartment (issue #134): a hidden
-          cavity in the worktable, not a floating panel. The seam stays
-          resident; drag-toward opens it; the current view/filters/scroll
-          are untouched (the layout yields, nothing navigates). */}
+      {/* Right membrane — the Workbench compartment (issue #134), which
+          EVOLVES into the infinite canvas (#133 follow-up #7): a canvas is
+          the bench expanded, opening right-to-left over the workspace
+          while a slit of the sacred space stays visible on the left as
+          the place to drag things from. Never a takeover of the archive
+          view. */}
       <Membrane
         edge="right"
-        open={state.workbenchOpen}
+        open={state.workbenchOpen || !!state.openCanvasId}
         onToggle={() => {
-          if (state.workbenchOpen) {
+          if (state.openCanvasId) {
+            useStore.getState().openCanvas(null);
+          } else if (state.workbenchOpen) {
             state.setWorkbenchOpen(false);
           } else {
             state.closeClassificationPanel();
             state.setWorkbenchOpen(true);
           }
         }}
-        size={360}
-        seamLabel="Workbench — a temporary worktable (⌘J)"
+        size={state.openCanvasId ? Math.max(640, winW - 300) : 360}
+        seamLabel={
+          state.openCanvasId
+            ? "Close the canvas (layout is saved)"
+            : "Workbench — a temporary worktable (⌘J)"
+        }
         id="workbench-membrane"
       >
-        <Workbench onOpenDetail={state.openDetail} />
+        {state.openCanvasId ? (
+          <CanvasView key={state.openCanvasId} canvasId={state.openCanvasId} />
+        ) : (
+          <Workbench onOpenDetail={state.openDetail} />
+        )}
       </Membrane>
 
       <AnimatePresence>
