@@ -1,0 +1,13 @@
+<!-- Browser-tab favicon (issue #125) — the four squares alone, no
+     squircle (reads better at 16px). Theme-aware: ink squares in light
+     tabs, canvas squares in dark. Replace alongside assets/app-icon.svg. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .q { fill: #1c1c1c; }
+    @media (prefers-color-scheme: dark) { .q { fill: #f4f3f0; } }
+  </style>
+  <rect x="3" y="3" width="12" height="12" rx="2" class="q"/>
+  <rect x="17" y="3" width="12" height="12" rx="2" class="q"/>
+  <rect x="3" y="17" width="12" height="12" rx="2" class="q"/>
+  <rect x="17" y="17" width="12" height="12" rx="2" fill="#6a5cff"/>
+</svg>

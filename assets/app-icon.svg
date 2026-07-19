@@ -1,0 +1,12 @@
+<!-- The Organizer — provisional dock icon (issue #125).
+     Phosphor SquaresFour, reinterpreted in the app's own tokens: ink
+     squircle, canvas squares, one accent square (the thing being filed).
+     REPLACE ME with the real design later: overwrite this file (and
+     app-icon-stop.svg), then run scripts/make-app-icons.sh. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#1c1c1c"/>
+  <rect x="310" y="310" width="180" height="180" rx="14" fill="#f4f3f0"/>
+  <rect x="534" y="310" width="180" height="180" rx="14" fill="#f4f3f0"/>
+  <rect x="310" y="534" width="180" height="180" rx="14" fill="#f4f3f0"/>
+  <rect x="534" y="534" width="180" height="180" rx="14" fill="#6a5cff"/>
+</svg>
