@@ -28,6 +28,23 @@ type RawMymindObject = {
   /** Up to 100 per object per mymind's API, but only notes[0] is surfaced
    * anywhere (in mymind's own app, and here) — see DESCRIPTION_KEY below. */
   notes?: RawMymindNote[];
+  /** Schema.org-ish payload mymind attaches per entity type — the ONLY
+   * place the per-type facts live (a Book's authors and publication year,
+   * a Product's brand and price, an InstagramPost's handle). Empirically
+   * confirmed against the real library 2026-07-20: Book {title, authors[],
+   * published, cover, subtitle}, MusicAlbum {authors{name}, published,
+   * cover}, Article {authors[], image}, Product {brand{name}, offers[
+   * {price, currency}], image}, InstagramPost/Reel {author{name,url},
+   * published, attachments}, WebPage {} (nothing but @type). */
+  mainEntity?: {
+    "@type"?: string;
+    authors?: unknown;
+    author?: unknown;
+    published?: string;
+    subtitle?: string;
+    brand?: { name?: string };
+    offers?: { price?: number; currency?: string }[];
+  };
   /** Only present for objects backed by an uploaded attachment (image,
    * video, PDF) — its `type` (a real MIME type, e.g. "image/jpeg") is what
    * tells us a downloadable original exists at all, and what to name/
@@ -92,6 +109,15 @@ export const BLOB_ASPECT_KEY = "mymind_blob_aspect";
  * any color extraction of its own. Absent for non-image objects and for
  * anything synced before this field existed. */
 export const BLOB_PALETTE_KEY = "mymind_blob_palette";
+
+/** Per-type facts lifted out of mymind's `mainEntity` (issue #92) — the
+ * only thing that tells a Book from an Image once both are just a cover
+ * picture. All read-only and mymind-owned. `creator` is the author/artist/
+ * brand/handle depending on type, `published` its year, `price` a
+ * pre-formatted "225 USD". */
+export const CREATOR_KEY = "mymind_creator";
+export const PUBLISHED_KEY = "mymind_published";
+export const PRICE_KEY = "mymind_price";
 
 /** Reads a field this module itself populates (entity_type, summary,
  * source_url, the *_KEY constants above, etc.) — always a plain string,
@@ -171,6 +197,9 @@ export const MYMIND_OWNED_FIELD_KEYS = [
   BLOB_TYPE_KEY,
   BLOB_ASPECT_KEY,
   BLOB_PALETTE_KEY,
+  CREATOR_KEY,
+  PUBLISHED_KEY,
+  PRICE_KEY,
 ] as const;
 
 /** ProseMirror doc node — minimal shape, just enough to flatten to plain
@@ -267,6 +296,30 @@ export function mapMymindObjectToDesignObject(raw: RawMymindObject): DesignObjec
   const hasKnownImageAccess =
     !raw.entityType || !ENTITY_TYPES_WITHOUT_IMAGE_ACCESS.has(raw.entityType);
 
+  // ── Per-type facts (issue #92). mymind is inconsistent about shape here
+  // — `authors` is an array for Book/Article but a bare object for
+  // MusicAlbum, and social posts use `author` — so normalize rather than
+  // trusting one form.
+  const me = raw.mainEntity;
+  const nameOf = (v: unknown): string => {
+    if (!v) return "";
+    if (typeof v === "string") return v.trim();
+    if (Array.isArray(v)) return v.map(nameOf).filter(Boolean).join(", ");
+    if (typeof v === "object" && v !== null) {
+      const n = (v as { name?: unknown }).name;
+      return typeof n === "string" ? n.trim() : "";
+    }
+    return "";
+  };
+  const creator = me ? nameOf(me.authors) || nameOf(me.author) || nameOf(me.brand) : "";
+  // "2008-09-02" and "1972" both appear — only the year is ever shown.
+  const publishedYear = me?.published ? String(me.published).slice(0, 4) : "";
+  const offer = me?.offers?.[0];
+  const price =
+    offer && typeof offer.price === "number"
+      ? `${offer.price}${offer.currency ? ` ${offer.currency}` : ""}`
+      : "";
+
   return {
     id: raw.id,
     title: raw.title?.trim() || "Untitled",
@@ -295,6 +348,9 @@ export function mapMymindObjectToDesignObject(raw: RawMymindObject): DesignObjec
         ? { [BLOB_PALETTE_KEY]: JSON.stringify(raw.blob.palette) }
         : {}),
       ...(noteContent ? { [NOTE_CONTENT_KEY]: noteContent } : {}),
+      ...(creator ? { [CREATOR_KEY]: creator } : {}),
+      ...(publishedYear ? { [PUBLISHED_KEY]: publishedYear } : {}),
+      ...(price ? { [PRICE_KEY]: price } : {}),
     },
     manualCollectionIds: [],
     sourceUrl,

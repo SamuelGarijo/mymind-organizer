@@ -6,6 +6,7 @@ import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
 import { NOTE_CONTENT_KEY, asFieldString } from "../lib/mymindSync";
+import { describeObject } from "../lib/objectKind";
 
 const VISIBLE_TAG_LIMIT = 4;
 
@@ -61,6 +62,10 @@ export const Card = memo(function Card({
   // masquerade as a note — that made "Type: Image" look broken (real
   // confusion, 2026-07-19); it gets an honest muted placeholder instead.
   const isTextOnly = !object.imageUrl && !!textPreview;
+  // What this thing IS (issue #92) — a Book and an Image both arrive as a
+  // cover picture, so the type's own fact (author·year, brand·price,
+  // domain, @handle) is what tells them apart. One line, mono, quiet.
+  const kind = describeObject(object);
 
   return (
     <div
@@ -93,7 +98,14 @@ export const Card = memo(function Card({
       data-object-id={object.id}
     >
       {isTextOnly ? (
-        <div className="w-full bg-panel rounded-card shadow-card group-hover:shadow-cardHover transition-shadow p-3.5">
+        <div
+          className={[
+            "w-full bg-panel rounded-card shadow-card group-hover:shadow-cardHover transition-shadow p-3.5",
+            // A document is a file that happens to have text — it gets a
+            // paper edge (left rule) so it doesn't read as your own note.
+            kind.kind === "document" ? "border-l-2 border-line" : "",
+          ].join(" ")}
+        >
           <p className="text-[14px] leading-snug text-ink/75 line-clamp-[10] whitespace-pre-line">
             {textPreview}
           </p>
@@ -102,7 +114,7 @@ export const Card = memo(function Card({
         // Floating, near-borderless (design-philosophy: things breathe as
         // pieces on the canvas, not boxed sections) — soft shadow instead
         // of a hard border, lifting slightly on hover.
-        <div className="w-full rounded-card overflow-hidden bg-panel shadow-card group-hover:shadow-cardHover transition-shadow">
+        <div className="relative w-full rounded-card overflow-hidden bg-panel shadow-card group-hover:shadow-cardHover transition-shadow">
           {showImage ? (
             <img
               src={object.imageUrl}
@@ -117,12 +129,31 @@ export const Card = memo(function Card({
               image unavailable
             </div>
           )}
+          {/* Affordance, not badge: only where the MEDIUM behaves
+              differently — a video plays, a document is a file. */}
+          {kind.affordance === "play" && (
+            <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span className="w-9 h-9 rounded-full bg-black/45 backdrop-blur-[1px] flex items-center justify-center text-white text-[12px] leading-none pl-[2px]">
+                ▶
+              </span>
+            </span>
+          )}
+          {kind.affordance === "file" && (
+            <span className="absolute left-1.5 top-1.5 font-mono text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 rounded bg-panel/85 text-muted pointer-events-none">
+              file
+            </span>
+          )}
         </div>
       )}
-      <div className="pt-2 pb-1">
+      <div className={kind.portraitCover ? "pt-1.5 pb-1" : "pt-2 pb-1"}>
         <div className="text-[13px] leading-snug line-clamp-2" title={object.title}>
           {object.title}
         </div>
+        {kind.meta && (
+          <div className="mt-0.5 font-mono text-[10px] leading-snug text-muted truncate" title={kind.meta}>
+            {kind.meta}
+          </div>
+        )}
         {!hideTags && visibleTags.length > 0 && (
           <div className="mt-1 text-[11px] text-muted/80 leading-snug">
             {visibleTags.map((t, i) => {
