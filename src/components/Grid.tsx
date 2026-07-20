@@ -48,6 +48,8 @@ export function Grid({
   emptyLabel,
   zoom = 0,
   groupBy = null,
+  minColumnWidth,
+  hideTags = false,
 }: {
   objects: DesignObject[];
   /** Role field packages present in the current view — same prop Table
@@ -70,6 +72,12 @@ export function Grid({
    * container-width breakpoint column count, not an absolute value, so
    * resizing the window/sidebar still adapts around whatever zoom is set. */
   zoom?: number;
+  /** Split view (canvas open): floor for a column's width so thumbnails
+   * never crush below recognizability, whatever the zoom says. */
+  minColumnWidth?: number;
+  /** Split view: the slit is for recognizing/dragging — tags are noise
+   * at that width. */
+  hideTags?: boolean;
 }) {
   // With a full mymind library (~8000 objects) mounting every card at once
   // makes the whole app crawl. Render in batches instead: the sentinel div
@@ -139,7 +147,13 @@ export function Grid({
     () => (renderCount < objects.length ? objects.slice(0, renderCount) : objects),
     [objects, renderCount]
   );
-  const columnCount = Math.max(1, Math.min(8, columnsForWidth(containerWidth) + zoom));
+  let columnCount = Math.max(1, Math.min(8, columnsForWidth(containerWidth) + zoom));
+  // Split view (canvas open): never let zoom crush thumbnails below a
+  // readable minimum — the slit is for RECOGNIZING and dragging things,
+  // not for dense browsing.
+  if (minColumnWidth) {
+    columnCount = Math.max(1, Math.min(columnCount, Math.floor(containerWidth / minColumnWidth) || 1));
+  }
   const columnWidth = (containerWidth - (columnCount - 1) * GRID_GAP) / columnCount;
 
   // Greedy shortest-column placement (see lib/masonry.ts) — a pure function
@@ -292,6 +306,7 @@ export function Grid({
                           tagFrequency={tagFrequency}
                           onOpen={onOpen}
                           onCardClick={handleCardClick}
+                          hideTags={hideTags}
                         />
                       ))}
                     </div>
@@ -311,6 +326,7 @@ export function Grid({
                     tagFrequency={tagFrequency}
                     onOpen={onOpen}
                     onCardClick={handleCardClick}
+                    hideTags={hideTags}
                   />
                 ))}
               </div>

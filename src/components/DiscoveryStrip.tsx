@@ -123,7 +123,10 @@ export function DiscoveryStrip({
     setSession({
       sourceContext: { kind: "collection", id: collectionId, label: collectionName },
       mode: "content",
-      query: buildDiscoveryQuery(collectionName, members, "content"),
+      // Default = EMPTY query → the Organizer tab shows the same-vibe MIX
+      // (the compendium the membrane opens onto); a query only exists
+      // once the user generates or types one.
+      query: "",
       activeSource: "organizer",
       createdAt: new Date().toISOString(),
       ...patch,
@@ -275,7 +278,7 @@ export function DiscoveryStrip({
             onKeyDown={(e) => {
               if (e.key === "Enter" && activeSource === "arena") void runArenaSearch();
             }}
-            placeholder="query…"
+            placeholder="query… (empty = similar mix)"
             className="flex-1 min-w-0 rounded border border-line/70 bg-panel px-2 py-1 text-[11px] outline-none focus:border-accent/50"
           />
           <button

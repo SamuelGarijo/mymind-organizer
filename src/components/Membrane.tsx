@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { MOTION } from "../lib/chrome";
 import { DRAG_MIME } from "../lib/objectDrag";
@@ -27,6 +27,9 @@ export function Membrane({
   onToggle,
   size,
   seamLabel,
+  seamHint,
+  resizable = false,
+  onResizeTo,
   id,
   children,
 }: {
@@ -36,10 +39,19 @@ export function Membrane({
   /** Cavity extent (px) when open — width for right, height for bottom. */
   size: number;
   seamLabel: string;
+  /** Always-visible mono label ON the seam (bottom edge) — turns the bare
+   * slit into a legible, clickable notch ("hard to find" feedback). */
+  seamHint?: string;
+  /** Split-view resize: while open, dragging the seam calls onResizeTo
+   * with the new cavity extent; a sub-threshold drag still counts as the
+   * toggle click. */
+  resizable?: boolean;
+  onResizeTo?: (px: number) => void;
   id: string;
   children: React.ReactNode;
 }) {
   const isRight = edge === "right";
+  const dragState = useRef<{ startPos: number; startSize: number; moved: boolean } | null>(null);
 
   // Hinted state: any Organizer-object drag anywhere brightens the seam.
   const [dragHint, setDragHint] = useState(false);
@@ -65,7 +77,38 @@ export function Membrane({
       {/* The seam — a permanent slit at the edge. Clicking toggles; dragging
           an object onto it opens the cavity so the drop can land inside. */}
       <button
-        onClick={onToggle}
+        onClick={() => {
+          // A real resize-drag must not ALSO toggle on release.
+          if (dragState.current?.moved) return;
+          onToggle();
+        }}
+        onPointerDown={(e) => {
+          if (!(resizable && open && onResizeTo)) return;
+          const startPos = isRight ? e.clientX : e.clientY;
+          dragState.current = { startPos, startSize: size, moved: false };
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const d = dragState.current;
+          if (!d || !onResizeTo) return;
+          const pos = isRight ? e.clientX : e.clientY;
+          // Seam sits at the cavity's near edge: moving it toward the
+          // window edge shrinks the cavity, away grows it.
+          const delta = d.startPos - pos;
+          if (Math.abs(delta) > 4) d.moved = true;
+          if (d.moved) onResizeTo(d.startSize + delta);
+        }}
+        onPointerUp={(e) => {
+          if (dragState.current) {
+            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+            // Cleared on the next tick so the click handler still sees it.
+            const wasDrag = dragState.current.moved;
+            setTimeout(() => {
+              dragState.current = null;
+            }, 0);
+            if (!wasDrag) return;
+          }
+        }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
           e.preventDefault();
@@ -78,8 +121,11 @@ export function Membrane({
         className={[
           isRight
             ? "h-full w-3 flex flex-col items-center justify-center border-l"
+            : seamHint
+            ? "w-full h-6 flex items-center justify-center gap-2 border-t"
             : "w-full h-3 flex items-center justify-center border-t",
           "shrink-0 transition-colors",
+          resizable && open ? (isRight ? "cursor-col-resize" : "cursor-row-resize") : "",
           dragHint && !open
             ? "bg-accent/10 border-accent/50"
             : "bg-canvas border-line/80 hover:bg-line/40",
@@ -97,6 +143,17 @@ export function Membrane({
             dragHint && !open ? "bg-accent/70" : "bg-line",
           ].join(" ")}
         />
+        {!isRight && seamHint && (
+          <span
+            className={[
+              "font-mono text-[9px] uppercase tracking-[0.14em]",
+              dragHint && !open ? "text-accent" : "text-muted/80",
+            ].join(" ")}
+          >
+            {open ? "⌄" : "⌃"} {seamHint}
+          </span>
+        )}
+        {!isRight && seamHint && <span className={["rounded-full h-0.5 w-8", dragHint && !open ? "bg-accent/70" : "bg-line"].join(" ")} />}
       </button>
 
       {/* The cavity — expands from the edge, recessed (canvas-toned, inner

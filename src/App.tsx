@@ -112,6 +112,8 @@ export default function App() {
       discoveryOpen: s.discoveryOpen,
       setDiscoveryOpen: s.setDiscoveryOpen,
       openCanvasId: s.openCanvasId,
+      canvasSplitWidth: s.canvasSplitWidth,
+      setCanvasSplitWidth: s.setCanvasSplitWidth,
       workbenchCount: s.workbenchIds.length,
       setWorkbenchOpen: s.setWorkbenchOpen,
       viewBackStack: s.viewBackStack,
@@ -1081,6 +1083,8 @@ export default function App() {
                 emptyLabel={emptyLabel}
                 zoom={state.gridZoom}
                 groupBy={state.groupBy}
+                minColumnWidth={state.openCanvasId ? 170 : undefined}
+                hideTags={!!state.openCanvasId}
               />
             </div>
           )}
@@ -1096,6 +1100,7 @@ export default function App() {
             onToggle={() => state.setDiscoveryOpen(!state.discoveryOpen)}
             size={224}
             seamLabel="Discover — expand this collection's research outward"
+            seamHint="discover"
             id="discovery-membrane"
           >
             {state.discoveryOpen && currentCollection && (
@@ -1131,7 +1136,16 @@ export default function App() {
             state.setWorkbenchOpen(true);
           }
         }}
-        size={state.openCanvasId ? Math.max(640, winW - 300) : 360}
+        size={
+          state.openCanvasId
+            ? Math.min(
+                winW - 220,
+                Math.max(480, state.canvasSplitWidth ?? winW - 300)
+              )
+            : 360
+        }
+        resizable={!!state.openCanvasId}
+        onResizeTo={(px) => state.setCanvasSplitWidth(Math.min(winW - 220, Math.max(480, px)))}
         seamLabel={
           state.openCanvasId
             ? "Close the canvas (layout is saved)"

@@ -321,6 +321,11 @@ type State = {
   canvasOrder: string[];
   /** Which canvas fills the main area — transient, like a view. */
   openCanvasId: string | null;
+  /** User-dragged width of the canvas split (right membrane while a
+   * canvas is open) — persisted so the chosen balance between slit and
+   * canvas survives. null = default (window - 300). */
+  canvasSplitWidth: number | null;
+  setCanvasSplitWidth: (px: number | null) => void;
   openCanvas: (id: string | null) => void;
   /** Creates a canvas seeded with the given objects (from the bench, a
    * collection, anything) and returns its id. */
@@ -478,6 +483,7 @@ type PersistedState = Pick<
   | "canvasOrder"
   | "objectRelations"
   | "discoverySession"
+  | "canvasSplitWidth"
   | "localUserTags"
   | "sidebarCollapsed"
 >;
@@ -1025,6 +1031,8 @@ export const useStore = create<State>()(
       canvases: {},
       canvasOrder: [],
       openCanvasId: null,
+      canvasSplitWidth: null,
+      setCanvasSplitWidth: (px) => set({ canvasSplitWidth: px }),
       openCanvas: (id) => set({ openCanvasId: id }),
       createCanvas: (name, seedObjectIds) => {
         const id = makeId("canvas");
@@ -1449,6 +1457,7 @@ export const useStore = create<State>()(
         canvasOrder: state.canvasOrder,
         objectRelations: state.objectRelations,
         discoverySession: state.discoverySession,
+        canvasSplitWidth: state.canvasSplitWidth,
         localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),

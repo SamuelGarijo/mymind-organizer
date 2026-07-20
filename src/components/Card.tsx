@@ -18,6 +18,7 @@ export const Card = memo(function Card({
   tagFrequency,
   onOpen,
   onCardClick,
+  hideTags = false,
 }: {
   object: DesignObject;
   tagFrequency: Map<string, number>;
@@ -28,6 +29,8 @@ export const Card = memo(function Card({
    * ordered list of currently-mounted cards that only Grid has (issue
    * #103). Card stays a dumb reporter so it doesn't need its siblings. */
   onCardClick: (id: string, e: React.MouseEvent) => void;
+  /** Split view (canvas open): the narrow slit shows image+title only. */
+  hideTags?: boolean;
 }) {
   const tagGroups = useStore((s) => s.tagGroups);
   // Scoped selector: only cards whose OWN membership actually flips
@@ -120,7 +123,7 @@ export const Card = memo(function Card({
         <div className="text-[13px] leading-snug line-clamp-2" title={object.title}>
           {object.title}
         </div>
-        {visibleTags.length > 0 && (
+        {!hideTags && visibleTags.length > 0 && (
           <div className="mt-1 text-[11px] text-muted/80 leading-snug">
             {visibleTags.map((t, i) => {
               const group = tagGroups[norm(t)];
