@@ -309,6 +309,7 @@ export function WritingWorkspace() {
   /** Terms of the reference currently under the pointer, painted in the
    * text so the connection is visible in both directions. */
   const [hoverTerms, setHoverTerms] = useState<string[]>([]);
+  const [draggingWidth, setDraggingWidth] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const saveTimer = useRef<number | null>(null);
@@ -400,6 +401,26 @@ export function WritingWorkspace() {
     el.style.height = `${el.scrollHeight}px`;
   }
   useEffect(autoGrowTitle, [title, fontSize, pageWidth, targetKey]);
+
+  // Height depends on the WIDTH the title has to wrap in, and that width
+  // isn't final on first paint — measuring too early wrapped the title to
+  // about one character per line and froze a ~1200px box that pushed the
+  // body off screen (real bug, 2026-07-20). Re-measure whenever the box's
+  // own width changes; comparing width only keeps it out of a feedback
+  // loop with the height we're setting.
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastWidth = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === lastWidth) return;
+      lastWidth = el.clientWidth;
+      autoGrowTitle();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetKey]);
 
   /** Suggestions read the document as it stood at the last pause. */
   function scheduleSettle() {
@@ -633,7 +654,10 @@ export function WritingWorkspace() {
     <div className="h-full flex min-h-0">
       {/* The document — center stage (Focus). */}
       <div className="flex-1 min-w-0 h-full overflow-y-auto relative" data-content-scroll>
-        <div className="mx-auto px-6 pt-8 pb-24 relative" style={{ maxWidth: pageWidth }}>
+        <div
+          className="group/page mx-auto px-6 pt-8 pb-24 relative"
+          style={{ maxWidth: pageWidth }}
+        >
           <div className="flex items-center gap-2 mb-8">
             {/* Leaving is NAVIGATION, not dismissal — a back arrow naming
                 the destination, where an × read as "close the panel". */}
@@ -782,14 +806,22 @@ export function WritingWorkspace() {
             />
           </div>
 
-          {/* The measure is the author's call — drag the edge of the page.
-              Invisible until the pointer is near it: a ruler, not a rail. */}
+          {/* The measure is the author's call — drag either edge of the
+              page. It sits INSIDE the column (an outside offset gets
+              clipped by the scroller) and only shows itself once the
+              pointer is on the page: summoned on intent, not resident. */}
+          {([
+            ["left", "left-0"],
+            ["right", "right-0"],
+          ] as const).map(([side, pos]) => (
           <div
+            key={side}
             role="separator"
-            aria-label="Page width"
+            aria-label={`Page width (${side} edge)`}
             aria-orientation="vertical"
             onPointerDown={(e) => {
               e.preventDefault();
+              setDraggingWidth(true);
               const el = e.currentTarget;
               // Capture keeps the drag alive over the editor and the panel;
               // it's an optimisation, never a requirement (the window
@@ -806,9 +838,11 @@ export function WritingWorkspace() {
               const hostRect = host.getBoundingClientRect();
               const centre = hostRect.left + hostRect.width / 2;
               const move = (ev: PointerEvent) =>
-                // Centred column: the edge moves half as far as the width.
-                setWritingPageWidth(Math.round((ev.clientX - centre) * 2));
+                // Centred column: either edge moves half as far as the
+                // width, and the left edge moves the opposite way.
+                setWritingPageWidth(Math.round(Math.abs(ev.clientX - centre) * 2));
               const up = () => {
+                setDraggingWidth(false);
                 try {
                   el.releasePointerCapture(e.pointerId);
                 } catch {
@@ -822,10 +856,25 @@ export function WritingWorkspace() {
             }}
             onDoubleClick={() => setWritingPageWidth(null)}
             title="Drag to set the page width — double-click to reset"
-            className="group absolute top-0 bottom-0 -right-2 w-4 cursor-col-resize flex items-center justify-center"
+            className={`group/grip absolute top-0 bottom-0 ${pos} w-6 cursor-col-resize flex items-center justify-center`}
           >
-            <span className="w-px h-24 rounded bg-line/0 group-hover:bg-line transition-colors" />
+            <span
+              className={[
+                "w-[3px] h-28 rounded-full transition-colors",
+                draggingWidth
+                  ? "bg-accent/70"
+                  : "bg-line/0 group-hover/page:bg-line/60 group-hover/grip:bg-accent/60",
+              ].join(" ")}
+            />
           </div>
+          ))}
+
+          {/* Only while dragging: the number you're actually setting. */}
+          {draggingWidth && (
+            <div className="absolute top-2 right-6 font-mono text-[10px] text-muted pointer-events-none">
+              {pageWidth}px
+            </div>
+          )}
         </div>
       </div>
 
