@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore } from "../store";
+import { allObjectsOf, useStore } from "../store";
 import { matchesSmartCollection, norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { suggestRole } from "../lib/roleSuggestion";
@@ -327,22 +327,36 @@ export function DetailPanel({
    * "similar" view (#23) ranks by, capped to a handful for an inline
    * preview. Scoped to the whole library (not contextObjects, which is only
    * this view's own pool) since similarity is a library-wide question, same
-   * as the full view it links out to. */
-  const similarStrip = useMemo(() => {
-    if (!object) return [];
-    const allObjects = Object.values(state.objects);
-    const candidates = allObjects.filter((o) => o.id !== object.id);
-    // Textual objects always rank by content — "form" for words is noise
-    // (mirrors the writing workspace's related-content framing).
-    const textual =
-      object.fields.entity_type === "Note" ||
-      (!object.imageUrl && (!!object.fields[NOTE_CONTENT_KEY] || !!object.fields.summary));
-    const ranked = rankBySimilarityMode(object, candidates, allObjects, {
-      mode: textual ? "content" : similarMode,
-      limit: 8,
-      relations: state.objectRelations,
-    });
-    return ranked.map((r) => state.objects[r.id]).filter((o): o is DesignObject => !!o);
+   * as the full view it links out to.
+   *
+   * Deliberately DEFERRED off the open path (perf maintenance,
+   * 2026-07-20): ranking 8k candidates inside the first render was the
+   * "objects take seconds to open" — the panel now paints immediately and
+   * the strip fills in a beat later. */
+  const [similarStrip, setSimilarStrip] = useState<DesignObject[]>([]);
+  useEffect(() => {
+    if (!object) {
+      setSimilarStrip([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const allObjects = allObjectsOf(state.objects);
+      const candidates = allObjects.filter((o) => o.id !== object.id);
+      // Textual objects always rank by content — "form" for words is noise
+      // (mirrors the writing workspace's related-content framing).
+      const textual =
+        object.fields.entity_type === "Note" ||
+        (!object.imageUrl && (!!object.fields[NOTE_CONTENT_KEY] || !!object.fields.summary));
+      const ranked = rankBySimilarityMode(object, candidates, allObjects, {
+        mode: textual ? "content" : similarMode,
+        limit: 8,
+        relations: state.objectRelations,
+      });
+      setSimilarStrip(
+        ranked.map((r) => state.objects[r.id]).filter((o): o is DesignObject => !!o)
+      );
+    }, 40);
+    return () => window.clearTimeout(timer);
   }, [object, state.objects, similarMode, state.objectRelations]);
 
   /** Filters the current view down to just this tag (replacing any other

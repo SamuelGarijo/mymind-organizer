@@ -1581,8 +1581,21 @@ export type VisibilityState = Pick<
   "objects" | "collections" | "selectedView" | "tagGroups" | "objectRelations"
 >;
 
+/** THE array for "every object", stable per objects-map version. Fresh
+ * `Object.values(...)` arrays at every call site each carried their own
+ * identity, so the similarity engine's per-array corpus cache missed on
+ * every panel open and retokenized the whole library (perf maintenance,
+ * 2026-07-20). One shared slot: same map in → same array out. */
+let allObjectsCache: { ref: Record<string, DesignObject>; list: DesignObject[] } | null = null;
+export function allObjectsOf(objects: Record<string, DesignObject>): DesignObject[] {
+  if (allObjectsCache?.ref === objects) return allObjectsCache.list;
+  const list = Object.values(objects);
+  allObjectsCache = { ref: objects, list };
+  return list;
+}
+
 export function getVisibleObjects(state: VisibilityState): DesignObject[] {
-  const all = Object.values(state.objects);
+  const all = allObjectsOf(state.objects);
   const view = state.selectedView;
 
   if (view.kind === "all") return sortByRecency(all);
@@ -1635,7 +1648,7 @@ export function getVisibleObjects(state: VisibilityState): DesignObject[] {
 }
 
 export function countForCollection(state: State, collection: Collection): number {
-  const all = Object.values(state.objects);
+  const all = allObjectsOf(state.objects);
   if (collection.type === "manual") {
     return all.filter((obj) => obj.manualCollectionIds.includes(collection.id)).length;
   }

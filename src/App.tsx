@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
-import { getVisibleObjects, useStore, type VisibilityState } from "./store";
+import { allObjectsOf, getVisibleObjects, useStore, type VisibilityState } from "./store";
 import { useDebouncedValue } from "./lib/useDebouncedValue";
 import { Sidebar } from "./components/Sidebar";
 import { Grid } from "./components/Grid";
@@ -36,6 +36,7 @@ import {
 } from "./lib/quickFilter";
 import { applyColorFilter } from "./lib/colorSearch";
 import { buildSearchIndex, searchObjects } from "./lib/search";
+import { useThrottledDerived } from "./lib/useThrottledDerived";
 import { describeMymindError, fetchAllMymindIds, syncFull, syncIncremental } from "./lib/mymindSync";
 import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
 import { parseBackup } from "./lib/backupValidation";
@@ -200,14 +201,25 @@ export default function App() {
     [typeFiltered, state.roleFilter]
   );
 
-  // Fuse indexing (~8000 objects) is real work — rebuild only when the
-  // candidate pool changes, not on every keystroke. Search always narrows
-  // the pool first, regardless of facet mode.
-  const searchIndex = useMemo(() => buildSearchIndex(roleFiltered), [roleFiltered]);
-  const searchFiltered = useMemo(
-    () => searchObjects(searchIndex, debouncedSearchQuery, roleFiltered),
-    [searchIndex, debouncedSearchQuery, roleFiltered]
+  // Fuse indexing (~8000 objects) is real work — rebuild immediately when
+  // the FILTERS defining the pool change (results must be right), but a
+  // content edit that merely refreshes the same pool's identity (a note
+  // autosave, a description commit) rebuilds at most every 30s — that
+  // rebuild-per-pause was part of the felt "app got slower" while writing.
+  const searchIndex = useThrottledDerived(
+    roleFiltered,
+    buildSearchIndex,
+    `${JSON.stringify(state.selectedView)}|${state.typeFilter}|${state.roleFilter}`
   );
+  const searchFiltered = useMemo(() => {
+    const results = searchObjects(searchIndex, debouncedSearchQuery, roleFiltered);
+    // The throttled index holds object references from build time — remap
+    // hits to the LIVE objects so a just-edited note never renders stale.
+    // (Empty query short-circuits to the pool itself; nothing to remap.)
+    return results === roleFiltered
+      ? results
+      : results.map((o) => state.objects[o.id] ?? o);
+  }, [searchIndex, debouncedSearchQuery, roleFiltered, state.objects]);
 
   // The facet bar's own tag list is asymmetric on purpose: in "all" (AND)
   // mode it drills down — options reflect only what's left after already-
@@ -256,7 +268,7 @@ export default function App() {
   // objects haven't changed, or every Card/TableRow would re-render for
   // nothing (see Card.tsx).
   const tagFrequency = useMemo(
-    () => computeTagFrequency(Object.values(state.objects)),
+    () => computeTagFrequency(allObjectsOf(state.objects)),
     [state.objects]
   );
 
@@ -481,9 +493,9 @@ export default function App() {
     return baseObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name));
   }, [baseObjects, activeRole]);
   const collectionIds = useMemo(() => new Set(baseObjects.map((o) => o.id)), [baseObjects]);
-  // Stable reference per objects-map identity — the similarity corpus cache
-  // keys on it (lib/hybridSimilarity.ts).
-  const allObjectsList = useMemo(() => Object.values(state.objects), [state.objects]);
+  // Shared store-level list (same identity across App/DetailPanel/
+  // Workbench/WritingWorkspace) — the similarity corpus cache keys on it.
+  const allObjectsList = allObjectsOf(state.objects);
 
   // The folders panel is the collection's own architecture, so entering a
   // world that's already set up opens it by default (Samuel's call) — and

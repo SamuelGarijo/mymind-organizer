@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Palette, Sparkle, X } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore } from "../store";
+import { allObjectsOf, useStore } from "../store";
 import { rankBySimilarityMode, type SimilarityMode } from "../lib/hybridSimilarity";
 import { applyDragGhost, DRAG_MIME } from "../lib/objectDrag";
 import type { DesignObject, ManualCollection } from "../types";
@@ -66,7 +66,9 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
         .filter((o): o is DesignObject => Boolean(o)),
     [state.workbenchIds, state.objects]
   );
-  const allObjectsList = useMemo(() => Object.values(state.objects), [state.objects]);
+  // Shared store-level list — same identity as every other similarity
+  // caller, so the corpus/tfidf caches hit instead of rebuilding per pool.
+  const allObjectsList = allObjectsOf(state.objects);
   const manualCollections = useMemo(
     () =>
       state.collectionOrder

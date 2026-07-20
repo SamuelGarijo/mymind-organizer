@@ -36,6 +36,22 @@ import {
 
 const WEIGHTS = { tag: 0.35, color: 0.3, facet: 0.25, keyword: 0.1 };
 
+// ---------------------------------------------------------------------------
+// Per-object feature caches (perf maintenance, 2026-07-20). Ranking 8k
+// candidates recomputed every derived feature per PAIR — parsePalette alone
+// was 8k JSON.parses per panel open, tag/facet sets 16k Set builds, tfidf
+// 8k tokenizations. Objects are replaced by fresh references on any update,
+// so WeakMaps keyed by the object are self-invalidating and leak-free.
+// ---------------------------------------------------------------------------
+
+function weakCached<T>(cache: WeakMap<DesignObject, T>, o: DesignObject, build: (o: DesignObject) => T): T {
+  const hit = cache.get(o);
+  if (hit !== undefined) return hit;
+  const value = build(o);
+  cache.set(o, value);
+  return value;
+}
+
 export type SimilarityBreakdown = { tag: number; color: number; facet: number; keyword: number };
 export type SimilarityResult = { id: string; score: number; breakdown: SimilarityBreakdown };
 
@@ -51,8 +67,9 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : intersection / union;
 }
 
+const tagSetCache = new WeakMap<DesignObject, Set<string>>();
 function tagSet(object: DesignObject): Set<string> {
-  return new Set(object.tags.map(norm));
+  return weakCached(tagSetCache, object, (o) => new Set(o.tags.map(norm)));
 }
 
 // ---------------------------------------------------------------------------
@@ -72,14 +89,17 @@ function rgbDistance(a: [number, number, number], b: [number, number, number]): 
   return d / maxDistance; // 0-1
 }
 
+const paletteCache = new WeakMap<DesignObject, Record<string, number> | null>();
 function parsePalette(object: DesignObject): Record<string, number> | null {
-  const raw = object.fields[BLOB_PALETTE_KEY];
-  if (typeof raw !== "string") return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return weakCached(paletteCache, object, (o) => {
+    const raw = o.fields[BLOB_PALETTE_KEY];
+    if (typeof raw !== "string") return null;
+    try {
+      return JSON.parse(raw) as Record<string, number>;
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** Weighted best-match: each color in A is matched to its closest color in
@@ -124,16 +144,19 @@ const SYSTEM_FIELD_KEYS = new Set<string>([
   NOTE_CONTENT_KEY,
 ]);
 
+const facetPairCache = new WeakMap<DesignObject, Set<string>>();
 function facetPairSet(object: DesignObject): Set<string> {
-  const pairs = new Set<string>();
-  for (const [field, value] of Object.entries(object.fields)) {
-    if (SYSTEM_FIELD_KEYS.has(field)) continue;
-    const values = Array.isArray(value) ? value : [value];
-    for (const v of values) {
-      if (v) pairs.add(`${norm(field)}:${norm(v)}`);
+  return weakCached(facetPairCache, object, (o) => {
+    const pairs = new Set<string>();
+    for (const [field, value] of Object.entries(o.fields)) {
+      if (SYSTEM_FIELD_KEYS.has(field)) continue;
+      const values = Array.isArray(value) ? value : [value];
+      for (const v of values) {
+        if (v) pairs.add(`${norm(field)}:${norm(v)}`);
+      }
     }
-  }
-  return pairs;
+    return pairs;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -151,13 +174,15 @@ function objectText(object: DesignObject): string {
 type CorpusStats = { documentFrequency: Map<string, number>; totalDocs: number };
 
 /** Precomputed once per `objects` array reference (issue #23's own "cache
- * at sync, not per query" ask) — a module-level cache keyed by reference
- * identity, not a React hook, since this is called from store.ts's plain
- * getVisibleObjects function, not a component. */
-let corpusCache: { objectsRef: DesignObject[]; stats: CorpusStats } | null = null;
+ * at sync, not per query" ask) — a WeakMap rather than a single slot, so
+ * the store's stable list and any component-memoized pool each keep their
+ * own stats instead of evicting each other on every alternating call
+ * (that ping-pong was a full 8k-object retokenization per panel open). */
+const corpusCacheMap = new WeakMap<DesignObject[], CorpusStats>();
 
 function getCorpusStats(objects: DesignObject[]): CorpusStats {
-  if (corpusCache && corpusCache.objectsRef === objects) return corpusCache.stats;
+  const cached = corpusCacheMap.get(objects);
+  if (cached) return cached;
   const documentFrequency = new Map<string, number>();
   let totalDocs = 0;
   for (const object of objects) {
@@ -168,11 +193,26 @@ function getCorpusStats(objects: DesignObject[]): CorpusStats {
     for (const term of seen) documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
   }
   const stats = { documentFrequency, totalDocs };
-  corpusCache = { objectsRef: objects, stats };
+  corpusCacheMap.set(objects, stats);
   return stats;
 }
 
+// Keyed by object AND validated against the stats the vector was built
+// with — a corpus rebuild (library changed) invalidates every entry lazily.
+const tfidfCache = new WeakMap<
+  DesignObject,
+  { stats: CorpusStats; vector: Map<string, number> | null }
+>();
+
 function tfidfVector(object: DesignObject, stats: CorpusStats): Map<string, number> | null {
+  const hit = tfidfCache.get(object);
+  if (hit && hit.stats === stats) return hit.vector;
+  const vector = buildTfidfVector(object, stats);
+  tfidfCache.set(object, { stats, vector });
+  return vector;
+}
+
+function buildTfidfVector(object: DesignObject, stats: CorpusStats): Map<string, number> | null {
   const text = objectText(object);
   if (!text) return null;
   const terms = tokenize(text);
@@ -188,19 +228,30 @@ function tfidfVector(object: DesignObject, stats: CorpusStats): Map<string, numb
   return vector;
 }
 
+// Same norm-per-pair waste as embeddings, same cure: the norm is a
+// property of the vector, computed once and remembered with it.
+const tfidfNormCache = new WeakMap<Map<string, number>, number>();
+function tfidfNorm(v: Map<string, number>): number {
+  const hit = tfidfNormCache.get(v);
+  if (hit !== undefined) return hit;
+  let n = 0;
+  for (const x of v.values()) n += x * x;
+  const norm = Math.sqrt(n);
+  tfidfNormCache.set(v, norm);
+  return norm;
+}
+
 function cosineSim(a: Map<string, number>, b: Map<string, number>): number {
+  const normA = tfidfNorm(a);
+  const normB = tfidfNorm(b);
+  if (normA === 0 || normB === 0) return 0;
   let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (const v of a.values()) normA += v * v;
-  for (const v of b.values()) normB += v * v;
   const [small, large] = a.size <= b.size ? [a, b] : [b, a];
   for (const [term, v] of small) {
     const other = large.get(term);
     if (other) dot += v * other;
   }
-  if (normA === 0 || normB === 0) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  return dot / (normA * normB);
 }
 
 // ---------------------------------------------------------------------------
@@ -274,21 +325,33 @@ const CONTENT_WEIGHTS = { contentTag: 0.3, keyword: 0.25, contentFacet: 0.2, emb
 /** Direct seed↔candidate relationship boost — additive, post-score. */
 const RELATION_BOOST = 0.2;
 
+const splitTagCaches = {
+  form: new WeakMap<DesignObject, Set<string>>(),
+  content: new WeakMap<DesignObject, Set<string>>(),
+};
 function splitTagSet(object: DesignObject, form: boolean): Set<string> {
-  return new Set(object.tags.filter((t) => isFormWord(t) === form).map(norm));
+  return weakCached(splitTagCaches[form ? "form" : "content"], object, (o) =>
+    new Set(o.tags.filter((t) => isFormWord(t) === form).map(norm))
+  );
 }
 
+const splitFacetCaches = {
+  form: new WeakMap<DesignObject, Set<string>>(),
+  content: new WeakMap<DesignObject, Set<string>>(),
+};
 function splitFacetPairSet(object: DesignObject, form: boolean): Set<string> {
-  const pairs = new Set<string>();
-  for (const [field, value] of Object.entries(object.fields)) {
-    if (SYSTEM_FIELD_KEYS.has(field)) continue;
-    if (isFormField(field) !== form) continue;
-    const values = Array.isArray(value) ? value : [value];
-    for (const v of values) {
-      if (v) pairs.add(`${norm(field)}:${norm(v)}`);
+  return weakCached(splitFacetCaches[form ? "form" : "content"], object, (o) => {
+    const pairs = new Set<string>();
+    for (const [field, value] of Object.entries(o.fields)) {
+      if (SYSTEM_FIELD_KEYS.has(field)) continue;
+      if (isFormField(field) !== form) continue;
+      const values = Array.isArray(value) ? value : [value];
+      for (const v of values) {
+        if (v) pairs.add(`${norm(field)}:${norm(v)}`);
+      }
     }
-  }
-  return pairs;
+    return pairs;
+  });
 }
 
 function aspectOf(object: DesignObject): number | null {
@@ -308,20 +371,30 @@ function aspectSimilarity(a: DesignObject, b: DesignObject): number | null {
   return Math.max(0, 1 - d / Math.log(4));
 }
 
+// Norms cached per object — recomputing the target's 1536-float norm once
+// per CANDIDATE was ~12M wasted multiplications per ranking pass.
+const embeddingNormCache = new WeakMap<DesignObject, number>();
+function embeddingNorm(o: DesignObject): number {
+  const hit = embeddingNormCache.get(o);
+  if (hit !== undefined) return hit;
+  const e = o.embedding;
+  let n = 0;
+  if (e) for (let i = 0; i < e.length; i++) n += e[i] * e[i];
+  const norm = Math.sqrt(n);
+  embeddingNormCache.set(o, norm);
+  return norm;
+}
+
 function embeddingCosine(a: DesignObject, b: DesignObject): number | null {
   const ea = a.embedding;
   const eb = b.embedding;
   if (!ea || !eb || ea.length !== eb.length || ea.length === 0) return null;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < ea.length; i++) {
-    dot += ea[i] * eb[i];
-    na += ea[i] * ea[i];
-    nb += eb[i] * eb[i];
-  }
+  const na = embeddingNorm(a);
+  const nb = embeddingNorm(b);
   if (na === 0 || nb === 0) return null;
-  return Math.max(0, dot / (Math.sqrt(na) * Math.sqrt(nb)));
+  let dot = 0;
+  for (let i = 0; i < ea.length; i++) dot += ea[i] * eb[i];
+  return Math.max(0, dot / (na * nb));
 }
 
 /** Weighted sum over available signals — a null signal's weight

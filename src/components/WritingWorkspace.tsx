@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowSquareOut, X } from "@phosphor-icons/react";
-import { useStore } from "../store";
+import { allObjectsOf, useStore } from "../store";
+import { useThrottledDerived } from "../lib/useThrottledDerived";
 import { viewTitle } from "../lib/viewLabel";
 import { DRAG_MIME, objectDragProps, readDraggedIds } from "../lib/objectDrag";
 import { rankBySimilarityMode, type SimilarityMode } from "../lib/hybridSimilarity";
@@ -608,10 +609,16 @@ export function WritingWorkspace() {
   // escritura no quiero distracciones"). Each suggestion keeps the terms
   // that earned it, which is what makes the highlighting explainable
   // without any AI: the anchor is a literal word in your text.
-  const allObjectsList = useMemo(() => Object.values(objects), [objects]);
-  const searchIndex = useMemo(() => buildSearchIndex(allObjectsList), [allObjectsList]);
-  // Rebuilt only when the library itself changes — never per keystroke.
-  const archiveDf = useMemo(() => buildArchiveTermFrequency(allObjectsList), [allObjectsList]);
+  const allObjectsList = allObjectsOf(objects);
+  // The Fuse index and the term-frequency table each cost a full pass over
+  // ~8k objects. A bound note's autosave replaces the objects map on every
+  // typing pause, so a naive identity-keyed memo rebuilt BOTH mid-writing
+  // session (perf maintenance, 2026-07-20). Throttled instead: rebuild on
+  // a size change immediately (add/delete/sync), otherwise at most every
+  // 30s — a marginally stale index is invisible to suggestions, a rebuilt
+  // Fuse index per pause is a felt stutter.
+  const searchIndex = useThrottledDerived(allObjectsList, buildSearchIndex);
+  const archiveDf = useThrottledDerived(allObjectsList, buildArchiveTermFrequency);
   const suggestions = useMemo<Suggestion[]>(() => {
     if (!showRefs) return [];
     const exclude = new Set([...embeds.map((o) => o.id), boundNote?.id ?? ""]);
@@ -671,7 +678,9 @@ export function WritingWorkspace() {
           .filter((e) => e.terms.length >= 2)
           .sort((a, b) => b.score - a.score || b.terms.length - a.terms.length)
           .slice(0, 10)
-          .map(({ object, terms: t }) => ({ object, terms: t }))
+          // The throttled index holds build-time references — remap to the
+          // live objects so cards never show stale titles/covers.
+          .map(({ object, terms: t }) => ({ object: objects[object.id] ?? object, terms: t }))
       );
     }
     const seed = (boundNote?.imageUrl ? boundNote : null) ?? embeds.find((o) => o.imageUrl) ?? null;
