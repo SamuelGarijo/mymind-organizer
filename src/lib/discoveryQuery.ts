@@ -1,4 +1,5 @@
 import { asFieldString, MYMIND_OWNED_FIELD_KEYS } from "./mymindSync";
+import { isFormField, isFormWord } from "./formVocabulary";
 import type { DesignObject } from "../types";
 
 /**
@@ -15,29 +16,6 @@ import type { DesignObject } from "../types";
  * a STARTING PHRASE the user edits before searching, never an answer.
  */
 
-/** Tags/values that read as FORM (style, medium, palette, composition,
- * typography, era-of-look). Substring match, normalized. */
-const FORM_HINTS = [
-  "typography", "typeface", "font", "serif", "sans", "lettering", "letter",
-  "monochrome", "black and white", "b&w", "color", "colour", "palette",
-  "minimal", "brutalis", "swiss", "grid", "layout", "composition",
-  "poster", "cover", "sleeve", "editorial", "collage", "illustrat",
-  "photograph", "print", "engrav", "woodcut", "screenprint", "risograph",
-  "gradient", "texture", "pattern", "geometric", "organic", "hand-drawn",
-  "handdrawn", "sketch", "vintage", "retro", "modernis", "art deco",
-  "art nouveau", "bauhaus", "psychedelic", "grunge", "neon", "pastel",
-  "bold", "condensed", "italic", "mono", "duotone", "halftone",
-  "red", "blue", "green", "yellow", "orange", "purple", "pink", "beige",
-  "cream", "muted", "vibrant", "dark", "light",
-];
-
-/** Facet field names whose VALUES read as form. */
-const FORM_FIELDS = ["style", "tone", "format", "medium", "technique", "palette", "era"];
-
-function isFormWord(word: string): boolean {
-  const w = word.toLowerCase();
-  return FORM_HINTS.some((h) => w.includes(h));
-}
 
 function topTags(objects: DesignObject[], limit: number, form: boolean): string[] {
   const counts = new Map<string, number>();
@@ -57,8 +35,7 @@ function topFacetValues(objects: DesignObject[], form: boolean, limit: number): 
   const counts = new Map<string, number>();
   for (const o of objects) {
     for (const [field, value] of Object.entries(o.fields)) {
-      const isFormField = FORM_FIELDS.some((f) => field.toLowerCase().includes(f));
-      if (isFormField !== form) continue;
+      if (isFormField(field) !== form) continue;
       // Never mymind-owned metadata (created/modified/summary/…), never
       // dates, never long prose — only real facet VOCABULARY.
       if ((MYMIND_OWNED_FIELD_KEYS as readonly string[]).includes(field)) continue;

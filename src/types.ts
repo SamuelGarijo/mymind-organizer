@@ -305,4 +305,4 @@ export type ViewSelection =
   | { kind: "all" }
   | { kind: "unclassified" }
   | { kind: "collection"; collectionId: string }
-  | { kind: "similar"; objectId: string };
+  | { kind: "similar"; objectId: string; mode?: "form" | "content" | "blend" };

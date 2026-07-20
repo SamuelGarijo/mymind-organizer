@@ -1,5 +1,7 @@
-import type { DesignObject } from "../types";
+import type { DesignObject, ObjectRelation } from "../types";
 import { norm } from "./textNorm";
+import { isFormField, isFormWord } from "./formVocabulary";
+import { BLOB_ASPECT_KEY } from "./mymindSync";
 import {
   BLOB_PALETTE_KEY,
   DESCRIPTION_KEY,
@@ -244,6 +246,186 @@ function scorePair(
 export function similarityScore(a: DesignObject, b: DesignObject, allObjects: DesignObject[]): number {
   const stats = getCorpusStats(allObjects);
   return scorePair(a, b, tfidfVector(a, stats), tfidfVector(b, stats)).score;
+}
+
+// ---------------------------------------------------------------------------
+// Split similarity (issue #136): FORM (how it looks) vs CONTENT (what it's
+// about) as two independently tunable rankings, never one unexplained
+// blended number. Signals reuse this engine's primitives, partitioned by
+// the shared form vocabulary (lib/formVocabulary):
+//
+//   FORM:    palette distance · form-tags · form-facets · aspect ratio
+//   CONTENT: content-tags · TF-IDF keywords · content-facets ·
+//            mymind embedding cosine (when both sides carry one) ·
+//            entity/role match
+//
+// Both modes accept the knowledge graph: a manually created relationship
+// between seed and candidate is a ranking BOOST (issue #133's relations
+// feeding discovery), applied after the mode score so it never masquerades
+// as visual/semantic likeness.
+// ---------------------------------------------------------------------------
+
+export type SimilarityMode = "form" | "content" | "blend";
+
+/** Independently tunable (issue #136 requirement) — adjust one mode
+ * without touching the other. */
+const FORM_WEIGHTS = { color: 0.35, formTag: 0.3, formFacet: 0.2, aspect: 0.15 };
+const CONTENT_WEIGHTS = { contentTag: 0.3, keyword: 0.25, contentFacet: 0.2, embedding: 0.15, entity: 0.1 };
+/** Direct seed↔candidate relationship boost — additive, post-score. */
+const RELATION_BOOST = 0.2;
+
+function splitTagSet(object: DesignObject, form: boolean): Set<string> {
+  return new Set(object.tags.filter((t) => isFormWord(t) === form).map(norm));
+}
+
+function splitFacetPairSet(object: DesignObject, form: boolean): Set<string> {
+  const pairs = new Set<string>();
+  for (const [field, value] of Object.entries(object.fields)) {
+    if (SYSTEM_FIELD_KEYS.has(field)) continue;
+    if (isFormField(field) !== form) continue;
+    const values = Array.isArray(value) ? value : [value];
+    for (const v of values) {
+      if (v) pairs.add(`${norm(field)}:${norm(v)}`);
+    }
+  }
+  return pairs;
+}
+
+function aspectOf(object: DesignObject): number | null {
+  const raw = asFieldString(object.fields[BLOB_ASPECT_KEY]);
+  const n = Number(raw);
+  return raw && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Aspect-ratio proximity in log space (a 2:1 vs 1:2 pair is as far apart
+ * as 1:1 vs 4:1) — a quiet compositional signal: portrait posters cluster
+ * with portrait posters, spreads with spreads. */
+function aspectSimilarity(a: DesignObject, b: DesignObject): number | null {
+  const aa = aspectOf(a);
+  const bb = aspectOf(b);
+  if (aa === null || bb === null) return null;
+  const d = Math.abs(Math.log(aa) - Math.log(bb));
+  return Math.max(0, 1 - d / Math.log(4));
+}
+
+function embeddingCosine(a: DesignObject, b: DesignObject): number | null {
+  const ea = a.embedding;
+  const eb = b.embedding;
+  if (!ea || !eb || ea.length !== eb.length || ea.length === 0) return null;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < ea.length; i++) {
+    dot += ea[i] * eb[i];
+    na += ea[i] * ea[i];
+    nb += eb[i] * eb[i];
+  }
+  if (na === 0 || nb === 0) return null;
+  return Math.max(0, dot / (Math.sqrt(na) * Math.sqrt(nb)));
+}
+
+/** Weighted sum over available signals — a null signal's weight
+ * redistributes across the rest (same missing-signal policy as the
+ * original hybrid keyword handling). */
+function weighted(entries: [number | null, number][]): number {
+  let sum = 0;
+  let weightSum = 0;
+  for (const [value, weight] of entries) {
+    if (value === null) continue;
+    sum += value * weight;
+    weightSum += weight;
+  }
+  return weightSum === 0 ? 0 : sum / weightSum;
+}
+
+function formScorePair(target: DesignObject, candidate: DesignObject): number {
+  return weighted([
+    [paletteSimilarity(parsePalette(target), parsePalette(candidate)) || null, FORM_WEIGHTS.color],
+    [jaccard(splitTagSet(target, true), splitTagSet(candidate, true)), FORM_WEIGHTS.formTag],
+    [jaccard(splitFacetPairSet(target, true), splitFacetPairSet(candidate, true)), FORM_WEIGHTS.formFacet],
+    [aspectSimilarity(target, candidate), FORM_WEIGHTS.aspect],
+  ]);
+}
+
+function contentScorePair(
+  target: DesignObject,
+  candidate: DesignObject,
+  targetTfidf: Map<string, number> | null,
+  candidateTfidf: Map<string, number> | null
+): number {
+  const entityA = norm(asFieldString(target.fields.entity_type) || target.role || "");
+  const entityB = norm(asFieldString(candidate.fields.entity_type) || candidate.role || "");
+  return weighted([
+    [jaccard(splitTagSet(target, false), splitTagSet(candidate, false)), CONTENT_WEIGHTS.contentTag],
+    [
+      targetTfidf && candidateTfidf ? Math.max(0, cosineSim(targetTfidf, candidateTfidf)) : null,
+      CONTENT_WEIGHTS.keyword,
+    ],
+    [jaccard(splitFacetPairSet(target, false), splitFacetPairSet(candidate, false)), CONTENT_WEIGHTS.contentFacet],
+    [embeddingCosine(target, candidate), CONTENT_WEIGHTS.embedding],
+    [entityA && entityB ? (entityA === entityB ? 1 : 0) : null, CONTENT_WEIGHTS.entity],
+  ]);
+}
+
+export type ModeSimilarityResult = {
+  id: string;
+  /** The mode's own score (or the blend), relation boost included. */
+  score: number;
+  /** Both components exposed — never one unexplained number (#136). */
+  formScore: number;
+  contentScore: number;
+  related: boolean;
+};
+
+/**
+ * Ranks candidates against `target` in a specific mode. `blendWeight`
+ * (0 = pure form … 1 = pure content, default 0.5) powers the future
+ * blended slider; `relations` (the store's objectRelations) boosts
+ * directly connected pairs.
+ */
+export function rankBySimilarityMode(
+  target: DesignObject,
+  candidates: DesignObject[],
+  allObjects: DesignObject[],
+  opts: {
+    mode: SimilarityMode;
+    limit?: number;
+    blendWeight?: number;
+    relations?: ObjectRelation[];
+  }
+): ModeSimilarityResult[] {
+  const { mode, limit = 60, blendWeight = 0.5, relations } = opts;
+  const stats = getCorpusStats(allObjects);
+  const targetTfidf = tfidfVector(target, stats);
+  const relatedIds = new Set<string>();
+  if (relations) {
+    for (const r of relations) {
+      if (r.sourceObjectId === target.id) relatedIds.add(r.targetObjectId);
+      else if (r.targetObjectId === target.id) relatedIds.add(r.sourceObjectId);
+    }
+  }
+  return candidates
+    .map((c) => {
+      const formScore = formScorePair(target, c);
+      const contentScore =
+        mode === "form" ? 0 : contentScorePair(target, c, targetTfidf, tfidfVector(c, stats));
+      const base =
+        mode === "form"
+          ? formScore
+          : mode === "content"
+          ? contentScore
+          : formScore * (1 - blendWeight) + contentScore * blendWeight;
+      const related = relatedIds.has(c.id);
+      return {
+        id: c.id,
+        score: Math.min(1, base + (related ? RELATION_BOOST : 0)),
+        formScore,
+        contentScore,
+        related,
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
 
 /** Ranks every candidate against `target`, most similar first — the

@@ -149,14 +149,17 @@ export function DiscoveryStrip({
   // ── Organizer (internal) results: the query searches the archive OUTSIDE
   // this collection; an empty query falls back to hybrid same-vibe.
   const searchIndex = useMemo(() => buildSearchIndex(allObjects), [allObjects]);
+  const relations = useStore((s) => s.objectRelations);
   const internalResults = useMemo(() => {
     if (activeSource !== "organizer") return [];
     const q = query.trim();
-    if (!q) return computeSimilarOutside(members, memberIds, allObjects);
+    // Empty query = the mix, ranked in the session's mode (#136): Same
+    // form → visual likeness, Same content → semantic.
+    if (!q) return computeSimilarOutside(members, memberIds, allObjects, 14, mode, relations);
     return searchObjects(searchIndex, q, allObjects)
       .filter((o) => !memberIds.has(o.id))
       .slice(0, 18);
-  }, [activeSource, query, members, memberIds, allObjects, searchIndex]);
+  }, [activeSource, query, members, memberIds, allObjects, searchIndex, mode, relations]);
 
   // ── Are.na results (real API, via the local proxy).
   const [arenaResults, setArenaResults] = useState<ArenaResult[] | null>(null);

@@ -23,7 +23,7 @@ import type { ColorFilter } from "./lib/colorSearch";
 import { createIdbStorage } from "./lib/idbStorage";
 import { loadEmbeddings, saveEmbeddings } from "./lib/embeddingsStorage";
 import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
-import { rankByHybridSimilarity } from "./lib/hybridSimilarity";
+import { rankByHybridSimilarity, rankBySimilarityMode } from "./lib/hybridSimilarity";
 import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
 import { parseBackup } from "./lib/backupValidation";
@@ -1495,7 +1495,10 @@ export function isSampleObject(obj: DesignObject): boolean {
 /** What getVisibleObjects actually reads — narrower than the full State so
  * callers can pass a shallow-selected subset (see App.tsx) instead of
  * subscribing to the whole store just to call this function. */
-export type VisibilityState = Pick<State, "objects" | "collections" | "selectedView" | "tagGroups">;
+export type VisibilityState = Pick<
+  State,
+  "objects" | "collections" | "selectedView" | "tagGroups" | "objectRelations"
+>;
 
 export function getVisibleObjects(state: VisibilityState): DesignObject[] {
   const all = Object.values(state.objects);
@@ -1524,7 +1527,14 @@ export function getVisibleObjects(state: VisibilityState): DesignObject[] {
     const target = state.objects[view.objectId];
     if (!target) return [];
     const candidates = all.filter((o) => o.id !== target.id);
-    const ranked = rankByHybridSimilarity(target, candidates, all, 60);
+    // Split similarity (#136): the view carries which KIND of likeness the
+    // user asked for — visual form, semantic content, or the blend —
+    // with manual relationships boosting either ranking.
+    const ranked = rankBySimilarityMode(target, candidates, all, {
+      mode: view.mode ?? "blend",
+      limit: 60,
+      relations: state.objectRelations,
+    });
     const byId = new Map(all.map((o) => [o.id, o]));
     // The reference object itself leads the list (issue #81) — Grid's own
     // masonry placement (lib/masonry.ts) always seats the first item in

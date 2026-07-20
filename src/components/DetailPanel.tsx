@@ -19,7 +19,7 @@ import {
   updateMymindNote,
 } from "../lib/mymindWrite";
 import { buildDownloadFilename } from "../lib/downloadFilename";
-import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
+import { rankBySimilarityMode, type SimilarityMode } from "../lib/hybridSimilarity";
 import { viewTitle } from "../lib/viewLabel";
 import { RolePackageModal } from "./RolePackageModal";
 import { ArrowsInSimple } from "@phosphor-icons/react";
@@ -171,6 +171,10 @@ export function DetailPanel({
   // drop targets (issue #132 follow-up: the modal layer was swallowing
   // every dragover, making drag-out from the detail view impossible).
   const [dragPassThrough, setDragPassThrough] = useState(false);
+  // Split similarity (#136): which KIND of likeness the strip ranks by —
+  // visual form vs semantic content. Two explicit paths, never one
+  // unexplained blend (the blend stays available to the similar view).
+  const [similarMode, setSimilarMode] = useState<Exclude<SimilarityMode, "blend">>("form");
   const [addingToCollection, setAddingToCollection] = useState(false);
   const [addCollectionDraft, setAddCollectionDraft] = useState("");
   // "New type…" input draft in the item-type picker, and whether the
@@ -317,9 +321,13 @@ export function DetailPanel({
     if (!object) return [];
     const allObjects = Object.values(state.objects);
     const candidates = allObjects.filter((o) => o.id !== object.id);
-    const ranked = rankByHybridSimilarity(object, candidates, allObjects, 8);
+    const ranked = rankBySimilarityMode(object, candidates, allObjects, {
+      mode: similarMode,
+      limit: 8,
+      relations: state.objectRelations,
+    });
     return ranked.map((r) => state.objects[r.id]).filter((o): o is DesignObject => !!o);
-  }, [object, state.objects]);
+  }, [object, state.objects, similarMode, state.objectRelations]);
 
   /** Filters the current view down to just this tag (replacing any other
    * tag filters) and closes the panel so the filtered results are visible
@@ -990,8 +998,29 @@ export function DetailPanel({
         )}
 
         <div className="px-4 pt-4">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] uppercase tracking-wide text-muted">✦ Similar to this</span>
+          <div className="flex items-center justify-between mb-1.5 gap-2">
+            <span className="text-[11px] uppercase tracking-wide text-muted shrink-0">✦ Similar</span>
+            <div className="flex items-center gap-1 font-mono text-[10px]">
+              {(["form", "content"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setSimilarMode(m)}
+                  className={[
+                    "px-1.5 py-0.5 rounded border",
+                    similarMode === m
+                      ? "border-accent/50 bg-accent/5 text-ink"
+                      : "border-line text-muted hover:text-ink",
+                  ].join(" ")}
+                  title={
+                    m === "form"
+                      ? "Visually similar — palette, style tags, composition, aspect"
+                      : "Semantically similar — subject, text, meaning, entity type"
+                  }
+                >
+                  {m === "form" ? "Same form" : "Same content"}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => {
                 // Non-destructive (design-philosophy: "don't navigate away
@@ -1004,7 +1033,7 @@ export function DetailPanel({
                 const cur = useStore.getState();
                 const scrollEl = document.querySelector("[data-content-scroll]") as HTMLElement | null;
                 cur.pushViewSnapshot(
-                  { kind: "similar", objectId: object.id },
+                  { kind: "similar", objectId: object.id, mode: similarMode },
                   viewTitle(cur),
                   scrollEl?.scrollTop ?? 0
                 );

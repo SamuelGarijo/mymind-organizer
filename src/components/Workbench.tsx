@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkle, X } from "@phosphor-icons/react";
+import { Palette, Sparkle, X } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
-import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
+import { rankBySimilarityMode, type SimilarityMode } from "../lib/hybridSimilarity";
 import { applyDragGhost, DRAG_MIME } from "../lib/objectDrag";
 import type { DesignObject, ManualCollection } from "../types";
 
@@ -100,13 +100,19 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
     offerUndo(ids, `cleared ${ids.length}`);
   }
 
-  /** Pull this item's same-vibe neighbours into the bench — secondary
+  /** Pull this item's similar neighbours into the bench, in a specific
+   * mode (#136: form = visual likeness, content = semantic) — secondary
    * exploration happens INSIDE the bench, the main view never changes. */
-  function pullVibes(seed: DesignObject) {
+  function pullVibes(seed: DesignObject, mode: Exclude<SimilarityMode, "blend">) {
+    const st = useStore.getState();
     const candidates = allObjectsList.filter(
       (o) => o.id !== seed.id && !state.workbenchIds.includes(o.id)
     );
-    const similar = rankByHybridSimilarity(seed, candidates, allObjectsList, VIBE_BATCH);
+    const similar = rankBySimilarityMode(seed, candidates, allObjectsList, {
+      mode,
+      limit: VIBE_BATCH,
+      relations: st.objectRelations,
+    });
     state.addToWorkbench(similar.map((r) => r.id));
   }
 
@@ -191,7 +197,7 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
                 }}
                 onOpen={() => onOpenDetail(o.id)}
                 onRemove={() => removeOne(o.id)}
-                onVibes={() => pullVibes(o)}
+                onVibes={(mode) => pullVibes(o, mode)}
               />
             ))}
           </div>
@@ -319,7 +325,7 @@ function BenchRow({
   onReorder: (draggedId: string) => void;
   onOpen: () => void;
   onRemove: () => void;
-  onVibes: () => void;
+  onVibes: (mode: "form" | "content") => void;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   return (
@@ -378,10 +384,18 @@ function BenchRow({
       </button>
       <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
-          onClick={onVibes}
+          onClick={() => onVibes("form")}
           className="w-6 h-6 rounded-md flex items-center justify-center bg-panel/85 backdrop-blur text-muted hover:text-accent shadow-card"
-          title="Pull this item's same-vibe neighbours onto the bench"
-          aria-label={`Add items similar to ${object.title}`}
+          title="Pull VISUALLY similar things onto the bench (same form)"
+          aria-label={`Add items visually similar to ${object.title}`}
+        >
+          <Palette size={12} />
+        </button>
+        <button
+          onClick={() => onVibes("content")}
+          className="w-6 h-6 rounded-md flex items-center justify-center bg-panel/85 backdrop-blur text-muted hover:text-accent shadow-card"
+          title="Pull SEMANTICALLY similar things onto the bench (same content)"
+          aria-label={`Add items about the same thing as ${object.title}`}
         >
           <Sparkle size={12} />
         </button>

@@ -1,5 +1,5 @@
-import { rankByHybridSimilarity } from "./hybridSimilarity";
-import type { DesignObject } from "../types";
+import { rankBySimilarityMode, type SimilarityMode } from "./hybridSimilarity";
+import type { DesignObject, ObjectRelation } from "../types";
 
 /**
  * "More like this collection, from OUTSIDE it" — a handful of spread-out
@@ -13,7 +13,9 @@ export function computeSimilarOutside(
   members: DesignObject[],
   memberIds: Set<string>,
   allObjects: DesignObject[],
-  limit = 14
+  limit = 14,
+  mode: SimilarityMode = "blend",
+  relations?: ObjectRelation[]
 ): DesignObject[] {
   if (members.length === 0) return [];
   const step = Math.max(1, Math.floor(members.length / 5));
@@ -23,7 +25,7 @@ export function computeSimilarOutside(
   const candidates = allObjects.filter((o) => !memberIds.has(o.id));
   const best = new Map<string, number>();
   for (const seed of seeds) {
-    for (const r of rankByHybridSimilarity(seed, candidates, allObjects, 30)) {
+    for (const r of rankBySimilarityMode(seed, candidates, allObjects, { mode, limit: 30, relations })) {
       if ((best.get(r.id) ?? 0) < r.score) best.set(r.id, r.score);
     }
   }

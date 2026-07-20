@@ -116,6 +116,7 @@ export default function App() {
       setCanvasSplitWidth: s.setCanvasSplitWidth,
       workbenchCount: s.workbenchIds.length,
       setWorkbenchOpen: s.setWorkbenchOpen,
+      objectRelations: s.objectRelations,
       viewBackStack: s.viewBackStack,
       flashNotice: s.flashNotice,
       setFlashNotice: s.setFlashNotice,
@@ -148,7 +149,7 @@ export default function App() {
   const baseObjects = useMemo(
     () => getVisibleObjects(state),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.objects, state.collections, state.selectedView, state.tagGroups]
+    [state.objects, state.collections, state.selectedView, state.tagGroups, state.objectRelations]
   );
 
   // Cascading facet options (the "getFacetedUniqueValues" idea from the
@@ -1335,6 +1336,7 @@ export default function App() {
             collections: state.collections,
             selectedView: { kind: "collection", collectionId: arenaExportId },
             tagGroups: state.tagGroups,
+            objectRelations: state.objectRelations,
           })}
           onClose={() => setArenaExportId(null)}
         />

@@ -819,6 +819,7 @@ export function Sidebar({
         collections: st.collections,
         selectedView: { kind: "collection", collectionId },
         tagGroups: st.tagGroups,
+        objectRelations: st.objectRelations,
       });
       const id = st.createCanvas(col.name, members.map((o) => o.id));
       st.openCanvas(id);
