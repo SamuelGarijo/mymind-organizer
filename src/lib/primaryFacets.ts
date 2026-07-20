@@ -96,19 +96,21 @@ const WEAK_USER_CONFIRMED = 0.2;
  * Plain constants, easy to retune — not derived from any other threshold in
  * the app.
  *
- * `pinned` (2026-07-20) exempts a facet from HIDING, never from muting. The
- * bug it fixes was circular and quietly fatal to the whole feature: a
- * property you had just created had 0% coverage, so it was hidden, so there
- * was nowhere to fill it from, so it stayed at 0% forever. Pinning is an
- * explicit statement that this facet matters in this world — the coverage
- * statistic must not overrule the user's own intent. Muting still applies:
- * "you asked for this and it's still mostly empty" is honest.
+ * `justCreated` (2026-07-20) exempts ONE facet from HIDING, never from
+ * muting: the property created through "+ property" this session. Without
+ * it the feature was circular — a brand-new property had 0% coverage, so it
+ * was hidden, so there was nowhere to fill it from, so it stayed at 0%
+ * forever. The exemption is deliberately THIS narrow: a first cut exempted
+ * every pinned facet, which resurrected four near-empty columns at once and
+ * read as an invasive wall of chrome (Samuel's feedback, same day). Intent
+ * beats statistics only for the thing just asked for; everything else earns
+ * its place through coverage.
  */
 export function classifyFacetEmphasis(
   strength: FacetStrength,
-  pinned = false
+  justCreated = false
 ): FacetEmphasis {
-  if (strength.coveragePct < HIDE_COVERAGE) return pinned ? "muted" : "hidden";
+  if (strength.coveragePct < HIDE_COVERAGE) return justCreated ? "muted" : "hidden";
   if (strength.coveragePct < MUTE_COVERAGE) return "muted";
   if (strength.userConfirmedPct < WEAK_USER_CONFIRMED) return "muted";
   return "normal";

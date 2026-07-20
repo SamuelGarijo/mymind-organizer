@@ -464,14 +464,19 @@ export function DetailPanel({
       : object.imageUrl;
 
   function handleDelete() {
-    const ok = window.confirm(
-      object.source === "mymind"
-        ? "Delete this item from The Organizer? It stays in mymind — this only removes it here, and it won't come back on the next sync."
-        : "Delete this item from The Organizer? This can't be undone."
-    );
-    if (!ok) return;
-    state.deleteObjectLocally(object.id);
-    onClose();
+    const objectId = object.id;
+    useStore.getState().requestConfirm({
+      title: "Delete this item from The Organizer?",
+      body:
+        object.source === "mymind"
+          ? "It stays in mymind — this only removes it here, and it won't come back on the next sync."
+          : "This can't be undone.",
+      action: "Delete",
+      onConfirm: () => {
+        useStore.getState().deleteObjectLocally(objectId);
+        onClose();
+      },
+    });
   }
 
   function addTag() {

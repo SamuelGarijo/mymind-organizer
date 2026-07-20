@@ -7,6 +7,7 @@ import {
   groupField,
   groupNameFromField,
   isGroupField,
+  matchesSmartCollection,
 } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
 import type { DesignObject, FilterCondition, FilterOperator, FilterSimilarity, TagGroups } from "../types";
@@ -183,6 +184,17 @@ export function SmartCollectionModal({
     } else {
       id = state.addSmartCollection(trimmedName, rule, parentId);
       state.setSelectedView({ kind: "collection", collectionId: id });
+      // A new collection sets itself up as a workspace by DEFAULT — types
+      // assigned, starter facets pinned, announced via flash notice. No
+      // dialog (Samuel, 2026-07-20); everything stays editable per item.
+      const st = useStore.getState();
+      const collection = st.collections[id];
+      if (collection?.type === "smart") {
+        const memberIds = Object.values(st.objects)
+          .filter((o) => matchesSmartCollection(collection, o, st.tagGroups, st.objects))
+          .map((o) => o.id);
+        if (memberIds.length > 0) st.setupWorkspaceFor(memberIds);
+      }
     }
     state.updateCollectionMeta(id, { description, heroImageObjectId });
     onClose();

@@ -790,12 +790,14 @@ export function Sidebar({
   }
 
   function handleClearSamples() {
-    const ok = window.confirm(
-      `Remove ${sampleCount} sample item${sampleCount === 1 ? "" : "s"} from the Organizer?\n\n` +
+    useStore.getState().requestConfirm({
+      title: `Remove ${sampleCount} sample item${sampleCount === 1 ? "" : "s"}?`,
+      body:
         "Only locally imported test data is removed — objects synced from mymind " +
-        "are untouched, and nothing is ever deleted in mymind itself."
-    );
-    if (ok) state.deleteSampleObjects();
+        "are untouched, and nothing is ever deleted in mymind itself.",
+      action: "Remove",
+      onConfirm: () => useStore.getState().deleteSampleObjects(),
+    });
   }
 
   function handleDropCreateManual(objectId: string) {

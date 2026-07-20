@@ -62,6 +62,7 @@ export function CollectionLedger({
       setRoleFilter: s.setRoleFilter,
     }))
   );
+  const justCreatedField = useStore((s) => s.justCreatedFieldName);
   const [expandedField, setExpandedField] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [addingProperty, setAddingProperty] = useState(false);
@@ -165,17 +166,22 @@ export function CollectionLedger({
 
       {orderedPinned.map((field) => {
         const strength = computeFacetStrength(roleObjects, field, localUserTags);
-        // Pinned facets are never hidden — see classifyFacetEmphasis. A
-        // property Samuel just created must appear even at 0%, or the gesture
-        // reads as having silently failed.
-        const emphasis = classifyFacetEmphasis(strength, true);
+        // Only the property just created via "+ property" is exempt from
+        // coverage-hiding — it must appear even at 0% or the gesture reads
+        // as failed. Every OTHER low-coverage facet stays hidden: the
+        // resting ledger is content, not a wall of half-empty columns.
+        const emphasis = classifyFacetEmphasis(
+          strength,
+          justCreatedField !== null && norm(field.name) === norm(justCreatedField)
+        );
+        if (emphasis === "hidden") return null;
         const values = computeFieldValueFrequency(roleObjects, field.name);
         const expanded = expandedField === field.name;
         const shown = expanded ? values : values.slice(0, VISIBLE_VALUES);
         const hiddenCount = values.length - shown.length;
         const emptyCount = roleObjects.length - Math.round(strength.coveragePct * roleObjects.length);
         return (
-          <div key={field.name} className={emphasis === "muted" ? "opacity-60" : ""}>
+          <div key={field.name} className={["group/facet", emphasis === "muted" ? "opacity-60" : ""].join(" ")}>
             <ColumnLabel>{field.name}</ColumnLabel>
             <div className="flex flex-col gap-0.5">
               {values.length === 0 && (
@@ -310,7 +316,11 @@ function FillRow({
     .sort((a, b) => b.filled - a.filled)[0];
 
   return (
-    <div className="font-mono text-[10px] text-muted/60 mt-0.5">
+    // Hover-summoned, never resident: a standing "412 empty · fill" on every
+    // column multiplied into exactly the kind of chrome wall the design
+    // philosophy bans. The offer appears when attention arrives at the
+    // column and recedes with it.
+    <div className="font-mono text-[10px] text-muted/60 mt-0.5 opacity-0 group-hover/facet:opacity-100 transition-opacity">
       {empty} empty
       {best && (
         <>

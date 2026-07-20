@@ -45,6 +45,7 @@ import { surfaceVariants } from "./lib/chrome";
 import { viewTitle } from "./lib/viewLabel";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { suggestRole } from "./lib/roleSuggestion";
 import type { DesignObject, FacetField } from "./types";
 
@@ -334,6 +335,10 @@ export default function App() {
   const [arenaExportObjectId, setArenaExportObjectId] = useState<string | null>(null);
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
+  // The app-voiced replacement for window.confirm — any component requests
+  // one via the store; this is the single render site (see ConfirmDialog).
+  const confirm = useStore((s) => s.pendingConfirm);
+  const setConfirm = useStore((s) => s.requestConfirm);
   const [prefsOpen, setPrefsOpen] = useState(false);
   // Which of the active role's primary facets the classify panel is folding
   // by — lives here (not in the panel) because the main grid's reservoir
@@ -666,20 +671,21 @@ export default function App() {
       counts.set(suggestion, (counts.get(suggestion) ?? 0) + 1);
     }
     if (assignments.length === 0) {
-      alert("Nothing to assign — every object either already has a type or matches no rule.");
+      state.setFlashNotice("Nothing to assign — everything has a type or matches no rule.");
       return;
     }
     const summary = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([role, count]) => `${role}: ${count}`)
       .join("\n");
-    const ok = window.confirm(
-      `This will assign an item type to ${assignments.length.toLocaleString()} object` +
-        `${assignments.length === 1 ? "" : "s"}:\n\n${summary}\n\n` +
-        "Always editable afterward from any item's detail panel. Continue?"
-    );
-    if (!ok) return;
-    state.bulkAssignRoles(assignments);
+    // The one bulk action big enough to still warrant a pause — but in the
+    // app's own voice, never window.confirm (Samuel, 2026-07-20).
+    setConfirm({
+      title: `Assign an item type to ${assignments.length.toLocaleString()} objects?`,
+      body: summary,
+      action: "Assign",
+      onConfirm: () => useStore.getState().bulkAssignRoles(assignments),
+    });
   }
 
   // Single entry point for the top bar's "Classify" button — owns the "is
@@ -698,50 +704,22 @@ export default function App() {
       return;
     }
     state.setWorkbenchOpen(false);
+    // Workspace setup is a DEFAULT, not a dialog: assign, announce via
+    // flash notice, open the panel. Every assignment stays editable from
+    // any item's detail panel — that reversibility is the real safety, not
+    // a confirm popup (Samuel, 2026-07-20).
     const ids = baseObjects.map((o) => o.id);
-    if (distinctRoleKeys(baseObjects).size === 0) {
-      const assignments: { objectId: string; role: string }[] = [];
-      const counts = new Map<string, number>();
-      for (const obj of baseObjects) {
-        const suggestion = suggestRole(obj);
-        if (!suggestion) continue;
-        assignments.push({ objectId: obj.id, role: suggestion });
-        counts.set(suggestion, (counts.get(suggestion) ?? 0) + 1);
-      }
-      if (assignments.length === 0) {
-        alert(
-          "Couldn't suggest a type for anything in this collection — assign one by hand from an item's detail panel, then try Classify again."
-        );
-        return;
-      }
-      const summary = Array.from(counts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([role, count]) => `${role}: ${count}`)
-        .join("\n");
-      const ok = window.confirm(
-        `Set up this collection as a workspace? This assigns a type to ${assignments.length.toLocaleString()} object${
-          assignments.length === 1 ? "" : "s"
-        }:\n\n${summary}\n\nAlways editable afterward from any item's detail panel. Continue?`
+    useStore.getState().setupWorkspaceFor(ids);
+    if (distinctRoleKeys(
+      ids
+        .map((id) => useStore.getState().objects[id])
+        .filter((o): o is DesignObject => Boolean(o))
+    ).size === 0) {
+      state.setFlashNotice(
+        "Couldn't suggest a type for anything here — assign one from an item's detail panel, then try again."
       );
-      if (!ok) return;
-      state.bulkAssignRoles(assignments);
+      return;
     }
-
-    const fresh = useStore.getState();
-    const freshObjects = ids
-      .map((id) => fresh.objects[id])
-      .filter((o): o is DesignObject => Boolean(o));
-    for (const key of distinctRoleKeys(freshObjects)) {
-      const def = fresh.roles[key];
-      if (!def || def.fields.length === 0) continue;
-      if (def.primaryFacets && def.primaryFacets.length > 0) continue;
-      fresh.updateRoleFields(
-        def.name,
-        def.fields,
-        def.fields.slice(0, 3).map((f) => f.name)
-      );
-    }
-
     state.openClassificationPanel();
   }
 
@@ -766,37 +744,36 @@ export default function App() {
       try {
         parsed = parseBackup(text);
       } catch (err) {
-        alert("Couldn't read that backup file: " + (err as Error).message);
+        state.setFlashNotice("Couldn't read that backup file: " + (err as Error).message);
         return;
       }
 
       const currentCount = Object.keys(state.objects).length;
       const objectCount = parsed.objects.length;
       const collectionCount = parsed.collections.length;
-      const summary =
-        `This backup contains ${objectCount.toLocaleString()} object${objectCount === 1 ? "" : "s"}` +
-        ` and ${collectionCount} collection${collectionCount === 1 ? "" : "s"}.`;
-      const ok = window.confirm(
-        `${summary}\n\n` +
+      setConfirm({
+        title: "Restore this backup?",
+        body:
+          `${objectCount.toLocaleString()} object${objectCount === 1 ? "" : "s"}, ${collectionCount} collection${collectionCount === 1 ? "" : "s"}.` +
           (currentCount > 0
-            ? `Restore it? It replaces everything currently in the Organizer (${currentCount.toLocaleString()} items) — this can't be undone. mymind itself is never touched.`
-            : "Restore it into the Organizer?")
-      );
-      if (!ok) return;
-
-      try {
-        state.restoreFromBackup(text);
-      } catch (err) {
-        alert("Couldn't restore that backup: " + (err as Error).message);
-        return;
-      }
-
-      // A reload (rather than trusting every mounted component to notice
-      // the store swap) is what actually fixed the "collections don't
-      // show up" symptom this was built for — simplest guarantee that
-      // every view re-reads the restored store from scratch.
-      sessionStorage.setItem(RESTORE_NOTICE_KEY, "1");
-      window.location.reload();
+            ? `\nReplaces everything currently here (${currentCount.toLocaleString()} items) — can't be undone. mymind itself is never touched.`
+            : ""),
+        action: "Restore",
+        onConfirm: () => {
+          try {
+            useStore.getState().restoreFromBackup(text);
+          } catch (err) {
+            useStore.getState().setFlashNotice("Couldn't restore that backup: " + (err as Error).message);
+            return;
+          }
+          // A reload (rather than trusting every mounted component to
+          // notice the store swap) is what actually fixed the "collections
+          // don't show up" symptom this was built for — simplest guarantee
+          // that every view re-reads the restored store from scratch.
+          sessionStorage.setItem(RESTORE_NOTICE_KEY, "1");
+          window.location.reload();
+        },
+      });
     });
   }
 
@@ -1257,6 +1234,16 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          body={confirm.body}
+          action={confirm.action}
+          onConfirm={confirm.onConfirm}
+          onClose={() => useStore.getState().clearConfirm()}
+        />
+      )}
 
       <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 max-w-sm">
         <AnimatePresence initial={false}>

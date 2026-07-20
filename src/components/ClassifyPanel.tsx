@@ -195,7 +195,15 @@ export function ClassifyPanel({
     const raw = e.dataTransfer.getData(DRAG_MIME);
     if (!raw) return;
     const ids: string[] = JSON.parse(raw);
-    useStore.getState().assignFieldValue(ids, activeField!.name, label, mode);
+    const st = useStore.getState();
+    // A "+ new folder" IS a new option on this property — dropping into it
+    // must add the option to the field's definition (shared vocabulary,
+    // issue #96), not just write values that no other surface knows about.
+    // Table's grouped view already did both; this was the missing half.
+    if (!activeField!.options?.some((opt) => norm(opt) === norm(label))) {
+      st.addFieldOption(activeField!.name, label);
+    }
+    st.assignFieldValue(ids, activeField!.name, label, mode);
   }
 
   function folderRow(label: string, members: DesignObject[]) {

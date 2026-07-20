@@ -27,6 +27,7 @@ import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
 import { rankByHybridSimilarity, rankBySimilarityMode } from "./lib/hybridSimilarity";
 import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
+import { suggestRole } from "./lib/roleSuggestion";
 import type { Proposal } from "./lib/fieldExtraction";
 import {
   addPromotion,
@@ -255,6 +256,35 @@ type State = {
    * into it — the true inverse of an enrichment pass, so a rule that turned
    * out wrong leaves nothing behind. */
   clearFieldValues: (objectIds: string[], fieldName: string) => void;
+  /** The field name most recently created through the "+ property" gesture
+   * this session — transient (never persisted). CollectionLedger exempts
+   * exactly this one column from coverage-based hiding, so a property born
+   * empty is visible long enough to be filled without every OTHER
+   * low-coverage pinned facet crowding the ledger (Samuel, 2026-07-20:
+   * the blanket exemption read as an invasive wall of chrome). */
+  justCreatedFieldName: string | null;
+  /** The app-voiced replacement for window.confirm (banned — Samuel,
+   * 2026-07-20): any component can request one; App renders the single
+   * ConfirmDialog. Transient, never persisted. Reserved for genuinely
+   * heavy/irreversible actions — reversible things should just happen and
+   * announce themselves via flashNotice. */
+  pendingConfirm: {
+    title: string;
+    body: string;
+    action: string;
+    onConfirm: () => void;
+  } | null;
+  requestConfirm: (confirm: NonNullable<State["pendingConfirm"]>) => void;
+  clearConfirm: () => void;
+  /** Workspace setup as a DEFAULT, not a dialog (Samuel, 2026-07-20:
+   * native confirm popups are unacceptable, and a collection should set
+   * itself up). Runs suggestRole over the role-less objects among `ids`,
+   * bulk-assigns in one update, pins a starter facet set for any present
+   * role that has fields but no pins, and announces what happened through
+   * flashNotice instead of asking permission first — every assignment
+   * stays editable from any item's detail panel, which is the honest
+   * reversibility a confirm dialog only pretends to add. */
+  setupWorkspaceFor: (ids: string[]) => void;
   renameCollection: (id: string, name: string) => void;
   /** Updates a collection's optional channel-style metadata (issue #87) —
    * shared by both collection types, since description/hero image aren't
@@ -966,6 +996,10 @@ export const useStore = create<State>()(
 
       fieldProvenance: {},
       tagPromotions: {},
+      justCreatedFieldName: null,
+      pendingConfirm: null,
+      requestConfirm: (confirm) => set({ pendingConfirm: confirm }),
+      clearConfirm: () => set({ pendingConfirm: null }),
 
       addRoleField: (roleName, field, pin = true) =>
         set((s) => {
@@ -975,14 +1009,15 @@ export const useStore = create<State>()(
           if (base.fields.some((f) => norm(f.name) === norm(field.name))) return {};
           const primaryFacets = base.primaryFacets ?? [];
           return {
+            // The one column exempt from coverage-hiding this session — a
+            // property you just asked for that doesn't appear anywhere
+            // would read as the gesture having failed.
+            justCreatedFieldName: field.name,
             roles: {
               ...s.roles,
               [key]: {
                 ...base,
                 fields: [...base.fields, field],
-                // Pinning is what makes the new property visible in the
-                // ledger at all — a property you just asked for that doesn't
-                // appear anywhere would read as the gesture having failed.
                 ...(pin && primaryFacets.length < 5
                   ? { primaryFacets: [...primaryFacets, field.name] }
                   : {}),
@@ -990,6 +1025,53 @@ export const useStore = create<State>()(
             },
           };
         }),
+
+      setupWorkspaceFor: (ids) => {
+        const s = get();
+        const members = ids
+          .map((id) => s.objects[id])
+          .filter((o): o is DesignObject => Boolean(o));
+
+        const assignments: { objectId: string; role: string }[] = [];
+        const counts = new Map<string, number>();
+        for (const obj of members) {
+          if (obj.role) continue;
+          const suggestion = suggestRole(obj);
+          if (!suggestion) continue;
+          assignments.push({ objectId: obj.id, role: suggestion });
+          counts.set(suggestion, (counts.get(suggestion) ?? 0) + 1);
+        }
+        if (assignments.length > 0) {
+          s.bulkAssignRoles(assignments);
+          const summary = Array.from(counts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .map(([role, count]) => `${role} ${count}`)
+            .join(" · ");
+          s.setFlashNotice(
+            `Typed ${assignments.length.toLocaleString()} item${assignments.length === 1 ? "" : "s"} — ${summary}. Editable on any item.`
+          );
+        }
+
+        // Starter pins for any present role with fields but nothing pinned
+        // yet, so the workspace has facets to show without a second gesture.
+        const fresh = get();
+        const roleKeys = new Set(
+          ids
+            .map((id) => fresh.objects[id]?.role)
+            .filter((r): r is string => Boolean(r))
+            .map((r) => norm(r))
+        );
+        for (const key of roleKeys) {
+          const def = fresh.roles[key];
+          if (!def || def.fields.length === 0) continue;
+          if (def.primaryFacets && def.primaryFacets.length > 0) continue;
+          fresh.updateRoleFields(
+            def.name,
+            def.fields,
+            def.fields.slice(0, 3).map((f) => f.name)
+          );
+        }
+      },
 
       applyProposals: (proposals) =>
         set((s) => {
