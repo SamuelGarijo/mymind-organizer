@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { MagnifyingGlass, SlidersHorizontal, Sparkle, Tray } from "@phosphor-icons/react";
 import { readDraggedIds } from "../lib/objectDrag";
 import { useStore } from "../store";
-import { MOTION, surfaceVariants } from "../lib/chrome";
+import { surfaceVariants } from "../lib/chrome";
 import { useShallow } from "zustand/react/shallow";
 import {
   computeFieldValueFrequency,
@@ -319,17 +319,22 @@ export function TopBar({
         <div
           ref={menuRef}
           className="relative w-full transition-[max-width] duration-200 ease-out pointer-events-auto"
-          style={{ maxWidth: suggestOpen || menuOpen ? 760 : compact ? 420 : 640 }}
+          style={{ maxWidth: suggestOpen || menuOpen ? 760 : compact ? 460 : 720 }}
         >
+          {/* Active filters live INSIDE the bar (second row) — the bar is
+              the single search instrument: query + conditions in one
+              element, nothing loose floating over the workspace. */}
           <div
             className={[
-              "flex items-center gap-1 rounded-full border bg-panel transition-[box-shadow,border-color,padding] duration-200",
+              "border bg-panel transition-[box-shadow,border-color,padding] duration-200",
+              hasAnyFilter ? "rounded-3xl" : "rounded-full",
               suggestOpen || menuOpen
                 ? "border-accent/40 shadow-cardHover"
                 : "border-line/60 shadow-card",
               compact && !suggestOpen ? "pl-4 pr-1 py-0.5" : "pl-5 pr-1.5 py-1.5",
             ].join(" ")}
           >
+            <div className="flex items-center gap-1">
             <MagnifyingGlass size={14} className="shrink-0 text-muted mr-2" />
             <input
               value={searchQuery}
@@ -372,6 +377,49 @@ export function TopBar({
             >
               <FilterIcon active={hasAnyFilter} />
             </button>
+            </div>
+
+            {hasAnyFilter && (
+              <div className="flex flex-wrap items-center gap-1.5 pr-2 pb-1 pt-0.5">
+                {pills.map(renderPill)}
+
+                {facetTags.length > 1 && (
+                  <div className="flex items-center gap-1 text-[11px]">
+                    <span className="text-muted">Match</span>
+                    <div className="inline-flex rounded-lg border border-line overflow-hidden">
+                      {(["AND", "OR"] as const).map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => setFacetMode(m)}
+                          className={[
+                            "px-2 py-0.5",
+                            facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
+                          ].join(" ")}
+                          title={m === "AND" ? "Must have all included tags" : "Match any included tag"}
+                        >
+                          {m === "AND" ? "all" : "any"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => {
+                    setTypeFilter("");
+                    setRoleFilter("");
+                    setFacetFieldFilter(null);
+                    clearFacetTags();
+                    clearExcludedTags();
+                    setColorFilter(null);
+                    setGroupBy(null);
+                  }}
+                  className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
+                >
+                  clear all
+                </button>
+              </div>
+            )}
           </div>
 
           <AnimatePresence>
@@ -782,57 +830,6 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Summoned by state, recedes with it — exists only while filtering. */}
-      <AnimatePresence initial={false}>
-      {hasAnyFilter && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1, transition: { duration: MOTION.reveal, ease: MOTION.easeOut } }}
-          exit={{ height: 0, opacity: 0, transition: { duration: MOTION.micro, ease: MOTION.easeIn } }}
-          className="overflow-hidden"
-        >
-        <div className="px-5 pb-1.5 flex flex-wrap items-center gap-2 pointer-events-auto">
-          {pills.map(renderPill)}
-
-          {facetTags.length > 1 && (
-            <div className="flex items-center gap-1 text-[11px]">
-              <span className="text-muted">Match</span>
-              <div className="inline-flex rounded-lg border border-line overflow-hidden">
-                {(["AND", "OR"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setFacetMode(m)}
-                    className={[
-                      "px-2 py-0.5",
-                      facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
-                    ].join(" ")}
-                    title={m === "AND" ? "Must have all included tags" : "Match any included tag"}
-                  >
-                    {m === "AND" ? "all" : "any"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <button
-            onClick={() => {
-              setTypeFilter("");
-              setRoleFilter("");
-              setFacetFieldFilter(null);
-              clearFacetTags();
-              clearExcludedTags();
-              setColorFilter(null);
-              setGroupBy(null);
-            }}
-            className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
-          >
-            clear all
-          </button>
-        </div>
-        </motion.div>
-      )}
-      </AnimatePresence>
     </div>
   );
 }

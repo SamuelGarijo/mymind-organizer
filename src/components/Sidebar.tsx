@@ -5,6 +5,7 @@ import {
   CaretRight,
   DotsThree,
   Folder,
+  House,
   Graph,
   PencilSimpleLine,
   FrameCorners,
@@ -773,6 +774,21 @@ export function Sidebar({
       : totalCount
   ).toLocaleString();
 
+  /** Home = All items with NOTHING active: view, filters and search all
+   * reset — the one-click way back to the unfiltered library. */
+  function goHome() {
+    const s = useStore.getState();
+    s.setSelectedView({ kind: "all" });
+    s.setTypeFilter("");
+    s.setRoleFilter("");
+    s.setFacetFieldFilter(null);
+    s.clearFacetTags();
+    s.clearExcludedTags();
+    s.setColorFilter(null);
+    s.setGroupBy(null);
+    s.setSearchQuery("");
+  }
+
   function handleClearSamples() {
     const ok = window.confirm(
       `Remove ${sampleCount} sample item${sampleCount === 1 ? "" : "s"} from the Organizer?\n\n` +
@@ -839,9 +855,36 @@ export function Sidebar({
   // "unpin/hide", the overlay shows "pin" (make this permanent) + close.
   const sidebarBody = (variant: "pinned" | "overlay") => (
     <>
-      <div className="px-4 pt-4 pb-1 flex items-center justify-between gap-2">
-        <div className="font-mono text-[13px] font-bold tracking-tight truncate">
-          The Organizer
+      <div className="px-3 pt-4 pb-1 flex items-center justify-between gap-2">
+        {/* Home + breadcrumb (the pinned sidebar's answer to the rail's
+            vertical breadcrumb): the house IS the "All items" root — in a
+            collection the route reads House / Name. */}
+        <div className="flex items-center gap-0.5 min-w-0">
+          <button
+            onClick={goHome}
+            className={[
+              "w-7 h-7 shrink-0 flex items-center justify-center rounded-md",
+              selectedView.kind === "all"
+                ? "text-ink"
+                : "text-muted hover:text-ink hover:bg-line/40",
+            ].join(" ")}
+            aria-label="All items — no filters"
+            title="All items — clears every filter and search"
+          >
+            <House size={15} weight={selectedView.kind === "all" ? "fill" : "regular"} />
+          </button>
+          {selectedView.kind === "all" ? (
+            <span className="font-mono text-[13px] font-bold tracking-tight truncate">
+              The Organizer
+            </span>
+          ) : (
+            <span className="font-mono text-[11px] text-muted truncate">
+              /{" "}
+              <span className="font-bold text-ink/85">
+                {viewLabel(state)} · {totalShownLabel}
+              </span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
           {variant === "overlay" ? (
@@ -1125,6 +1168,14 @@ export function Sidebar({
             chrome.overlayVisible ? "opacity-0 pointer-events-none" : "opacity-100",
           ].join(" ")}
         >
+          <button
+            onClick={goHome}
+            className="w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"
+            aria-label="All items — no filters"
+            title="All items — clears every filter and search"
+          >
+            <House size={15} />
+          </button>
           <button
             onClick={() => (chrome.overlayVisible ? chrome.closePeek() : chrome.openPeek(true))}
             className="relative w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40"

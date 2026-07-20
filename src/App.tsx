@@ -178,6 +178,19 @@ export default function App() {
   }, [baseObjects, state.typeFilter, state.facetTags, state.facetMode, state.excludedTags, state.facetFieldFilter]);
   const roleTypes = useMemo(() => computeRoleFrequency(roleTypesPool), [roleTypesPool]);
 
+  // When any filter is active the command bar grows a second row (the
+  // pills now live INSIDE it) — content padding follows so nothing at
+  // rest hides under the taller bar.
+  const filterRowActive = !!(
+    state.typeFilter ||
+    state.roleFilter ||
+    state.facetFieldFilter ||
+    state.facetTags.length > 0 ||
+    state.excludedTags.length > 0 ||
+    state.colorFilter ||
+    state.groupBy
+  );
+
   const typeFiltered = useMemo(
     () => applyTypeFilter(baseObjects, state.typeFilter),
     [baseObjects, state.typeFilter]
@@ -1030,12 +1043,12 @@ export default function App() {
             <div className="h-full flex flex-col">
               {/* Role picker stays reachable while classifying — contextual
                   chrome tied to the intent (N21). */}
-              <div className="pt-14">
+              <div className={filterRowActive ? "pt-20" : "pt-14"}>
                 <RoleStrip objects={baseObjects} roles={state.roles} roleFilter={state.roleFilter} />
               </div>
               {/* The reservoir IS the main space (N8): the not-yet-folded
                   things keep the sacred area; folders float beside them. */}
-              <div className="flex-1 overflow-y-auto pl-5 pr-[26rem] pt-16 pb-5" data-content-scroll>
+              <div className={`flex-1 overflow-y-auto pl-5 pr-[26rem] ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
                 <Grid
                   objects={reservoirObjects}
                   facetColumns={facetColumns}
@@ -1052,7 +1065,7 @@ export default function App() {
               </div>
             </div>
           ) : state.viewMode === "table" ? (
-            <div className="h-full p-5 pt-16">
+            <div className={`h-full p-5 ${filterRowActive ? "pt-24" : "pt-16"}`}>
               <Table
                 objects={visibleObjects}
                 facetColumns={facetColumns}
@@ -1064,7 +1077,7 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="h-full overflow-y-auto px-5 pt-16 pb-5" data-content-scroll>
+            <div className={`h-full overflow-y-auto px-5 ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
               {/* The collection's workspace header is CONTENT, not chrome —
                   it scrolls away with the grid (are.na channel-header move;
                   design-philosophy Principle 8 + N1). */}
