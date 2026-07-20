@@ -106,6 +106,7 @@ const STOPWORDS = new Set([
   "what", "when", "where", "which", "will", "would", "should", "could",
   "have", "been", "being", "there", "their", "they", "them", "then", "than",
   "some", "such", "very", "just", "like", "also", "each", "before", "after",
+  "your", "yours", "will", "most", "more", "only", "still", "back", "here",
   "para", "sobre", "como", "este", "esta", "estos", "estas", "pero", "porque",
   "cuando", "donde", "entre", "hasta", "desde", "más", "menos", "todo", "toda",
   "segundo", "primero", "párrafo", "parrafo",
@@ -116,26 +117,75 @@ const STOPWORDS = new Set([
  * a visual likeness — in which case `origin` says so in plain language). */
 type Suggestion = { object: DesignObject; terms: string[]; origin?: string };
 
+const TOKEN_RE = /[A-Za-zÀ-ž0-9]{4,}/g;
+
+/** How many archive objects mention each token (title, tags, summary, note
+ * content — the same fields Fuse searches). This is the no-AI answer to
+ * "which words are actually distinctive": a term the whole library uses
+ * ("enter", "design") says nothing; one only a handful of objects share
+ * ("cowes", "jeanneau") IS the connection. */
+function buildArchiveTermFrequency(objects: DesignObject[]): Map<string, number> {
+  const df = new Map<string, number>();
+  for (const o of objects) {
+    const text = `${o.title} ${o.tags.join(" ")} ${asFieldString(o.fields.summary)} ${asFieldString(
+      o.fields[NOTE_CONTENT_KEY]
+    )}`;
+    const seen = new Set<string>();
+    for (const tok of text.match(TOKEN_RE) ?? []) seen.add(tok.toLowerCase());
+    for (const t of seen) df.set(t, (df.get(t) ?? 0) + 1);
+  }
+  return df;
+}
+
 /** The document's own vocabulary: distinctive words, most-telling first.
- * Frequency × distinctiveness, no model involved — proper nouns and long
- * words outrank filler, and repetition is evidence of subject. */
-function documentTerms(text: string, limit = 8): string[] {
-  const counts = new Map<string, { n: number; proper: boolean; len: number }>();
-  for (const tok of text.replace(EMBED_RE, "").match(/[A-Za-zÀ-ž0-9]{4,}/g) ?? []) {
+ * tf × idf against the archive itself, no model involved. The earlier
+ * frequency-only version anchored on words like "Enter" (capitalised only
+ * because it started a line, common across half the library) — real bug,
+ * 2026-07-20. Now: a capital counts as a proper noun only mid-sentence,
+ * and a term's weight falls with how much of the archive uses it. */
+function documentTerms(
+  text: string,
+  archiveDf: Map<string, number>,
+  archiveSize: number,
+  limit = 8
+): string[] {
+  const clean = text.replace(EMBED_RE, "");
+  const counts = new Map<string, { n: number; proper: boolean }>();
+  TOKEN_RE.lastIndex = 0;
+  for (let m = TOKEN_RE.exec(clean); m; m = TOKEN_RE.exec(clean)) {
+    const tok = m[0];
     const low = tok.toLowerCase();
     if (STOPWORDS.has(low)) continue;
-    const prev = counts.get(low);
-    counts.set(low, {
-      n: (prev?.n ?? 0) + 1,
-      proper: (prev?.proper ?? false) || tok[0] === tok[0].toUpperCase(),
-      len: tok.length,
-    });
+    // Sentence-initial capitals are grammar, not names: look back past
+    // spaces/quotes/bullets for what actually precedes the word.
+    let j = m.index - 1;
+    while (j >= 0 && ' \t"\'([•*-'.includes(clean[j])) j--;
+    const sentenceInitial = j < 0 || clean[j] === "\n" || ".!?:".includes(clean[j]);
+    const isCapital = tok[0] !== tok[0].toLowerCase();
+    const prev = counts.get(low) ?? { n: 0, proper: false };
+    counts.set(low, { n: prev.n + 1, proper: prev.proper || (isCapital && !sentenceInitial) });
   }
-  return [...counts.entries()]
-    .map(([term, c]) => ({ term, score: c.n * (c.proper ? 2.5 : 1) + Math.min(c.len, 12) / 12 }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((t) => t.term);
+  return (
+    [...counts.entries()]
+      // A term nothing in the archive mentions can't connect to anything,
+      // and one that most of the archive mentions connects to everything —
+      // both waste one of the few search slots. The stopword list catches
+      // known filler; this cap catches the filler nobody listed.
+      .filter(([term]) => {
+        const df = archiveDf.get(term) ?? 0;
+        return df > 0 && df < archiveSize * 0.08;
+      })
+      .map(([term, c]) => ({
+        term,
+        score:
+          c.n *
+          (c.proper ? 2.5 : 1) *
+          Math.log(archiveSize / (1 + (archiveDf.get(term) ?? 0))),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((t) => t.term)
+  );
 }
 
 /** Paints ranges over the editor WITHOUT touching its DOM — the CSS
@@ -556,19 +606,35 @@ export function WritingWorkspace() {
   // without any AI: the anchor is a literal word in your text.
   const allObjectsList = useMemo(() => Object.values(objects), [objects]);
   const searchIndex = useMemo(() => buildSearchIndex(allObjectsList), [allObjectsList]);
+  // Rebuilt only when the library itself changes — never per keystroke.
+  const archiveDf = useMemo(() => buildArchiveTermFrequency(allObjectsList), [allObjectsList]);
   const suggestions = useMemo<Suggestion[]>(() => {
     if (!showRefs) return [];
     const exclude = new Set([...embeds.map((o) => o.id), boundNote?.id ?? ""]);
     if (refMode === "content") {
-      const terms = documentTerms(`${title}\n${settledBody}`);
+      const terms = documentTerms(`${title}\n${settledBody}`, archiveDf, allObjectsList.length);
       if (terms.length === 0) return [];
       // Fuse treats a query as ONE fuzzy pattern — a whole document
       // matches nothing. Ask per distinctive term and pool the answers,
       // scoring by rank so an object several terms agree on rises.
       const pool = new Map<string, { object: DesignObject; score: number; terms: string[] }>();
       for (const term of terms) {
+        // Fuse matches fuzzily — "jeanneau" happily returned Jean
+        // Baudrillard, "race" matched Terrace. A hit only counts if the
+        // term literally starts a word in the object's own text (prefix,
+        // so "week" still reaches "Weekly"): the reason shown to the user
+        // must be a fact, not an approximation.
+        const literal = new RegExp(`\\b${term}`, "i");
         const hits = searchObjects(searchIndex, term, allObjectsList)
-          .filter((o) => !exclude.has(o.id))
+          .filter(
+            (o) =>
+              !exclude.has(o.id) &&
+              literal.test(
+                `${o.title} ${o.tags.join(" ")} ${asFieldString(o.fields.summary)} ${asFieldString(
+                  o.fields[NOTE_CONTENT_KEY]
+                )}`
+              )
+          )
           .slice(0, 8);
         hits.forEach((o, rank) => {
           const entry = pool.get(o.id) ?? { object: o, score: 0, terms: [] };
@@ -603,6 +669,7 @@ export function WritingWorkspace() {
     embeds,
     boundNote,
     searchIndex,
+    archiveDf,
     allObjectsList,
     relations,
     objects,
