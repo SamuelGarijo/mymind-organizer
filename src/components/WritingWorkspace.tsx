@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, Sidebar as SidebarIcon, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowSquareOut, X } from "@phosphor-icons/react";
 import { useStore } from "../store";
+import { viewTitle } from "../lib/viewLabel";
 import { DRAG_MIME, objectDragProps, readDraggedIds } from "../lib/objectDrag";
 import { rankBySimilarityMode, type SimilarityMode } from "../lib/hybridSimilarity";
 import { buildSearchIndex, searchObjects } from "../lib/search";
@@ -28,6 +29,75 @@ import type { DesignObject } from "../types";
 
 const EMBED_RE = /!\[\[([^\]]+)\]\]/g;
 
+/** Markdown stays the STORAGE format (mymind's note content is plain text
+ * and the `![[id]]` embeds live in it) — the editorial surface is just a
+ * live rendering of it: one block element per line, headings from `#`. */
+const HEADING_RE = /^(#{1,6})\s+([\s\S]*)$/;
+
+function blocksFromMarkdown(text: string): { level: number; text: string }[] {
+  return text.split("\n").map((line) => {
+    const m = HEADING_RE.exec(line);
+    return m ? { level: m[1].length, text: m[2] } : { level: 0, text: line };
+  });
+}
+
+function markdownFromDom(root: HTMLElement): string {
+  const lines: string[] = [];
+  for (const el of Array.from(root.children)) {
+    const tag = el.tagName.toLowerCase();
+    const level = /^h[1-6]$/.test(tag) ? Number(tag[1]) : 0;
+    // NBSPs are what contenteditable leaves behind for typed spaces.
+    const text = (el.textContent ?? "").replace(/\u00a0/g, " ");
+    lines.push(level ? `${"#".repeat(level)} ${text}` : text);
+  }
+  return lines.join("\n");
+}
+
+/** Paints markdown into the editor's DOM — only ever called when the
+ * document CHANGES, never on keystrokes: the DOM owns the caret while
+ * typing, exactly as an uncontrolled input does. */
+function paintEditor(root: HTMLElement, text: string) {
+  root.replaceChildren();
+  for (const b of blocksFromMarkdown(text)) {
+    const node = document.createElement(b.level ? `h${b.level}` : "p");
+    if (b.text) node.textContent = b.text;
+    else node.appendChild(document.createElement("br"));
+    root.appendChild(node);
+  }
+  if (!root.firstChild) {
+    const p = document.createElement("p");
+    p.appendChild(document.createElement("br"));
+    root.appendChild(p);
+  }
+}
+
+/** The top-level block the caret sits in (a direct child of the editor). */
+function caretBlock(root: HTMLElement): HTMLElement | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  let node: Node | null = sel.anchorNode;
+  while (node && node.parentNode !== root) node = node.parentNode;
+  return node instanceof HTMLElement ? node : null;
+}
+
+function placeCaret(el: HTMLElement, atEnd = false) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(!atEnd);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+/** Swaps a block's tag in place (p ⇄ h1–h6), keeping the caret inside. */
+function setBlockLevel(root: HTMLElement, block: HTMLElement, level: number, text: string) {
+  const next = document.createElement(level ? `h${level}` : "p");
+  if (text) next.textContent = text;
+  else next.appendChild(document.createElement("br"));
+  root.replaceChild(next, block);
+  placeCaret(next, true);
+}
+
 /** Function words that say nothing about the paragraph's subject — en+es,
  * kept tiny and curated. Without this, "sobre"/"para"/"this" dominated the
  * term picks and the suggestions read as random. */
@@ -49,14 +119,10 @@ function embeddedIds(body: string): string[] {
   return ids;
 }
 
-/** The paragraph containing the caret — the references panel's context. */
-function paragraphAt(text: string, caret: number): string {
-  const before = text.lastIndexOf("\n\n", Math.max(0, caret - 1));
-  const after = text.indexOf("\n\n", caret);
-  return text
-    .slice(before === -1 ? 0 : before + 2, after === -1 ? text.length : after)
-    .replace(EMBED_RE, "")
-    .trim();
+/** The block under the caret — the references panel's context. */
+function paragraphUnderCaret(root: HTMLElement): string {
+  const block = caretBlock(root);
+  return (block?.textContent ?? "").replace(EMBED_RE, "").trim();
 }
 
 function EmbedChip({ object, onRemove }: { object: DesignObject; onRemove: () => void }) {
@@ -147,6 +213,12 @@ export function WritingWorkspace() {
   const docs = useStore((s) => s.writingDocs);
   const objects = useStore((s) => s.objects);
   const relations = useStore((s) => s.objectRelations);
+  const fontSize = useStore((s) => s.writingFontSize);
+  const setWritingFontSize = useStore((s) => s.setWritingFontSize);
+  const selectedView = useStore((s) => s.selectedView);
+  const collections = useStore((s) => s.collections);
+  // Where "back" actually lands — the view still standing behind this one.
+  const backLabel = viewTitle({ selectedView, objects, collections });
 
   const boundNote = target?.kind === "note" ? objects[target.objectId] : null;
   const doc = target?.kind === "doc" ? docs[target.id] : null;
@@ -165,15 +237,23 @@ export function WritingWorkspace() {
   const [showRefs, setShowRefs] = useState(false);
   const [refMode, setRefMode] = useState<Exclude<SimilarityMode, "blend">>("content");
   const [paragraph, setParagraph] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | null>(null);
   const paragraphTimer = useRef<number | null>(null);
   const targetKey = target ? (target.kind === "doc" ? target.id : target.objectId) : "";
 
-  // Re-seed local body when switching documents (not on every store echo).
+  // Enter must produce a <p>, not the browser's default <div> — the
+  // serializer's block model is p + h1–h6 and nothing else.
+  useEffect(() => {
+    document.execCommand("defaultParagraphSeparator", false, "p");
+  }, []);
+
+  // Re-seed local body AND repaint the surface when switching documents
+  // (never on store echoes — the DOM owns the caret while typing).
   useEffect(() => {
     setBody(storedBody);
     setPushState("idle");
+    if (editorRef.current) paintEditor(editorRef.current, storedBody);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKey]);
 
@@ -218,9 +298,81 @@ export function WritingWorkspace() {
   function trackParagraph() {
     if (paragraphTimer.current) window.clearTimeout(paragraphTimer.current);
     paragraphTimer.current = window.setTimeout(() => {
-      const el = textareaRef.current;
-      if (el) setParagraph(paragraphAt(el.value, el.selectionStart));
+      const el = editorRef.current;
+      if (el) setParagraph(paragraphUnderCaret(el));
     }, 700);
+  }
+
+  /** Serialize the DOM back to markdown after any edit — and promote a
+   * block that now READS as a heading (`## `). Doing it here rather than
+   * only on the space keydown means pasted markdown, IME input and
+   * autocomplete all get the same treatment. */
+  function handleEditorInput() {
+    const el = editorRef.current;
+    if (!el) return;
+    const block = caretBlock(el);
+    if (block && block.tagName.toLowerCase() === "p") {
+      const m = /^(#{1,6})\s+([\s\S]*)$/.exec(block.textContent ?? "");
+      if (m) setBlockLevel(el, block, m[1].length, m[2]);
+    }
+    handleBodyChange(markdownFromDom(el));
+    trackParagraph();
+  }
+
+  /** A heading is a title, not a paragraph style — the block after it is
+   * body copy, where the browser would clone the heading tag. Handled on
+   * `beforeinput` rather than the Enter keydown so every path that splits
+   * a block (keyboard, IME, execCommand) goes through it. */
+  function handleBeforeInput(e: React.FormEvent<HTMLDivElement>) {
+    const native = e.nativeEvent as InputEvent;
+    if (native.inputType !== "insertParagraph") return;
+    const root = editorRef.current;
+    if (!root) return;
+    const block = caretBlock(root);
+    if (!block || !/^h[1-6]$/.test(block.tagName.toLowerCase())) return;
+    // Only when splitting at the very end — mid-heading splits should keep
+    // producing a heading, the way any editor would.
+    const sel = window.getSelection();
+    const atEnd =
+      sel?.isCollapsed &&
+      sel.anchorOffset === (sel.anchorNode?.textContent?.length ?? 0) &&
+      block.lastChild?.contains(sel.anchorNode ?? block);
+    if (!atEnd) return;
+    e.preventDefault();
+    const p = document.createElement("p");
+    p.appendChild(document.createElement("br"));
+    block.after(p);
+    placeCaret(p);
+    handleEditorInput();
+  }
+
+  /** Medium-style block behaviour, kept to the few keys that matter:
+   * `#`…`######` + space promotes the block to that heading level; Enter
+   * out of a heading returns to body copy; Backspace at the head of an
+   * empty heading demotes it back to a paragraph. */
+  function handleEditorKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const root = editorRef.current;
+    if (!root) return;
+    const block = caretBlock(root);
+    if (!block) return;
+    const tag = block.tagName.toLowerCase();
+    const level = /^h[1-6]$/.test(tag) ? Number(tag[1]) : 0;
+    const text = block.textContent ?? "";
+
+    if (e.key === " " && level === 0) {
+      const m = /^(#{1,6})$/.exec(text);
+      if (m) {
+        e.preventDefault();
+        setBlockLevel(root, block, m[1].length, "");
+        handleEditorInput();
+      }
+      return;
+    }
+    if (e.key === "Backspace" && level > 0 && text === "") {
+      e.preventDefault();
+      setBlockLevel(root, block, 0, "");
+      handleEditorInput();
+    }
   }
 
   useEffect(
@@ -232,11 +384,18 @@ export function WritingWorkspace() {
   );
 
   function insertEmbed(objectId: string) {
-    const el = textareaRef.current;
+    const el = editorRef.current;
     const token = `![[${objectId}]]`;
-    const at = el ? el.selectionStart : body.length;
-    const next = `${body.slice(0, at)}${token}${body.slice(at)}`;
-    handleBodyChange(next);
+    if (el) {
+      el.focus();
+      // execCommand keeps the browser's own undo stack intact — hand-built
+      // DOM insertion would silently break ⌘Z inside the document.
+      if (!caretBlock(el)) placeCaret((el.lastElementChild as HTMLElement) ?? el, true);
+      document.execCommand("insertText", false, token);
+      handleEditorInput();
+    } else {
+      handleBodyChange(body + token);
+    }
     // Writing creates relationships back into the archive (#137's
     // principle): embedding X into a bound note records note→X.
     if (boundNote && objectId !== boundNote.id) {
@@ -246,12 +405,6 @@ export function WritingWorkspace() {
         relationType: "references",
       });
     }
-    requestAnimationFrame(() => {
-      if (el) {
-        el.focus();
-        el.selectionStart = el.selectionEnd = at + token.length;
-      }
-    });
   }
 
   const contextObject = boundNote ?? null;
@@ -356,11 +509,17 @@ export function WritingWorkspace() {
     <div className="h-full flex min-h-0">
       {/* The document — center stage (Focus). */}
       <div className="flex-1 min-w-0 h-full overflow-y-auto" data-content-scroll>
-        <div className="max-w-2xl mx-auto px-6 pt-20 pb-16">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              {boundNote ? "Note" : "Document"}
-            </span>
+        <div className="max-w-[42rem] mx-auto px-6 pt-8 pb-24">
+          <div className="flex items-center gap-2 mb-8">
+            {/* Leaving is NAVIGATION, not dismissal — a back arrow naming
+                the destination, where an × read as "close the panel". */}
+            <button
+              onClick={() => useStore.getState().openWriting(null)}
+              className="font-mono text-[11px] inline-flex items-center gap-1.5 -ml-1 px-1.5 py-1 rounded text-muted hover:text-ink hover:bg-line/40"
+              title="Everything is saved"
+            >
+              <ArrowLeft size={12} /> {backLabel}
+            </button>
             <span className="font-mono text-[10px] text-muted/60">
               {pushState === "saving"
                 ? "saving…"
@@ -373,27 +532,25 @@ export function WritingWorkspace() {
                 : ""}
             </span>
             <span className="flex-1" />
-            <button
-              onClick={() => setShowRefs((v) => !v)}
-              className={[
-                "font-mono text-[10px] px-2 py-1 rounded border inline-flex items-center gap-1",
-                showRefs
-                  ? "border-accent/50 bg-accent/5 text-ink"
-                  : "border-line text-muted hover:text-ink",
-              ].join(" ")}
-              aria-pressed={showRefs}
-              title="References mode — archive suggestions beside the document"
-            >
-              <SidebarIcon size={11} /> References
-            </button>
-            <button
-              onClick={() => useStore.getState().openWriting(null)}
-              className="w-6 h-6 flex items-center justify-center rounded text-muted hover:text-ink hover:bg-line/40"
-              aria-label="Close writing workspace"
-              title="Close — everything is saved"
-            >
-              <X size={12} />
-            </button>
+            {/* Reading comfort, not decoration — persisted like grid zoom. */}
+            <div className="flex items-center gap-0.5 font-mono text-muted">
+              <button
+                onClick={() => setWritingFontSize(fontSize - 1)}
+                className="w-6 h-6 rounded hover:bg-line/40 hover:text-ink text-[11px]"
+                title="Smaller text"
+                aria-label="Decrease text size"
+              >
+                A
+              </button>
+              <button
+                onClick={() => setWritingFontSize(fontSize + 1)}
+                className="w-6 h-6 rounded hover:bg-line/40 hover:text-ink text-[15px]"
+                title="Larger text"
+                aria-label="Increase text size"
+              >
+                A
+              </button>
+            </div>
           </div>
 
           {doc ? (
@@ -402,8 +559,9 @@ export function WritingWorkspace() {
               onChange={(e) =>
                 useStore.getState().updateWritingDoc(doc.id, { title: e.target.value })
               }
-              placeholder="Untitled document"
-              className="w-full bg-transparent text-[22px] font-bold outline-none mb-1"
+              placeholder="Title"
+              className="editorial w-full bg-transparent font-bold outline-none mb-3 placeholder:text-muted/40"
+              style={{ fontSize: fontSize * 2.1 }}
             />
           ) : boundNote ? (
             <input
@@ -416,8 +574,9 @@ export function WritingWorkspace() {
                 }
               }}
               onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              placeholder="Untitled"
-              className="w-full bg-transparent text-[22px] font-bold outline-none mb-1"
+              placeholder="Title"
+              className="editorial w-full bg-transparent font-bold outline-none mb-3 placeholder:text-muted/40"
+              style={{ fontSize: fontSize * 2.1 }}
               aria-label="Note title"
             />
           ) : null}
@@ -428,46 +587,100 @@ export function WritingWorkspace() {
                 <EmbedChip
                   key={o.id}
                   object={o}
-                  onRemove={() =>
-                    handleBodyChange(body.split(`![[${o.id}]]`).join("").replace(/\n{3,}/g, "\n\n"))
-                  }
+                  onRemove={() => {
+                    const next = body
+                      .split(`![[${o.id}]]`)
+                      .join("")
+                      .replace(/\n{3,}/g, "\n\n");
+                    handleBodyChange(next);
+                    // Programmatic body rewrites are the one case that must
+                    // repaint — the DOM can't know the token vanished.
+                    if (editorRef.current) paintEditor(editorRef.current, next);
+                  }}
                 />
               ))}
             </div>
           )}
 
-          <textarea
-            ref={textareaRef}
-            value={body}
-            onChange={(e) => {
-              handleBodyChange(e.target.value);
-              trackParagraph();
-            }}
-            onKeyUp={trackParagraph}
-            onClick={trackParagraph}
-            onDragOver={(e) => {
-              if (e.dataTransfer.types.includes(DRAG_MIME)) e.preventDefault();
-            }}
-            onDrop={(e) => {
-              const ids = readDraggedIds(e);
-              if (ids.length === 0) return;
-              e.preventDefault();
-              for (const id of ids) insertEmbed(id);
-            }}
-            placeholder="write — drop any object here to embed it by reference…"
-            className="w-full min-h-[60vh] bg-transparent outline-none resize-none text-[15px] leading-relaxed text-ink/90 placeholder:text-muted/50"
-          />
+          <div className="relative">
+            {body === "" && (
+              <p
+                className="editorial absolute left-0 top-0 pointer-events-none text-muted/45"
+                style={{ fontSize }}
+              >
+                Tell the story… — "# " for a heading, drop any object to embed it
+              </p>
+            )}
+            <div
+              ref={editorRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              aria-label="Document body"
+              spellCheck
+              onInput={handleEditorInput}
+              onBeforeInput={handleBeforeInput}
+              onKeyDown={handleEditorKeyDown}
+              onKeyUp={trackParagraph}
+              onClick={trackParagraph}
+              onPaste={(e) => {
+                // Plain text only: pasted markup would smuggle styling the
+                // markdown storage format can't represent.
+                e.preventDefault();
+                document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+                handleEditorInput();
+              }}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes(DRAG_MIME)) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                const ids = readDraggedIds(e);
+                if (ids.length === 0) return;
+                e.preventDefault();
+                for (const id of ids) insertEmbed(id);
+              }}
+              className="editorial w-full min-h-[62vh] bg-transparent outline-none text-ink/90"
+              style={{ fontSize }}
+            />
+          </div>
         </div>
       </div>
 
+      {/* The panel's own edge carries its name (Samuel: "put the
+          references label in the endidura") — a vertical tab on the seam,
+          so the header stays free of chrome and the affordance sits where
+          the panel actually opens from. */}
+      <button
+        onClick={() => setShowRefs((v) => !v)}
+        className={[
+          "shrink-0 w-7 h-full flex items-center justify-center border-l transition-colors",
+          showRefs
+            ? "border-line/70 bg-canvas text-ink"
+            : "border-line/50 bg-canvas/60 text-muted hover:text-ink hover:bg-canvas",
+        ].join(" ")}
+        aria-pressed={showRefs}
+        aria-label={showRefs ? "Hide references" : "Show references"}
+        title={
+          showRefs
+            ? "Hide the references panel"
+            : "References — archive suggestions beside the document"
+        }
+      >
+        <span
+          className="font-mono text-[9px] uppercase tracking-[0.22em] whitespace-nowrap"
+          style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+        >
+          {showRefs ? "◂ " : "▸ "}
+          {visualContext ? "References" : "Related content"}
+        </span>
+      </button>
+
       {/* References — part of the workspace, not a floating panel. The
-          textarea never remounts when this opens: cursor/scroll survive. */}
+          editor never remounts when this opens: cursor/scroll survive. */}
       {showRefs && (
-        <div className="w-72 shrink-0 h-full overflow-y-auto border-l border-line/70 bg-canvas shadow-[inset_10px_0_16px_-12px_rgba(0,0,0,0.2)] px-3 pt-20 pb-6">
-          <div className="flex items-center gap-1 mb-2">
-            <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              {visualContext ? "References" : "Related content"}
-            </span>
+        <div className="w-72 shrink-0 h-full overflow-y-auto bg-canvas shadow-[inset_10px_0_16px_-12px_rgba(0,0,0,0.2)] px-3 pt-8 pb-6">
+          <div className="flex items-center justify-end gap-1 mb-2 min-h-[22px]">
             {visualContext && (["content", "form"] as const).map((m) => (
               <button
                 key={m}

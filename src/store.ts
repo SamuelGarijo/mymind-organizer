@@ -358,6 +358,10 @@ type State = {
   createWritingDoc: (title?: string) => string;
   updateWritingDoc: (id: string, patch: Partial<Pick<WritingDoc, "title" | "body">>) => void;
   deleteWritingDoc: (id: string) => void;
+  /** Reader-set body size for the writing surface, in px (16–26) — a
+   * reading/writing comfort setting, so it persists like gridZoom. */
+  writingFontSize: number;
+  setWritingFontSize: (px: number) => void;
 
   /** Knowledge relationships between objects (issue #133) — created on a
    * canvas, stored independently of any canvas. Deduped by
@@ -500,6 +504,7 @@ type PersistedState = Pick<
   | "canvasSplitWidth"
   | "writingDocs"
   | "writingDocOrder"
+  | "writingFontSize"
   | "localUserTags"
   | "sidebarCollapsed"
 >;
@@ -1101,6 +1106,8 @@ export const useStore = create<State>()(
       writingDocOrder: [],
       openWritingTarget: null,
       openWriting: (target) => set({ openWritingTarget: target }),
+      writingFontSize: 19,
+      setWritingFontSize: (px) => set({ writingFontSize: Math.max(16, Math.min(26, px)) }),
       createWritingDoc: (title) => {
         const id = makeId("doc");
         const now = new Date().toISOString();
@@ -1521,6 +1528,7 @@ export const useStore = create<State>()(
         canvasSplitWidth: state.canvasSplitWidth,
         writingDocs: state.writingDocs,
         writingDocOrder: state.writingDocOrder,
+        writingFontSize: state.writingFontSize,
         localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),

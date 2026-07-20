@@ -28,3 +28,59 @@ body {
     @apply inline-flex items-center rounded bg-canvas border border-line px-2 py-0.5 text-[11px] leading-4 text-ink/70;
   }
 }
+
+/* The writing surface (issue #137 feedback): an editorial table, not a
+   form field — Baskerville-family serif, a real heading scale and Medium's
+   generous rhythm. Sizes are relative to the reader-set body size, so the
+   A−/A+ control scales the whole page in proportion. */
+.editorial {
+  font-family: Baskerville, "Libre Baskerville", "Hoefler Text", Garamond,
+    "Times New Roman", serif;
+  line-height: 1.65;
+}
+/* One markdown line = one block, so the blank lines the author already
+   wrote ARE the paragraph spacing — adding a margin on top of them would
+   double every gap. Empty blocks stay short enough to read as one break. */
+.editorial p {
+  margin: 0;
+  min-height: 1.7em;
+}
+.editorial p:not(:has(*)):empty,
+.editorial p:has(> br:only-child) {
+  min-height: 0.9em;
+}
+.editorial h1,
+.editorial h2,
+.editorial h3,
+.editorial h4,
+.editorial h5,
+.editorial h6 {
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0.8em 0 0.2em;
+}
+.editorial > :first-child {
+  margin-top: 0;
+}
+.editorial h1 {
+  font-size: 1.9em;
+  letter-spacing: -0.02em;
+}
+.editorial h2 {
+  font-size: 1.5em;
+  letter-spacing: -0.015em;
+}
+.editorial h3 {
+  font-size: 1.25em;
+}
+.editorial h4 {
+  font-size: 1.1em;
+}
+.editorial h5 {
+  font-size: 1em;
+}
+.editorial h6 {
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}

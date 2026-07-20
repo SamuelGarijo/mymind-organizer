@@ -968,7 +968,11 @@ export default function App() {
       />
 
       <main className="flex-1 flex flex-col min-w-0 relative">
-        {/* The single resident band (design-philosophy N1). */}
+        {/* The single resident band (design-philosophy N1) — and it recedes
+            entirely in writing mode: search is the archive's instrument,
+            not the page's, and a floating bar over the text competes with
+            the sentence you're writing (Samuel, 2026-07-20). */}
+        {!state.openWritingTarget && (
         <TopBar
           title={viewTitle(state)}
           count={visibleObjects.length}
@@ -996,6 +1000,7 @@ export default function App() {
           colorFilter={state.colorFilter}
           setColorFilter={state.setColorFilter}
         />
+        )}
 
         <div
           className="flex-1 overflow-hidden relative"
