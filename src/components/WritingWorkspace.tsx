@@ -629,24 +629,20 @@ export function WritingWorkspace() {
       // Fuse treats a query as ONE fuzzy pattern — a whole document
       // matches nothing. Ask per distinctive term and pool the answers,
       // scoring by rank so an object several terms agree on rises.
-      const pool = new Map<string, { object: DesignObject; score: number; terms: string[]; strong: boolean }>();
-      // A term this rare in the archive (≤0.5%, min 8 objects) is a real
-      // subject link on its own; anything more common needs corroboration.
-      const rareCeiling = Math.max(8, allObjectsList.length * 0.005);
-      for (const { term, proper, tf } of terms) {
-        // Fuse matches fuzzily — "jeanneau" happily returned Jean
-        // Baudrillard, "race" matched Terrace. A hit only counts if the
-        // term literally starts a word in the object's own text (prefix,
-        // so "week" still reaches "Weekly"): the reason shown to the user
-        // must be a fact, not an approximation. And a PROPER noun from
-        // the document must match a capitalised word in the object —
-        // "Mats" the colleague is not "beer mats" the coasters.
+      const pool = new Map<string, { object: DesignObject; score: number; terms: string[] }>();
+      for (const { term, proper } of terms) {
+        // The reason shown to the user must be a fact, so a hit must
+        // contain the term as a WHOLE word (plus bare inflection:
+        // -s/-es/-ed/-ing). Prefix matching let "Connect" — reMarkable's
+        // product — reach ConnectICUT postcards and Love ConnectION album
+        // covers (reported 2026-07-20); fuzzy matching was worse still
+        // ("jeanneau" → Jean Baudrillard). And a PROPER noun from the
+        // document must match a capitalised word in the object — "Mats"
+        // the colleague is not "beer mats" the coasters.
+        const word = `\\b${term}(?:s|es|ed|ing)?\\b`;
         const literal = proper
-          ? new RegExp(`\\b${term[0].toUpperCase()}${term.slice(1)}`, "")
-          : new RegExp(`\\b${term}`, "i");
-        // Rare in the archive AND said more than once in the document —
-        // a name dropped a single time can anchor nothing on its own.
-        const rare = (archiveDf.get(term) ?? 0) <= rareCeiling && tf >= 2;
+          ? new RegExp(`\\b${term[0].toUpperCase()}${term.slice(1)}(?:s|es|ed|ing)?\\b`, "")
+          : new RegExp(word, "i");
         const hits = searchObjects(searchIndex, term, allObjectsList)
           .filter(
             (o) =>
@@ -659,21 +655,20 @@ export function WritingWorkspace() {
           )
           .slice(0, 8);
         hits.forEach((o, rank) => {
-          const entry = pool.get(o.id) ?? { object: o, score: 0, terms: [], strong: false };
+          const entry = pool.get(o.id) ?? { object: o, score: 0, terms: [] };
           entry.score += 8 - rank;
-          entry.strong ||= rare && rank < 4;
           if (!entry.terms.includes(term)) entry.terms.push(term);
           pool.set(o.id, entry);
         });
       }
       return (
         [...pool.values()]
-          // Strictness over volume (Samuel: "prefiero ver una barra
-          // vacía antes que objetos desconectados del tema"): one
-          // common-ish word shared with the document is coincidence, not
-          // connection. Survive on ≥2 distinct terms, or one genuinely
-          // rare term as a top hit. An empty panel is the honest answer.
-          .filter((e) => e.terms.length >= 2 || e.strong)
+          // ONE shared word is never a connection — however rare, it kept
+          // producing beermats and Connecticut postcards. Corroboration
+          // (≥2 distinct terms) or nothing; the empty shelf is the honest
+          // answer (Samuel, twice: "prefiero vacía", "la coincidencia no
+          // puede ser solo con una palabra suelta").
+          .filter((e) => e.terms.length >= 2)
           .sort((a, b) => b.score - a.score || b.terms.length - a.terms.length)
           .slice(0, 10)
           .map(({ object, terms: t }) => ({ object, terms: t }))
