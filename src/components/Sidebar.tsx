@@ -6,6 +6,7 @@ import {
   DotsThree,
   Folder,
   Graph,
+  PencilSimpleLine,
   FrameCorners,
   GearSix,
   GridFour,
@@ -671,6 +672,13 @@ export function Sidebar({
   // The rail capsule (quick controls) — hovering IT must not count as
   // expansion intent (issue #135); see the gutter's onPointerMove.
   const capsuleRef = useRef<HTMLDivElement>(null);
+  // Writing documents (issue #137) — separate scoped subscriptions.
+  const writingDocs = useStore((s) => s.writingDocs);
+  const writingDocOrder = useStore((s) => s.writingDocOrder);
+  const openWritingTarget = useStore((s) => s.openWritingTarget);
+  const openWriting = useStore((s) => s.openWriting);
+  const createWritingDoc = useStore((s) => s.createWritingDoc);
+  const deleteWritingDoc = useStore((s) => s.deleteWritingDoc);
   // Canvas documents (issue #133) — separate scoped subscriptions.
   const canvases = useStore((s) => s.canvases);
   const canvasOrder = useStore((s) => s.canvasOrder);
@@ -961,6 +969,49 @@ export function Sidebar({
               onDropSmart={handleDropCreateSmart}
             />
           )}
+        </div>
+
+        {/* Documents (issue #137) — writing as an output of the archive.
+            Section header always offers +; rows only once one exists. */}
+        <div className="mt-5 px-3">
+          <div className="flex items-center justify-between px-2 mb-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              Documents
+            </span>
+            <button
+              onClick={() => {
+                const id = createWritingDoc();
+                openWriting({ kind: "doc", id });
+              }}
+              className="text-muted hover:text-ink text-[15px] leading-none px-1"
+              aria-label="New document"
+              title="New writing document"
+            >
+              +
+            </button>
+          </div>
+          <div className="space-y-0.5">
+            {writingDocOrder.map((id) => {
+              const doc = writingDocs[id];
+              if (!doc) return null;
+              return (
+                <NavRow
+                  key={id}
+                  active={openWritingTarget?.kind === "doc" && openWritingTarget.id === id}
+                  onClick={() => openWriting({ kind: "doc", id })}
+                  icon={<PencilSimpleLine size={13} className="shrink-0 text-muted" />}
+                  label={doc.title}
+                  actions={[
+                    {
+                      label: "Delete document",
+                      onSelect: () => deleteWritingDoc(id),
+                      danger: true,
+                    },
+                  ]}
+                />
+              );
+            })}
+          </div>
         </div>
 
         {/* Canvases (issue #133) — presentation documents over the same

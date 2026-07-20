@@ -17,6 +17,7 @@ import { Workbench } from "./components/Workbench";
 import { Membrane } from "./components/Membrane";
 import { CanvasView } from "./components/CanvasView";
 import { DiscoveryStrip } from "./components/DiscoveryStrip";
+import { WritingWorkspace } from "./components/WritingWorkspace";
 import { ArrowLeft, X as XIcon } from "@phosphor-icons/react";
 import { ArenaExportModal } from "./components/ArenaExportModal";
 import { fetchArenaAccount, type ArenaAccount } from "./lib/arenaExport";
@@ -112,6 +113,7 @@ export default function App() {
       discoveryOpen: s.discoveryOpen,
       setDiscoveryOpen: s.setDiscoveryOpen,
       openCanvasId: s.openCanvasId,
+      openWritingTarget: s.openWritingTarget,
       canvasSplitWidth: s.canvasSplitWidth,
       setCanvasSplitWidth: s.setCanvasSplitWidth,
       workbenchCount: s.workbenchIds.length,
@@ -1022,7 +1024,9 @@ export default function App() {
               ].join(" ")}
             />
           )}
-          {classifyOpen && activeRole ? (
+          {state.openWritingTarget ? (
+            <WritingWorkspace />
+          ) : classifyOpen && activeRole ? (
             <div className="h-full flex flex-col">
               {/* Role picker stays reachable while classifying — contextual
                   chrome tied to the intent (N21). */}

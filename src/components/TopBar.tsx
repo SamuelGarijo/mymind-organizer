@@ -190,7 +190,7 @@ export function TopBar({
   if (typeFilter) {
     pills.push({
       key: "type",
-      label: `Type: ${typeFilter}`,
+      label: `Format: ${typeFilter}`,
       tone: "include",
       onRemove: () => setTypeFilter(""),
     });
@@ -198,7 +198,7 @@ export function TopBar({
   if (roleFilter) {
     pills.push({
       key: "role",
-      label: `Item type: ${roleFilter}`,
+      label: `Role: ${roleFilter}`,
       tone: "include",
       onRemove: () => setRoleFilter(""),
     });
@@ -233,7 +233,7 @@ export function TopBar({
   if (groupBy) {
     pills.push({
       key: "group",
-      label: `Group: ${groupBy === ITEM_TYPE_GROUP ? "Item type" : groupBy}`,
+      label: `Group: ${groupBy === ITEM_TYPE_GROUP ? "Role" : groupBy}`,
       tone: "include",
       onRemove: () => setGroupBy(null),
     });
@@ -293,12 +293,17 @@ export function TopBar({
   const suggestTags = (q === "" ? topTags.slice(0, 8) : searchTags(fieldFilterPool, q).slice(0, 8)).filter(
     ({ tag }) => !facetTags.includes(tag) && !excludedTags.includes(tag)
   );
-  const suggestTypes = objectTypes
+  // Count-desc, never alphabetical: computeObjectTypes sorts by name, and
+  // an alphabetical cap hid the single biggest format (Image, ~7k) behind
+  // Article…FacebookReel (the reported bug).
+  const suggestTypes = [...objectTypes]
     .filter(({ type }) => q === "" || norm(type).includes(q))
-    .slice(0, 6);
-  const suggestRoles = roleTypes
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+  const suggestRoles = [...roleTypes]
     .filter(({ type }) => q === "" || norm(type).includes(q))
-    .slice(0, 6);
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
   const suggestCollections = collectionList
     .filter((c) => (q === "" ? true : norm(c.name).includes(q)))
     .slice(0, 6);
@@ -427,7 +432,7 @@ export function TopBar({
                   {suggestTypes.length > 0 && (
                     <div>
                       <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
-                        Type
+                        Format
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {suggestTypes.map(({ type, count: c }) => (
@@ -449,7 +454,7 @@ export function TopBar({
                   {suggestRoles.length > 0 && (
                     <div>
                       <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
-                        Item type
+                        Role
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {suggestRoles.map(({ type, count: c }) => (
@@ -488,8 +493,8 @@ export function TopBar({
                 {(
                   [
                     ["tag", "Tag"],
-                    ["type", "Type"],
-                    ["role", "Item type"],
+                    ["type", "Format"],
+                    ["role", "Role"],
                     ["field", "Field"],
                     ["color", "Color"],
                     ["group", "Group"],
@@ -659,7 +664,7 @@ export function TopBar({
                         groupBy === ITEM_TYPE_GROUP ? "text-accent" : "",
                       ].join(" ")}
                     >
-                      Item type
+                      Role
                     </button>
                   )}
                   {groupableColumns.map((f) => (

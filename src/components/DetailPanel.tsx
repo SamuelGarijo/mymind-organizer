@@ -1081,6 +1081,18 @@ export function DetailPanel({
             <div>
               <label className="text-[11px] uppercase tracking-wide text-muted">
                 {isNote ? "Note content" : "Content"}
+                {isNote && (
+                  <button
+                    onClick={() => {
+                      useStore.getState().openWriting({ kind: "note", objectId: object.id });
+                      onClose();
+                    }}
+                    className="ml-2 font-mono text-[10px] normal-case tracking-normal text-accent hover:underline"
+                    title="Edit this note in the writing workspace — focus mode, references, embeds"
+                  >
+                    open in writing workspace →
+                  </button>
+                )}
               </label>
               {isNote ? (
                 <>

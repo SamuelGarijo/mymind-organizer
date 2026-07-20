@@ -13,6 +13,7 @@ import type {
   ArenaPlacement,
   CanvasDoc,
   ObjectRelation,
+  WritingDoc,
   DiscoverySession,
   ExternalSource,
 } from "./types";
@@ -345,6 +346,19 @@ type State = {
    * survive (#133: relationships outlive the canvas). */
   deleteCanvas: (id: string) => void;
 
+  /** Writing workspace (issue #137). Standalone documents live here; the
+   * workspace can ALSO open a mymind Note object directly (the improved
+   * note-editing space), in which case the body reads/writes the object's
+   * NOTE_CONTENT_KEY and pushes via the sanctioned content endpoint. */
+  writingDocs: Record<string, WritingDoc>;
+  writingDocOrder: string[];
+  /** What the workspace is editing — a doc of ours, or a bound Note. */
+  openWritingTarget: { kind: "doc"; id: string } | { kind: "note"; objectId: string } | null;
+  openWriting: (target: { kind: "doc"; id: string } | { kind: "note"; objectId: string } | null) => void;
+  createWritingDoc: (title?: string) => string;
+  updateWritingDoc: (id: string, patch: Partial<Pick<WritingDoc, "title" | "body">>) => void;
+  deleteWritingDoc: (id: string) => void;
+
   /** Knowledge relationships between objects (issue #133) — created on a
    * canvas, stored independently of any canvas. Deduped by
    * source+target+type; visual-edge deletion does NOT remove these. */
@@ -484,6 +498,8 @@ type PersistedState = Pick<
   | "objectRelations"
   | "discoverySession"
   | "canvasSplitWidth"
+  | "writingDocs"
+  | "writingDocOrder"
   | "localUserTags"
   | "sidebarCollapsed"
 >;
@@ -1081,6 +1097,51 @@ export const useStore = create<State>()(
           };
         }),
 
+      writingDocs: {},
+      writingDocOrder: [],
+      openWritingTarget: null,
+      openWriting: (target) => set({ openWritingTarget: target }),
+      createWritingDoc: (title) => {
+        const id = makeId("doc");
+        const now = new Date().toISOString();
+        const doc: WritingDoc = {
+          id,
+          title: title?.trim() || "Untitled document",
+          body: "",
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((st) => ({
+          writingDocs: { ...st.writingDocs, [id]: doc },
+          writingDocOrder: [...st.writingDocOrder, id],
+        }));
+        return id;
+      },
+      updateWritingDoc: (id, patch) =>
+        set((st) => {
+          const doc = st.writingDocs[id];
+          if (!doc) return {};
+          return {
+            writingDocs: {
+              ...st.writingDocs,
+              [id]: { ...doc, ...patch, updatedAt: new Date().toISOString() },
+            },
+          };
+        }),
+      deleteWritingDoc: (id) =>
+        set((st) => {
+          const writingDocs = { ...st.writingDocs };
+          delete writingDocs[id];
+          return {
+            writingDocs,
+            writingDocOrder: st.writingDocOrder.filter((x) => x !== id),
+            openWritingTarget:
+              st.openWritingTarget?.kind === "doc" && st.openWritingTarget.id === id
+                ? null
+                : st.openWritingTarget,
+          };
+        }),
+
       objectRelations: [],
       addObjectRelation: (rel) =>
         set((st) => {
@@ -1458,6 +1519,8 @@ export const useStore = create<State>()(
         objectRelations: state.objectRelations,
         discoverySession: state.discoverySession,
         canvasSplitWidth: state.canvasSplitWidth,
+        writingDocs: state.writingDocs,
+        writingDocOrder: state.writingDocOrder,
         localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),

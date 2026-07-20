@@ -493,7 +493,7 @@ export function Table({
           <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-panel px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted">
             <span className="w-9 shrink-0" />
             <span className="flex-1 min-w-[180px]">Title</span>
-            {showType && <span className="w-32 shrink-0">Type</span>}
+            {showType && <span className="w-32 shrink-0">Format</span>}
             {showTags && <span className="w-56 shrink-0">Tags</span>}
             {visibleFacetColumns.map((f) => (
               <span key={f.name} className="w-28 shrink-0 truncate" title={f.name}>

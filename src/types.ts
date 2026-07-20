@@ -126,6 +126,21 @@ export type CanvasDoc = {
   >;
 };
 
+/**
+ * A writing document (issue #137) — writing as an OUTPUT of the archive.
+ * The body is plain markdown-ish text; Organizer objects are embedded by
+ * reference with `![[objectId]]` tokens — never copies, always openable,
+ * deletable from the text without touching the object. An independent
+ * entity that can later connect to collections/canvases.
+ */
+export type WritingDoc = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** One successful publication of an object as an Are.na block, remembered
  * so Organizer can show "already on Are.na" and link out. Modeled after the
  * export follow-up brief's shape. */
