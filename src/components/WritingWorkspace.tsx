@@ -855,15 +855,21 @@ export function WritingWorkspace() {
               window.addEventListener("pointerup", up);
             }}
             onDoubleClick={() => setWritingPageWidth(null)}
-            title="Drag to set the page width — double-click to reset"
+            title={"Drag to change the page width\nDouble-click to reset"}
             className={`group/grip absolute top-0 bottom-0 ${pos} w-6 cursor-col-resize flex items-center justify-center`}
           >
+            {/* A hairline marks the page's edge at all times — it reads as
+                paper, not chrome — and thickens into a real grip as the
+                pointer approaches (the register of Claude's own splitter). */}
             <span
               className={[
-                "w-[3px] h-28 rounded-full transition-colors",
+                "h-full rounded-full transition-all duration-150",
                 draggingWidth
-                  ? "bg-accent/70"
-                  : "bg-line/0 group-hover/page:bg-line/60 group-hover/grip:bg-accent/60",
+                  ? "w-[3px] bg-accent/70"
+                  // The `!` is load-bearing: both hover variants match at
+                  // once and Tailwind's emitted order lets the page rule
+                  // win, so direct hover needs to override it explicitly.
+                  : "w-px bg-line/60 group-hover/page:bg-line group-hover/grip:w-[3px] group-hover/grip:!bg-accent/60",
               ].join(" ")}
             />
           </div>
