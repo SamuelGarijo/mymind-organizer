@@ -62,6 +62,13 @@ body {
 .editorial > :first-child {
   margin-top: 0;
 }
+/* Painted by the CSS Custom Highlight API when a reference is hovered:
+   the words in the page that summoned it. Never touches the DOM, so the
+   editor's block model (and the caret) are unaffected. */
+::highlight(org-ref-anchor) {
+  background-color: rgba(106, 92, 255, 0.22);
+}
+
 .editorial h1 {
   font-size: 1.9em;
   letter-spacing: -0.02em;

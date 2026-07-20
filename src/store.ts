@@ -362,6 +362,11 @@ type State = {
    * reading/writing comfort setting, so it persists like gridZoom. */
   writingFontSize: number;
   setWritingFontSize: (px: number) => void;
+  /** Dragged width of the writing column, in px (420–1100). null = the
+   * default measure. Persisted like canvasSplitWidth: the balance the
+   * author chose between line length and white space is theirs to keep. */
+  writingPageWidth: number | null;
+  setWritingPageWidth: (px: number | null) => void;
 
   /** Knowledge relationships between objects (issue #133) — created on a
    * canvas, stored independently of any canvas. Deduped by
@@ -505,6 +510,7 @@ type PersistedState = Pick<
   | "writingDocs"
   | "writingDocOrder"
   | "writingFontSize"
+  | "writingPageWidth"
   | "localUserTags"
   | "sidebarCollapsed"
 >;
@@ -1108,6 +1114,9 @@ export const useStore = create<State>()(
       openWriting: (target) => set({ openWritingTarget: target }),
       writingFontSize: 19,
       setWritingFontSize: (px) => set({ writingFontSize: Math.max(16, Math.min(26, px)) }),
+      writingPageWidth: null,
+      setWritingPageWidth: (px) =>
+        set({ writingPageWidth: px === null ? null : Math.max(420, Math.min(1100, px)) }),
       createWritingDoc: (title) => {
         const id = makeId("doc");
         const now = new Date().toISOString();
@@ -1529,6 +1538,7 @@ export const useStore = create<State>()(
         writingDocs: state.writingDocs,
         writingDocOrder: state.writingDocOrder,
         writingFontSize: state.writingFontSize,
+        writingPageWidth: state.writingPageWidth,
         localUserTags: state.localUserTags,
         sidebarCollapsed: state.sidebarCollapsed,
       }),

@@ -111,18 +111,69 @@ const STOPWORDS = new Set([
   "segundo", "primero", "párrafo", "parrafo",
 ]);
 
+/** A reference plus WHY it's there: the literal words in the document that
+ * pulled it in (empty when the link isn't textual — a canvas connection or
+ * a visual likeness — in which case `origin` says so in plain language). */
+type Suggestion = { object: DesignObject; terms: string[]; origin?: string };
+
+/** The document's own vocabulary: distinctive words, most-telling first.
+ * Frequency × distinctiveness, no model involved — proper nouns and long
+ * words outrank filler, and repetition is evidence of subject. */
+function documentTerms(text: string, limit = 8): string[] {
+  const counts = new Map<string, { n: number; proper: boolean; len: number }>();
+  for (const tok of text.replace(EMBED_RE, "").match(/[A-Za-zÀ-ž0-9]{4,}/g) ?? []) {
+    const low = tok.toLowerCase();
+    if (STOPWORDS.has(low)) continue;
+    const prev = counts.get(low);
+    counts.set(low, {
+      n: (prev?.n ?? 0) + 1,
+      proper: (prev?.proper ?? false) || tok[0] === tok[0].toUpperCase(),
+      len: tok.length,
+    });
+  }
+  return [...counts.entries()]
+    .map(([term, c]) => ({ term, score: c.n * (c.proper ? 2.5 : 1) + Math.min(c.len, 12) / 12 }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((t) => t.term);
+}
+
+/** Paints ranges over the editor WITHOUT touching its DOM — the CSS
+ * Custom Highlight API exists for exactly this. Wrapping matches in
+ * <mark>s would corrupt the block model the serializer reads back. */
+const HIGHLIGHT_NAME = "org-ref-anchor";
+function highlightTerms(root: HTMLElement | null, terms: string[]) {
+  const api = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
+  if (!api) return; // Older engines simply get no highlight, nothing breaks.
+  if (!root || terms.length === 0) {
+    api.delete(HIGHLIGHT_NAME);
+    return;
+  }
+  const ranges: Range[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = (node.textContent ?? "").toLowerCase();
+    for (const term of terms) {
+      let from = text.indexOf(term);
+      while (from !== -1) {
+        const range = document.createRange();
+        range.setStart(node, from);
+        range.setEnd(node, from + term.length);
+        ranges.push(range);
+        from = text.indexOf(term, from + term.length);
+      }
+    }
+  }
+  if (ranges.length === 0) api.delete(HIGHLIGHT_NAME);
+  else api.set(HIGHLIGHT_NAME, new (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight(...ranges));
+}
+
 function embeddedIds(body: string): string[] {
   const ids: string[] = [];
   for (const m of body.matchAll(EMBED_RE)) {
     if (!ids.includes(m[1])) ids.push(m[1]);
   }
   return ids;
-}
-
-/** The block under the caret — the references panel's context. */
-function paragraphUnderCaret(root: HTMLElement): string {
-  const block = caretBlock(root);
-  return (block?.textContent ?? "").replace(EMBED_RE, "").trim();
 }
 
 function EmbedChip({ object, onRemove }: { object: DesignObject; onRemove: () => void }) {
@@ -165,9 +216,15 @@ function EmbedChip({ object, onRemove }: { object: DesignObject; onRemove: () =>
 function ReferenceThumb({
   object,
   onInsert,
+  origin,
+  terms = [],
 }: {
   object: DesignObject;
   onInsert: (id: string) => void;
+  /** Plain-language provenance for links with no word to point at. */
+  origin?: string;
+  /** The document's own words that pulled this in. */
+  terms?: string[];
 }) {
   const openDetail = useStore((s) => s.openDetail);
   const [failed, setFailed] = useState(false);
@@ -192,8 +249,12 @@ function ReferenceThumb({
             {object.title}
           </span>
         )}
-        <span className="block px-1.5 py-1 font-mono text-[9px] text-muted truncate text-left">
+        <span className="block px-1.5 pt-1 font-mono text-[9px] text-muted truncate text-left">
           {object.title}
+        </span>
+        {/* Why this is here, in the archive's own words — never a guess. */}
+        <span className="block px-1.5 pb-1 font-mono text-[8px] leading-tight text-muted/70 truncate text-left">
+          {terms.length > 0 ? terms.slice(0, 3).join(" · ") : origin ?? ""}
         </span>
       </button>
       <button
@@ -215,6 +276,8 @@ export function WritingWorkspace() {
   const relations = useStore((s) => s.objectRelations);
   const fontSize = useStore((s) => s.writingFontSize);
   const setWritingFontSize = useStore((s) => s.setWritingFontSize);
+  const pageWidth = useStore((s) => s.writingPageWidth) ?? 672;
+  const setWritingPageWidth = useStore((s) => s.setWritingPageWidth);
   const selectedView = useStore((s) => s.selectedView);
   const collections = useStore((s) => s.collections);
   // Where "back" actually lands — the view still standing behind this one.
@@ -236,10 +299,20 @@ export function WritingWorkspace() {
   const [pushState, setPushState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [showRefs, setShowRefs] = useState(false);
   const [refMode, setRefMode] = useState<Exclude<SimilarityMode, "blend">>("content");
-  const [paragraph, setParagraph] = useState("");
+  // The body as it stood at the last typing pause — what the suggestions
+  // read. Keeping them off the live keystroke stream is what makes the
+  // panel sit still while you write.
+  const [settledBody, setSettledBody] = useState(storedBody);
+  /** Text the author has selected, if any — the on-demand "what does this
+   * connect to?" question. Never opens the panel by itself. */
+  const [selectionText, setSelectionText] = useState("");
+  /** Terms of the reference currently under the pointer, painted in the
+   * text so the connection is visible in both directions. */
+  const [hoverTerms, setHoverTerms] = useState<string[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const saveTimer = useRef<number | null>(null);
-  const paragraphTimer = useRef<number | null>(null);
+  const settleTimer = useRef<number | null>(null);
   const targetKey = target ? (target.kind === "doc" ? target.id : target.objectId) : "";
 
   // Enter must produce a <p>, not the browser's default <div> — the
@@ -252,10 +325,34 @@ export function WritingWorkspace() {
   // (never on store echoes — the DOM owns the caret while typing).
   useEffect(() => {
     setBody(storedBody);
+    setSettledBody(storedBody);
     setPushState("idle");
     if (editorRef.current) paintEditor(editorRef.current, storedBody);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKey]);
+
+  // Selection is the author asking a question; it must never survive the
+  // answer, so it clears the moment the selection collapses.
+  useEffect(() => {
+    function onSelectionChange() {
+      const sel = window.getSelection();
+      const root = editorRef.current;
+      if (!sel || sel.isCollapsed || !root || !sel.anchorNode || !root.contains(sel.anchorNode)) {
+        setSelectionText("");
+        return;
+      }
+      setSelectionText(sel.toString().trim());
+    }
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
+
+  // Anchors are painted for whichever reference is hovered; leaving the
+  // panel clears them. Also cleared on unmount so no stale ranges linger.
+  useEffect(() => {
+    highlightTerms(editorRef.current, hoverTerms);
+  }, [hoverTerms, body]);
+  useEffect(() => () => highlightTerms(null, []), []);
 
   function scheduleSave(next: string) {
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
@@ -295,11 +392,21 @@ export function WritingWorkspace() {
     scheduleSave(next);
   }
 
-  function trackParagraph() {
-    if (paragraphTimer.current) window.clearTimeout(paragraphTimer.current);
-    paragraphTimer.current = window.setTimeout(() => {
+  /** The title box grows with its content — see the textarea below. */
+  function autoGrowTitle() {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
+  useEffect(autoGrowTitle, [title, fontSize, pageWidth, targetKey]);
+
+  /** Suggestions read the document as it stood at the last pause. */
+  function scheduleSettle() {
+    if (settleTimer.current) window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => {
       const el = editorRef.current;
-      if (el) setParagraph(paragraphUnderCaret(el));
+      if (el) setSettledBody(markdownFromDom(el));
     }, 700);
   }
 
@@ -316,7 +423,7 @@ export function WritingWorkspace() {
       if (m) setBlockLevel(el, block, m[1].length, m[2]);
     }
     handleBodyChange(markdownFromDom(el));
-    trackParagraph();
+    scheduleSettle();
   }
 
   /** A heading is a title, not a paragraph style — the block after it is
@@ -378,7 +485,7 @@ export function WritingWorkspace() {
   useEffect(
     () => () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
-      if (paragraphTimer.current) window.clearTimeout(paragraphTimer.current);
+      if (settleTimer.current) window.clearTimeout(settleTimer.current);
     },
     []
   );
@@ -420,51 +527,39 @@ export function WritingWorkspace() {
   // aspect) — the panel frames itself as "Related content", single path.
   const visualContext = embeds.some((o) => o.imageUrl) || !!contextObject?.imageUrl;
 
-  // ── Reference suggestions: content = text search over the paragraph;
-  // form = visual similarity seeded on the context object (the bound note
-  // or the first embed). Recomputed on typing PAUSE, never per keystroke.
+  // ── Reference suggestions. Content mode reads the WHOLE document, not
+  // the paragraph under the cursor: a stable ranked list that doesn't
+  // shuffle itself while you write (Samuel, 2026-07-20 — "en modo
+  // escritura no quiero distracciones"). Each suggestion keeps the terms
+  // that earned it, which is what makes the highlighting explainable
+  // without any AI: the anchor is a literal word in your text.
   const allObjectsList = useMemo(() => Object.values(objects), [objects]);
   const searchIndex = useMemo(() => buildSearchIndex(allObjectsList), [allObjectsList]);
-  const suggestions = useMemo(() => {
+  const suggestions = useMemo<Suggestion[]>(() => {
     if (!showRefs) return [];
     const exclude = new Set([...embeds.map((o) => o.id), boundNote?.id ?? ""]);
     if (refMode === "content") {
-      // Fuse treats a query as ONE fuzzy pattern — a whole sentence
-      // matches nothing. Search per distinctive term instead and
-      // round-robin-merge, so "Segundo párrafo sobre King Kong" asks the
-      // archive about "king", "kong", "párrafo"… separately.
-      // Distinctive terms only: drop function words, prefer proper nouns
-      // (capitalized mid-sentence) and longer words.
-      const rawTokens = (paragraph.match(/[A-Za-zÀ-ž0-9]{4,}/g) ?? []) as string[];
-      const termScores = new Map<string, number>();
-      for (const tok of rawTokens) {
-        const low = tok.toLowerCase();
-        if (STOPWORDS.has(low)) continue;
-        const score = (tok[0] === tok[0].toUpperCase() ? 3 : 0) + Math.min(tok.length, 10) / 10;
-        termScores.set(low, Math.max(termScores.get(low) ?? 0, score));
-      }
-      const terms = [...termScores.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4)
-        .map(([t]) => t);
+      const terms = documentTerms(`${title}\n${settledBody}`);
       if (terms.length === 0) return [];
-      const perTerm = terms.map((t) =>
-        searchObjects(searchIndex, t, allObjectsList)
+      // Fuse treats a query as ONE fuzzy pattern — a whole document
+      // matches nothing. Ask per distinctive term and pool the answers,
+      // scoring by rank so an object several terms agree on rises.
+      const pool = new Map<string, { object: DesignObject; score: number; terms: string[] }>();
+      for (const term of terms) {
+        const hits = searchObjects(searchIndex, term, allObjectsList)
           .filter((o) => !exclude.has(o.id))
-          .slice(0, 6)
-      );
-      const merged: DesignObject[] = [];
-      const seen = new Set<string>();
-      for (let i = 0; i < 6; i++) {
-        for (const list of perTerm) {
-          const o = list[i];
-          if (o && !seen.has(o.id)) {
-            seen.add(o.id);
-            merged.push(o);
-          }
-        }
+          .slice(0, 8);
+        hits.forEach((o, rank) => {
+          const entry = pool.get(o.id) ?? { object: o, score: 0, terms: [] };
+          entry.score += 8 - rank;
+          if (!entry.terms.includes(term)) entry.terms.push(term);
+          pool.set(o.id, entry);
+        });
       }
-      return merged.slice(0, 10);
+      return [...pool.values()]
+        .sort((a, b) => b.score - a.score || b.terms.length - a.terms.length)
+        .slice(0, 14)
+        .map(({ object, terms: t }) => ({ object, terms: t }));
     }
     const seed = (boundNote?.imageUrl ? boundNote : null) ?? embeds.find((o) => o.imageUrl) ?? null;
     if (!seed) return [];
@@ -475,8 +570,22 @@ export function WritingWorkspace() {
       { mode: "form", limit: 10, relations }
     )
       .map((r) => objects[r.id])
-      .filter((o): o is DesignObject => Boolean(o));
-  }, [showRefs, refMode, paragraph, embeds, boundNote, searchIndex, allObjectsList, relations, objects]);
+      .filter((o): o is DesignObject => Boolean(o))
+      // Visual similarity has no word to point at — say so instead of
+      // faking an anchor.
+      .map((object) => ({ object, terms: [], origin: "looks like this document's images" }));
+  }, [
+    showRefs,
+    refMode,
+    title,
+    settledBody,
+    embeds,
+    boundNote,
+    searchIndex,
+    allObjectsList,
+    relations,
+    objects,
+  ]);
 
   // Manually connected objects (canvas arrows, embeds, detail removals all
   // share store.objectRelations) — surfaced FIRST, highlighted: the user's
@@ -503,13 +612,28 @@ export function WritingWorkspace() {
     return out.slice(0, 6);
   }, [relations, boundNote, embeds, objects]);
 
+  /** Selecting text asks "what does THIS connect to?": the references
+   * whose anchor words appear inside the selection rise to the top and
+   * stay lit; the rest dim rather than disappear, so the general ranking
+   * is still there when the selection clears. */
+  const selectionLower = selectionText.toLowerCase();
+  const ranked = useMemo(() => {
+    if (selectionLower.length < 3) return suggestions.map((s) => ({ s, matched: false }));
+    const scored = suggestions.map((s) => ({
+      s,
+      matched: s.terms.some((t) => selectionLower.includes(t)),
+    }));
+    return [...scored.filter((x) => x.matched), ...scored.filter((x) => !x.matched)];
+  }, [suggestions, selectionLower]);
+  const anySelectionMatch = ranked.some((x) => x.matched);
+
   if (!target || (!doc && !boundNote)) return null;
 
   return (
     <div className="h-full flex min-h-0">
       {/* The document — center stage (Focus). */}
-      <div className="flex-1 min-w-0 h-full overflow-y-auto" data-content-scroll>
-        <div className="max-w-[42rem] mx-auto px-6 pt-8 pb-24">
+      <div className="flex-1 min-w-0 h-full overflow-y-auto relative" data-content-scroll>
+        <div className="mx-auto px-6 pt-8 pb-24 relative" style={{ maxWidth: pageWidth }}>
           <div className="flex items-center gap-2 mb-8">
             {/* Leaving is NAVIGATION, not dismissal — a back arrow naming
                 the destination, where an × read as "close the panel". */}
@@ -553,30 +677,44 @@ export function WritingWorkspace() {
             </div>
           </div>
 
+          {/* A title WRAPS — a single-line field silently cut long titles
+              off at the measure (reported 2026-07-20). Auto-growing
+              textarea: the words are never hidden from their author. */}
           {doc ? (
-            <input
+            <textarea
+              ref={titleRef}
+              rows={1}
               value={title}
               onChange={(e) =>
                 useStore.getState().updateWritingDoc(doc.id, { title: e.target.value })
               }
+              onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
               placeholder="Title"
-              className="editorial w-full bg-transparent font-bold outline-none mb-3 placeholder:text-muted/40"
-              style={{ fontSize: fontSize * 2.1 }}
+              className="editorial w-full bg-transparent font-bold outline-none resize-none overflow-hidden mb-3 placeholder:text-muted/40"
+              style={{ fontSize: fontSize * 2.1, lineHeight: 1.15 }}
             />
           ) : boundNote ? (
-            <input
+            <textarea
+              ref={titleRef}
+              rows={1}
               defaultValue={title}
               key={boundNote.id}
+              onInput={autoGrowTitle}
               onBlur={(e) => {
                 const next = e.target.value.trim();
                 if (next && next !== boundNote.title) {
                   useStore.getState().updateObject(boundNote.id, { title: next });
                 }
               }}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  (e.target as HTMLTextAreaElement).blur();
+                }
+              }}
               placeholder="Title"
-              className="editorial w-full bg-transparent font-bold outline-none mb-3 placeholder:text-muted/40"
-              style={{ fontSize: fontSize * 2.1 }}
+              className="editorial w-full bg-transparent font-bold outline-none resize-none overflow-hidden mb-3 placeholder:text-muted/40"
+              style={{ fontSize: fontSize * 2.1, lineHeight: 1.15 }}
               aria-label="Note title"
             />
           ) : null}
@@ -622,8 +760,7 @@ export function WritingWorkspace() {
               onInput={handleEditorInput}
               onBeforeInput={handleBeforeInput}
               onKeyDown={handleEditorKeyDown}
-              onKeyUp={trackParagraph}
-              onClick={trackParagraph}
+              onKeyUp={scheduleSettle}
               onPaste={(e) => {
                 // Plain text only: pasted markup would smuggle styling the
                 // markdown storage format can't represent.
@@ -643,6 +780,51 @@ export function WritingWorkspace() {
               className="editorial w-full min-h-[62vh] bg-transparent outline-none text-ink/90"
               style={{ fontSize }}
             />
+          </div>
+
+          {/* The measure is the author's call — drag the edge of the page.
+              Invisible until the pointer is near it: a ruler, not a rail. */}
+          <div
+            role="separator"
+            aria-label="Page width"
+            aria-orientation="vertical"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              const el = e.currentTarget;
+              // Capture keeps the drag alive over the editor and the panel;
+              // it's an optimisation, never a requirement (the window
+              // listeners below do the real work).
+              try {
+                el.setPointerCapture(e.pointerId);
+              } catch {
+                /* no capture available — the drag still tracks fine */
+              }
+              // The column centres on the WRITING AREA, not the window —
+              // with the references panel open those differ, and using the
+              // window would make the edge jump away from the pointer.
+              const host = el.closest("[data-content-scroll]") ?? el.parentElement!;
+              const hostRect = host.getBoundingClientRect();
+              const centre = hostRect.left + hostRect.width / 2;
+              const move = (ev: PointerEvent) =>
+                // Centred column: the edge moves half as far as the width.
+                setWritingPageWidth(Math.round((ev.clientX - centre) * 2));
+              const up = () => {
+                try {
+                  el.releasePointerCapture(e.pointerId);
+                } catch {
+                  /* nothing captured */
+                }
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
+            }}
+            onDoubleClick={() => setWritingPageWidth(null)}
+            title="Drag to set the page width — double-click to reset"
+            className="group absolute top-0 bottom-0 -right-2 w-4 cursor-col-resize flex items-center justify-center"
+          >
+            <span className="w-px h-24 rounded bg-line/0 group-hover:bg-line transition-colors" />
           </div>
         </div>
       </div>
@@ -709,27 +891,60 @@ export function WritingWorkspace() {
               <div className="flex flex-col gap-2">
                 {connected.map((o) => (
                   <div key={o.id} className="rounded ring-1 ring-accent/40">
-                    <ReferenceThumb object={o} onInsert={insertEmbed} />
+                    {/* Your own hand, not a word match — nothing to point
+                        at in the text, so it says where it came from. */}
+                    <ReferenceThumb
+                      object={o}
+                      onInsert={insertEmbed}
+                      origin="you connected this on a canvas"
+                    />
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {suggestions.length === 0 ? (
+          {ranked.length === 0 ? (
             <p className="font-mono text-[10px] text-muted/70 leading-relaxed">
               {refMode === "content"
-                ? "write a little — suggestions follow the paragraph under your cursor."
+                ? "write a little — the archive answers to the words on the page."
                 : "no visual context yet — embed an object (or open a note) to seed form similarity."}
             </p>
           ) : (
             <div className="flex flex-col gap-2">
-              {suggestions.map((o) => (
-                <ReferenceThumb key={o.id} object={o} onInsert={insertEmbed} />
+              {selectionLower.length >= 3 && (
+                <p className="font-mono text-[9px] text-muted/70 leading-relaxed mb-0.5">
+                  {anySelectionMatch
+                    ? "↑ connected to what you selected"
+                    : "nothing here answers to that selection"}
+                </p>
+              )}
+              {ranked.map(({ s, matched }) => (
+                <div
+                  key={s.object.id}
+                  // The unmatched aren't hidden — the general ranking is
+                  // still the answer once the selection clears.
+                  className={[
+                    "rounded transition-opacity",
+                    selectionLower.length >= 3 && !matched ? "opacity-35" : "opacity-100",
+                    matched ? "ring-1 ring-accent/50" : "",
+                  ].join(" ")}
+                  onPointerEnter={() => setHoverTerms(s.terms)}
+                  onPointerLeave={() => setHoverTerms([])}
+                >
+                  <ReferenceThumb
+                    object={s.object}
+                    onInsert={insertEmbed}
+                    origin={s.origin}
+                    terms={s.terms}
+                  />
+                </div>
               ))}
             </div>
           )}
           <p className="mt-3 font-mono text-[9px] text-muted/60 leading-relaxed">
-            drag into the text or the bench · + embeds at the cursor <ArrowSquareOut size={9} className="inline" />
+            hover a reference to light up the words that summoned it · select text to
+            surface its own · drag into the page or the bench{" "}
+            <ArrowSquareOut size={9} className="inline" />
           </p>
         </div>
       )}
