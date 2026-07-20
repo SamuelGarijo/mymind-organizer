@@ -143,12 +143,14 @@ function buildArchiveTermFrequency(objects: DesignObject[]): Map<string, number>
  * because it started a line, common across half the library) — real bug,
  * 2026-07-20. Now: a capital counts as a proper noun only mid-sentence,
  * and a term's weight falls with how much of the archive uses it. */
+type DocTerm = { term: string; proper: boolean; tf: number };
+
 function documentTerms(
   text: string,
   archiveDf: Map<string, number>,
   archiveSize: number,
   limit = 8
-): string[] {
+): DocTerm[] {
   const clean = text.replace(EMBED_RE, "");
   const counts = new Map<string, { n: number; proper: boolean }>();
   TOKEN_RE.lastIndex = 0;
@@ -177,6 +179,8 @@ function documentTerms(
       })
       .map(([term, c]) => ({
         term,
+        proper: c.proper,
+        tf: c.n,
         score:
           c.n *
           (c.proper ? 2.5 : 1) *
@@ -184,7 +188,7 @@ function documentTerms(
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
-      .map((t) => t.term)
+      .map(({ term, proper, tf }) => ({ term, proper, tf }))
   );
 }
 
@@ -612,19 +616,37 @@ export function WritingWorkspace() {
     if (!showRefs) return [];
     const exclude = new Set([...embeds.map((o) => o.id), boundNote?.id ?? ""]);
     if (refMode === "content") {
-      const terms = documentTerms(`${title}\n${settledBody}`, archiveDf, allObjectsList.length);
+      // The note's TL;DR joins the term source (Samuel's call,
+      // 2026-07-20): it's the content's own distillation — already local,
+      // no new AI — so its words are the topic words.
+      const summarySource = boundNote ? asFieldString(boundNote.fields.summary) : "";
+      const terms = documentTerms(
+        `${title}\n${summarySource}\n${settledBody}`,
+        archiveDf,
+        allObjectsList.length
+      );
       if (terms.length === 0) return [];
       // Fuse treats a query as ONE fuzzy pattern — a whole document
       // matches nothing. Ask per distinctive term and pool the answers,
       // scoring by rank so an object several terms agree on rises.
-      const pool = new Map<string, { object: DesignObject; score: number; terms: string[] }>();
-      for (const term of terms) {
+      const pool = new Map<string, { object: DesignObject; score: number; terms: string[]; strong: boolean }>();
+      // A term this rare in the archive (≤0.5%, min 8 objects) is a real
+      // subject link on its own; anything more common needs corroboration.
+      const rareCeiling = Math.max(8, allObjectsList.length * 0.005);
+      for (const { term, proper, tf } of terms) {
         // Fuse matches fuzzily — "jeanneau" happily returned Jean
         // Baudrillard, "race" matched Terrace. A hit only counts if the
         // term literally starts a word in the object's own text (prefix,
         // so "week" still reaches "Weekly"): the reason shown to the user
-        // must be a fact, not an approximation.
-        const literal = new RegExp(`\\b${term}`, "i");
+        // must be a fact, not an approximation. And a PROPER noun from
+        // the document must match a capitalised word in the object —
+        // "Mats" the colleague is not "beer mats" the coasters.
+        const literal = proper
+          ? new RegExp(`\\b${term[0].toUpperCase()}${term.slice(1)}`, "")
+          : new RegExp(`\\b${term}`, "i");
+        // Rare in the archive AND said more than once in the document —
+        // a name dropped a single time can anchor nothing on its own.
+        const rare = (archiveDf.get(term) ?? 0) <= rareCeiling && tf >= 2;
         const hits = searchObjects(searchIndex, term, allObjectsList)
           .filter(
             (o) =>
@@ -637,16 +659,25 @@ export function WritingWorkspace() {
           )
           .slice(0, 8);
         hits.forEach((o, rank) => {
-          const entry = pool.get(o.id) ?? { object: o, score: 0, terms: [] };
+          const entry = pool.get(o.id) ?? { object: o, score: 0, terms: [], strong: false };
           entry.score += 8 - rank;
+          entry.strong ||= rare && rank < 4;
           if (!entry.terms.includes(term)) entry.terms.push(term);
           pool.set(o.id, entry);
         });
       }
-      return [...pool.values()]
-        .sort((a, b) => b.score - a.score || b.terms.length - a.terms.length)
-        .slice(0, 14)
-        .map(({ object, terms: t }) => ({ object, terms: t }));
+      return (
+        [...pool.values()]
+          // Strictness over volume (Samuel: "prefiero ver una barra
+          // vacía antes que objetos desconectados del tema"): one
+          // common-ish word shared with the document is coincidence, not
+          // connection. Survive on ≥2 distinct terms, or one genuinely
+          // rare term as a top hit. An empty panel is the honest answer.
+          .filter((e) => e.terms.length >= 2 || e.strong)
+          .sort((a, b) => b.score - a.score || b.terms.length - a.terms.length)
+          .slice(0, 10)
+          .map(({ object, terms: t }) => ({ object, terms: t }))
+      );
     }
     const seed = (boundNote?.imageUrl ? boundNote : null) ?? embeds.find((o) => o.imageUrl) ?? null;
     if (!seed) return [];
@@ -1028,7 +1059,7 @@ export function WritingWorkspace() {
           {ranked.length === 0 ? (
             <p className="font-mono text-[10px] text-muted/70 leading-relaxed">
               {refMode === "content"
-                ? "write a little — the archive answers to the words on the page."
+                ? "nothing in the archive clearly connects to this text yet — an empty shelf is honest, and it fills as you write."
                 : "no visual context yet — embed an object (or open a note) to seed form similarity."}
             </p>
           ) : (
