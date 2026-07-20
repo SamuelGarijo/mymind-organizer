@@ -71,6 +71,17 @@ class OrganizerShapeUtil extends BaseBoxShapeUtil<OrgShape> {
 function OrgShapeCard({ shape }: { shape: OrgShape }) {
   const object = useStore((s) => s.objects[shape.props.objectId]);
   const openDetail = useStore((s) => s.openDetail);
+  const editor = useEditor();
+  /** Figma-style connector: the + handle on the card's edge switches to
+   * the arrow tool DURING the same pointer-down (capture phase — before
+   * tldraw's own container listener sees the event), so the ongoing drag
+   * draws an arrow starting at the handle, bound to this shape. tldraw
+   * returns to the select tool when the arrow completes. */
+  const startConnector = () => {
+    // Deliberately does NOT stop propagation — tldraw must receive this
+    // same pointer-down so the arrow starts under the handle.
+    editor.setCurrentTool("arrow");
+  };
   if (!object) {
     return (
       <HTMLContainer
@@ -83,7 +94,15 @@ function OrgShapeCard({ shape }: { shape: OrgShape }) {
   }
   return (
     <HTMLContainer style={{ pointerEvents: "all" }}>
-      <div className="w-full h-full flex flex-col rounded overflow-hidden border border-line bg-panel shadow-card">
+      <div className="group relative w-full h-full flex flex-col rounded border border-line bg-panel shadow-card">
+        <span
+          onPointerDownCapture={startConnector}
+          className="absolute -right-2 top-1/2 -translate-y-1/2 z-10 w-5 h-5 rounded-full bg-accent text-white shadow-card items-center justify-center text-[13px] leading-none font-bold cursor-crosshair select-none hidden group-hover:flex"
+          title="Drag to connect to another object — the connection is saved as a relationship"
+        >
+          +
+        </span>
+        <div className="w-full h-full flex flex-col rounded overflow-hidden">
         <div className="flex-1 min-h-0 bg-line/10">
           {object.imageUrl ? (
             <img
@@ -109,6 +128,7 @@ function OrgShapeCard({ shape }: { shape: OrgShape }) {
           >
             <ArrowSquareOut size={10} />
           </button>
+        </div>
         </div>
       </div>
     </HTMLContainer>

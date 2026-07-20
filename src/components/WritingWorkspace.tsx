@@ -28,6 +28,19 @@ import type { DesignObject } from "../types";
 
 const EMBED_RE = /!\[\[([^\]]+)\]\]/g;
 
+/** Function words that say nothing about the paragraph's subject — en+es,
+ * kept tiny and curated. Without this, "sobre"/"para"/"this" dominated the
+ * term picks and the suggestions read as random. */
+const STOPWORDS = new Set([
+  "this", "that", "these", "those", "with", "from", "into", "about", "over",
+  "what", "when", "where", "which", "will", "would", "should", "could",
+  "have", "been", "being", "there", "their", "they", "them", "then", "than",
+  "some", "such", "very", "just", "like", "also", "each", "before", "after",
+  "para", "sobre", "como", "este", "esta", "estos", "estas", "pero", "porque",
+  "cuando", "donde", "entre", "hasta", "desde", "más", "menos", "todo", "toda",
+  "segundo", "primero", "párrafo", "parrafo",
+]);
+
 function embeddedIds(body: string): string[] {
   const ids: string[] = [];
   for (const m of body.matchAll(EMBED_RE)) {
@@ -241,6 +254,7 @@ export function WritingWorkspace() {
     });
   }
 
+  const contextObject = boundNote ?? null;
   const embeds = useMemo(
     () =>
       embeddedIds(body)
@@ -248,6 +262,10 @@ export function WritingWorkspace() {
         .filter((o): o is DesignObject => Boolean(o)),
     [body, objects]
   );
+
+  // A text-based context has no meaningful FORM signals (no palette, no
+  // aspect) — the panel frames itself as "Related content", single path.
+  const visualContext = embeds.some((o) => o.imageUrl) || !!contextObject?.imageUrl;
 
   // ── Reference suggestions: content = text search over the paragraph;
   // form = visual similarity seeded on the context object (the bound note
@@ -262,11 +280,20 @@ export function WritingWorkspace() {
       // matches nothing. Search per distinctive term instead and
       // round-robin-merge, so "Segundo párrafo sobre King Kong" asks the
       // archive about "king", "kong", "párrafo"… separately.
-      const terms = Array.from(
-        new Set((paragraph.toLowerCase().match(/[a-zà-ž0-9]{4,}/g) ?? []) as string[])
-      )
-        .sort((a, b) => b.length - a.length)
-        .slice(0, 4);
+      // Distinctive terms only: drop function words, prefer proper nouns
+      // (capitalized mid-sentence) and longer words.
+      const rawTokens = (paragraph.match(/[A-Za-zÀ-ž0-9]{4,}/g) ?? []) as string[];
+      const termScores = new Map<string, number>();
+      for (const tok of rawTokens) {
+        const low = tok.toLowerCase();
+        if (STOPWORDS.has(low)) continue;
+        const score = (tok[0] === tok[0].toUpperCase() ? 3 : 0) + Math.min(tok.length, 10) / 10;
+        termScores.set(low, Math.max(termScores.get(low) ?? 0, score));
+      }
+      const terms = [...termScores.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([t]) => t);
       if (terms.length === 0) return [];
       const perTerm = terms.map((t) =>
         searchObjects(searchIndex, t, allObjectsList)
@@ -286,7 +313,7 @@ export function WritingWorkspace() {
       }
       return merged.slice(0, 10);
     }
-    const seed = boundNote ?? embeds[0] ?? null;
+    const seed = (boundNote?.imageUrl ? boundNote : null) ?? embeds.find((o) => o.imageUrl) ?? null;
     if (!seed) return [];
     return rankBySimilarityMode(
       seed,
@@ -297,6 +324,31 @@ export function WritingWorkspace() {
       .map((r) => objects[r.id])
       .filter((o): o is DesignObject => Boolean(o));
   }, [showRefs, refMode, paragraph, embeds, boundNote, searchIndex, allObjectsList, relations, objects]);
+
+  // Manually connected objects (canvas arrows, embeds, detail removals all
+  // share store.objectRelations) — surfaced FIRST, highlighted: the user's
+  // own hand outranks any computed likeness.
+  const connected = useMemo(() => {
+    const anchorIds = new Set<string>([
+      ...(boundNote ? [boundNote.id] : []),
+      ...embeds.map((o) => o.id),
+    ]);
+    if (anchorIds.size === 0) return [];
+    const exclude = new Set([...anchorIds]);
+    const out: DesignObject[] = [];
+    for (const r of relations) {
+      let other: string | null = null;
+      if (anchorIds.has(r.sourceObjectId)) other = r.targetObjectId;
+      else if (anchorIds.has(r.targetObjectId)) other = r.sourceObjectId;
+      if (!other || exclude.has(other)) continue;
+      const o = objects[other];
+      if (o) {
+        out.push(o);
+        exclude.add(other);
+      }
+    }
+    return out.slice(0, 6);
+  }, [relations, boundNote, embeds, objects]);
 
   if (!target || (!doc && !boundNote)) return null;
 
@@ -353,9 +405,22 @@ export function WritingWorkspace() {
               placeholder="Untitled document"
               className="w-full bg-transparent text-[22px] font-bold outline-none mb-1"
             />
-          ) : (
-            <h1 className="text-[22px] font-bold mb-1">{title}</h1>
-          )}
+          ) : boundNote ? (
+            <input
+              defaultValue={title}
+              key={boundNote.id}
+              onBlur={(e) => {
+                const next = e.target.value.trim();
+                if (next && next !== boundNote.title) {
+                  useStore.getState().updateObject(boundNote.id, { title: next });
+                }
+              }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              placeholder="Untitled"
+              className="w-full bg-transparent text-[22px] font-bold outline-none mb-1"
+              aria-label="Note title"
+            />
+          ) : null}
 
           {embeds.length > 0 && (
             <div className="flex flex-wrap gap-1.5 my-2">
@@ -401,9 +466,9 @@ export function WritingWorkspace() {
         <div className="w-72 shrink-0 h-full overflow-y-auto border-l border-line/70 bg-canvas shadow-[inset_10px_0_16px_-12px_rgba(0,0,0,0.2)] px-3 pt-20 pb-6">
           <div className="flex items-center gap-1 mb-2">
             <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              References
+              {visualContext ? "References" : "Related content"}
             </span>
-            {(["content", "form"] as const).map((m) => (
+            {visualContext && (["content", "form"] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setRefMode(m)}
@@ -423,6 +488,20 @@ export function WritingWorkspace() {
               </button>
             ))}
           </div>
+          {connected.length > 0 && (
+            <div className="mb-3">
+              <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-accent mb-1.5">
+                § connected by you
+              </div>
+              <div className="flex flex-col gap-2">
+                {connected.map((o) => (
+                  <div key={o.id} className="rounded ring-1 ring-accent/40">
+                    <ReferenceThumb object={o} onInsert={insertEmbed} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {suggestions.length === 0 ? (
             <p className="font-mono text-[10px] text-muted/70 leading-relaxed">
               {refMode === "content"

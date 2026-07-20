@@ -22,7 +22,7 @@ import { buildDownloadFilename } from "../lib/downloadFilename";
 import { rankBySimilarityMode, type SimilarityMode } from "../lib/hybridSimilarity";
 import { viewTitle } from "../lib/viewLabel";
 import { RolePackageModal } from "./RolePackageModal";
-import { ArrowsInSimple } from "@phosphor-icons/react";
+import { ArrowsInSimple, Square, SquareHalf } from "@phosphor-icons/react";
 import { DRAG_MIME, objectDragProps } from "../lib/objectDrag";
 import type { DesignObject, FacetField, ManualCollection } from "../types";
 
@@ -146,6 +146,16 @@ export function DetailPanel({
   );
   const object = state.objects[objectId];
   const [tagDraft, setTagDraft] = useState("");
+  // Title edits buffer locally and commit on blur/Enter — writing through
+  // updateObject per keystroke rewrote the 8k-object map on every key (the
+  // reported input lag).
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  function commitTitle() {
+    if (titleDraft !== null && titleDraft !== object.title) {
+      state.updateObject(object.id, { title: titleDraft });
+    }
+    setTitleDraft(null);
+  }
   // Tag pill whose actions (group / remove) are currently open — click a
   // pill to toggle. One editor row below the pill cloud, never a
   // hover-revealed control floating over other UI (the old hover input
@@ -246,6 +256,7 @@ export function DetailPanel({
     setBlobFailed(false);
     setDefaultThumbFailed(false);
     setCoverFailed(false);
+    setTitleDraft(null);
     setActiveTag(null);
     setExpandedOptionsField(null);
     setRoleDraft("");
@@ -321,8 +332,13 @@ export function DetailPanel({
     if (!object) return [];
     const allObjects = Object.values(state.objects);
     const candidates = allObjects.filter((o) => o.id !== object.id);
+    // Textual objects always rank by content — "form" for words is noise
+    // (mirrors the writing workspace's related-content framing).
+    const textual =
+      object.fields.entity_type === "Note" ||
+      (!object.imageUrl && (!!object.fields[NOTE_CONTENT_KEY] || !!object.fields.summary));
     const ranked = rankBySimilarityMode(object, candidates, allObjects, {
-      mode: similarMode,
+      mode: textual ? "content" : similarMode,
       limit: 8,
       relations: state.objectRelations,
     });
@@ -419,6 +435,9 @@ export function DetailPanel({
   // a blob). Only Notes are writable back to mymind (PUT /objects/:id/content
   // 422s for any other type), so this shows read-only for everything else.
   const hasRealContent = !!object.fields[NOTE_CONTENT_KEY];
+  // Text-first objects (notes, md, any text-based file): the words ARE the
+  // hero — title + content lead the card, metadata starts below.
+  const isTextual = isNote || (!object.imageUrl && (hasRealContent || !!object.fields.summary));
   const blobType = asFieldString(object.fields[BLOB_TYPE_KEY]);
   const blobTypeParam = blobType ? `?type=${encodeURIComponent(blobType)}` : "";
   const detailImageSrc =
@@ -913,34 +932,52 @@ export function DetailPanel({
         ].join(" ")}
         onClick={onClose}
       />
+      {/* Wrapper exists so the layout toggle can float OUTSIDE the card's
+          left edge without being clipped: the card itself scrolls
+          (overflow-y-auto forces overflow-x clipping too), so anything
+          hanging past its edge must live on a non-scrolling sibling. */}
       <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={object.title || "Item details"}
-        tabIndex={-1}
         className={
           isCentered
-            ? "relative w-full max-w-3xl max-h-[90vh] bg-panel border border-line rounded-2xl shadow-2xl outline-none overflow-y-auto pointer-events-auto"
-            : "relative w-full max-w-md h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto pointer-events-auto"
+            ? "relative w-full max-w-3xl pointer-events-none"
+            : "relative w-full max-w-md h-full pointer-events-none"
         }
       >
-        <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex items-center justify-between">
-          <div className="inline-flex rounded-lg border border-line overflow-hidden text-[11px]">
-            {(["side", "centered"] as const).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => onLayoutChange(mode)}
-                className={[
-                  "px-2 py-1 capitalize",
-                  layout === mode ? "bg-ink text-white" : "hover:bg-line/40",
-                ].join(" ")}
-                title={`Switch to ${mode} layout (⌘L to toggle)`}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
+        <div className="absolute -left-11 top-14 z-20 flex flex-col gap-1 rounded border border-line/70 bg-panel shadow-card p-1 pointer-events-auto">
+          {(
+            [
+              ["side", SquareHalf, "Docked to the right"],
+              ["centered", Square, "Centered and larger"],
+            ] as const
+          ).map(([mode, Icon, hint]) => (
+            <button
+              key={mode}
+              onClick={() => onLayoutChange(mode)}
+              className={[
+                "w-7 h-7 flex items-center justify-center rounded",
+                layout === mode ? "bg-line/60 text-ink" : "text-muted hover:text-ink hover:bg-line/40",
+              ].join(" ")}
+              title={`${hint} (⌘L to toggle)`}
+              aria-label={`${mode} layout`}
+              aria-pressed={layout === mode}
+            >
+              <Icon size={14} />
+            </button>
+          ))}
+        </div>
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={object.title || "Item details"}
+          tabIndex={-1}
+          className={
+            isCentered
+              ? "relative w-full max-h-[90vh] bg-panel border border-line rounded-2xl shadow-2xl outline-none overflow-y-auto pointer-events-auto"
+              : "relative w-full h-full bg-panel border-l border-line shadow-2xl outline-none overflow-y-auto pointer-events-auto"
+          }
+        >
+        <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-2 flex items-center justify-end">
           <button
             onClick={onClose}
             className="text-muted hover:text-ink text-lg leading-none"
@@ -949,6 +986,64 @@ export function DetailPanel({
             ×
           </button>
         </div>
+
+        {isTextual && (
+          <div className="px-4 pt-4">
+            <input
+              value={titleDraft ?? object.title}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              placeholder="Untitled"
+              className="w-full bg-transparent text-[20px] font-bold outline-none mb-2"
+              aria-label="Title"
+            />
+            {hasRealContent &&
+              (isNote ? (
+                <textarea
+                  title="The note's real text — synced to mymind once you leave the field. Markdown is supported, same as mymind itself."
+                  value={object.fields[NOTE_CONTENT_KEY] ?? ""}
+                  onChange={(e) => setFieldValue(NOTE_CONTENT_KEY, e.target.value)}
+                  onFocus={(e) => {
+                    focusValues.current[NOTE_CONTENT_KEY] = e.target.value;
+                  }}
+                  onBlur={(e) => void maybePushContent(e.target.value)}
+                  placeholder="Write the note…"
+                  rows={10}
+                  className="w-full bg-transparent text-[14.5px] leading-relaxed outline-none resize-y max-h-[46vh] text-ink/90"
+                />
+              ) : (
+                <div
+                  className="text-[14.5px] text-ink/90 leading-relaxed whitespace-pre-wrap max-h-[46vh] overflow-y-auto"
+                  title="The real saved text, read from mymind — read-only here (mymind's write API only accepts edits back for Notes, not this object type)."
+                >
+                  {object.fields[NOTE_CONTENT_KEY]}
+                </div>
+              ))}
+            <div className="mt-1.5 flex items-center gap-3">
+              {isNote && (
+                <button
+                  onClick={() => {
+                    useStore.getState().openWriting({ kind: "note", objectId: object.id });
+                    onClose();
+                  }}
+                  className="font-mono text-[10px] text-accent hover:underline"
+                  title="Edit in the writing workspace — focus mode, references, embeds"
+                >
+                  open in writing workspace →
+                </button>
+              )}
+            </div>
+            {object.fields.summary && (
+              <details className="mt-2">
+                <summary className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted cursor-pointer select-none">
+                  TL;DR <span className="normal-case tracking-normal text-muted/60">(AI summary)</span>
+                </summary>
+                <p className="mt-1 text-[13px] text-ink/75 leading-relaxed">{object.fields.summary}</p>
+              </details>
+            )}
+          </div>
+        )}
 
         {!isNote && object.imageUrl && !coverFailed && (
           <button
@@ -999,8 +1094,13 @@ export function DetailPanel({
 
         <div className="px-4 pt-4">
           <div className="flex items-center justify-between mb-1.5 gap-2">
-            <span className="text-[11px] uppercase tracking-wide text-muted shrink-0">✦ Similar</span>
-            <div className="flex items-center gap-1 font-mono text-[10px]">
+            <span className="text-[11px] uppercase tracking-wide text-muted shrink-0">
+              {isTextual ? "✦ Related content" : "✦ Similar"}
+            </span>
+            {/* Text has no meaningful "form" — offering it returns visual
+                noise, so textual objects get content-only, framed as
+                related content (same rule as the writing references). */}
+            <div className={isTextual ? "hidden" : "flex items-center gap-1 font-mono text-[10px]"}>
               {(["form", "content"] as const).map((m) => (
                 <button
                   key={m}
@@ -1033,7 +1133,7 @@ export function DetailPanel({
                 const cur = useStore.getState();
                 const scrollEl = document.querySelector("[data-content-scroll]") as HTMLElement | null;
                 cur.pushViewSnapshot(
-                  { kind: "similar", objectId: object.id, mode: similarMode },
+                  { kind: "similar", objectId: object.id, mode: isTextual ? "content" : similarMode },
                   viewTitle(cur),
                   scrollEl?.scrollTop ?? 0
                 );
@@ -1069,15 +1169,21 @@ export function DetailPanel({
 
         <div className="p-4 space-y-5">
           <div>
-            <label className="text-[11px] uppercase tracking-wide text-muted">Title</label>
-            <input
-              value={object.title}
-              onChange={(e) => state.updateObject(object.id, { title: e.target.value })}
-              className="mt-1 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
-            />
+            {!isTextual && (
+              <>
+                <label className="text-[11px] uppercase tracking-wide text-muted">Title</label>
+                <input
+                  value={titleDraft ?? object.title}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  className="mt-1 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+                />
+              </>
+            )}
           </div>
 
-          {hasRealContent && (
+          {hasRealContent && !isTextual && (
             <div>
               <label className="text-[11px] uppercase tracking-wide text-muted">
                 {isNote ? "Note content" : "Content"}
@@ -1120,7 +1226,7 @@ export function DetailPanel({
             </div>
           )}
 
-          {object.fields.summary && (
+          {!isTextual && object.fields.summary && (
             <p className="text-sm text-ink/80 leading-relaxed">{object.fields.summary}</p>
           )}
 
@@ -1251,7 +1357,7 @@ export function DetailPanel({
                   : "Local to this app — this sample object has no mymind counterpart to sync to."
               }
             >
-              Description
+              {isTextual ? "My notes about this text" : "Description"}
             </label>
             <textarea
               value={object.fields[DESCRIPTION_KEY] ?? ""}
@@ -1673,6 +1779,7 @@ export function DetailPanel({
               Delete from Organizer
             </button>
           </div>
+        </div>
         </div>
       </div>
 
