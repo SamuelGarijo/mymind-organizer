@@ -91,6 +91,7 @@ export default function App() {
       tagGroups: s.tagGroups,
       roles: s.roles,
       localUserTags: s.localUserTags,
+      tagPromotions: s.tagPromotions,
       typeFilter: s.typeFilter,
       roleFilter: s.roleFilter,
       groupBy: s.groupBy,
@@ -241,10 +242,13 @@ export default function App() {
   // browser, so clicking one filters the grid without other piles
   // disappearing from the bar itself.
   const curatedPiles = useMemo(
-    () => computeCuratedPiles(baseObjects, state.localUserTags),
-    [baseObjects, state.localUserTags]
+    () => computeCuratedPiles(baseObjects, state.localUserTags, state.tagPromotions),
+    [baseObjects, state.localUserTags, state.tagPromotions]
   );
-  const topTags = useMemo(() => computeTopTags(topTagsSource), [topTagsSource]);
+  const topTags = useMemo(
+    () => computeTopTags(topTagsSource, 30, state.tagPromotions),
+    [topTagsSource, state.tagPromotions]
+  );
 
   const facetFiltered = useMemo(
     () => applyFacetTags(searchFiltered, state.facetTags, state.facetMode),

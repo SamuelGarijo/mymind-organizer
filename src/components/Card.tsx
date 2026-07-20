@@ -1,10 +1,11 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { DesignObject } from "../types";
 import { objectDragProps } from "../lib/objectDrag";
 import { useStore } from "../store";
 import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { pickDistinctiveTags } from "../lib/tagDistinctiveness";
+import { visibleTags as visibleTagsOf } from "../lib/tagPromotion";
 import { NOTE_CONTENT_KEY, asFieldString } from "../lib/mymindSync";
 import { describeObject } from "../lib/objectKind";
 
@@ -39,10 +40,18 @@ export const Card = memo(function Card({
   // selector result), which matters here since marquee drag fires this at
   // mousemove frequency over however many cards are mounted.
   const isSelected = useStore((s) => s.selectedObjectIds.has(object.id));
+  // A tag promoted into a facet value is no longer a loose tag — it still
+  // lives on the object, it just says its piece as structure now. See
+  // lib/tagPromotion.ts for why this is a read-time overlay, not a deletion.
+  const promotions = useStore((s) => s.tagPromotions[object.id]);
+  const genericTags = useMemo(
+    () => visibleTagsOf(object, promotions ? { [object.id]: promotions } : {}),
+    [object, promotions]
+  );
   // Rarer tags are more specific to this object than generic, high-frequency
   // ones — see lib/tagDistinctiveness for the (deliberately simple) ranking.
-  const visibleTags = pickDistinctiveTags(object.tags, tagFrequency, VISIBLE_TAG_LIMIT);
-  const overflow = object.tags.length - visibleTags.length;
+  const visibleTags = pickDistinctiveTags(genericTags, tagFrequency, VISIBLE_TAG_LIMIT);
+  const overflow = genericTags.length - visibleTags.length;
   // Not every synced object has a thumbnail (e.g. plain notes) — the proxy
   // URL is always present, but the underlying request can 404/422.
   const [imageFailed, setImageFailed] = useState(false);

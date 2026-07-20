@@ -27,6 +27,12 @@ import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
 import { rankByHybridSimilarity, rankBySimilarityMode } from "./lib/hybridSimilarity";
 import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
+import type { Proposal } from "./lib/fieldExtraction";
+import {
+  addPromotion,
+  revertPromotionsIntoField,
+  type TagPromotions,
+} from "./lib/tagPromotion";
 import { parseBackup } from "./lib/backupValidation";
 import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
 import { addMymindTag } from "./lib/mymindWrite";
@@ -220,6 +226,35 @@ type State = {
     fields: FacetField[],
     primaryFacets?: string[]
   ) => void;
+
+  /** Which provider last wrote each auto-derived field value:
+   * objectId → fieldName → providerId (lib/fieldExtraction.ts). Local-only,
+   * persisted, additive on top of mymind exactly like manualCollectionIds.
+   *
+   * This is what makes enrichment REPEATABLE rather than a one-shot
+   * migration: a later run may overwrite a value it produced itself (so an
+   * improved rule retroactively improves the archive) while a hand-set value
+   * — recorded in localUserTags — is never touched. Without it, re-running
+   * could only ever fill blanks and a bad early guess would be permanent. */
+  fieldProvenance: Record<string, Record<string, string>>;
+  /** Tags promoted into facet values — see lib/tagPromotion.ts for why this
+   * is an overlay and not an edit to `tags`. Local-only, persisted. */
+  tagPromotions: TagPromotions;
+  /** Applies enrichment proposals: writes values, records provenance, and
+   * promotes any tag a value came from. Skips a proposal whose field value
+   * is hand-set (localUserTags) or was written by a different, unrelated
+   * provider — the caller has already gated on confidence. Returns nothing;
+   * it's a single atomic update regardless of how many objects it touches. */
+  applyProposals: (proposals: Proposal[]) => void;
+  /** Adds one field to a role's package, seeded with `options`, and pins it
+   * as a primary facet so it shows up in the collection ledger immediately.
+   * The write half of the "+ property" gesture — a no-op if the role already
+   * has a field with this name (case-insensitive). */
+  addRoleField: (roleName: string, field: FacetField, pin?: boolean) => void;
+  /** Clears a field's value on these objects and reverts any tag promoted
+   * into it — the true inverse of an enrichment pass, so a rule that turned
+   * out wrong leaves nothing behind. */
+  clearFieldValues: (objectIds: string[], fieldName: string) => void;
   renameCollection: (id: string, name: string) => void;
   /** Updates a collection's optional channel-style metadata (issue #87) —
    * shared by both collection types, since description/hero image aren't
@@ -512,6 +547,8 @@ type PersistedState = Pick<
   | "writingFontSize"
   | "writingPageWidth"
   | "localUserTags"
+  | "fieldProvenance"
+  | "tagPromotions"
   | "sidebarCollapsed"
 >;
 
@@ -526,11 +563,17 @@ let storeApi: StoreApi<State> | null = null;
  * CURATED_ROLE_FIELDS when the name is brand new — see that file) if it
  * doesn't exist yet, then auto-fills any of the role's empty select fields
  * from a tag that's an exact (case-insensitive) match for one of the
- * field's options — same effect as dragging the tag onto the field by
- * hand (moveTagToField below), just triggered by the role applying
- * instead of the gesture (issue #104, closed 2026-07-11). Skipped
- * per-field when more than one of the object's tags matches — ambiguous,
- * left for manual resolution rather than guessed wrong.
+ * field's options (issue #104, closed 2026-07-11). Skipped per-field when
+ * more than one of the object's tags matches — ambiguous, left for manual
+ * resolution rather than guessed wrong.
+ *
+ * Changed 2026-07-20: a matched tag is now PROMOTED, not deleted. This used
+ * to filter the tag out of `obj.tags` and tombstone it in localTagRemovals,
+ * which was survivable for a per-object gesture but not for archive-scale
+ * enrichment — a rule that fired wrongly would have destroyed thousands of
+ * tags irrecoverably. Now the tag stays on the object and a `tagPromotions`
+ * record hides it from the generic tag presentation instead, keeping
+ * provenance and making the whole thing reversible. See lib/tagPromotion.ts.
  *
  * Shared by setObjectRole (one object) and bulkAssignRoles (many at
  * once) so both paths get identical behavior for free.
@@ -539,7 +582,11 @@ function applyRoleToObject(
   obj: DesignObject,
   roleName: string,
   roles: Record<string, RoleDefinition>
-): { object: DesignObject; roles: Record<string, RoleDefinition>; movedTags: string[] } {
+): {
+  object: DesignObject;
+  roles: Record<string, RoleDefinition>;
+  promotions: { tag: string; field: string; value: string }[];
+} {
   const trimmed = roleName.trim();
   const key = norm(trimmed);
   const existingDef = roles[key];
@@ -548,33 +595,30 @@ function applyRoleToObject(
     : { ...roles, [key]: { name: trimmed, fields: CURATED_ROLE_FIELDS[key] ?? [] } };
   const def = nextRoles[key];
 
-  let tags = obj.tags;
   const fields = { ...obj.fields };
-  const movedTags: string[] = [];
+  const promotions: { tag: string; field: string; value: string }[] = [];
   for (const field of def.fields) {
     if (field.type === "date" || fields[field.name] || !field.options?.length) continue;
-    const matches = tags.filter((t) => field.options!.some((opt) => norm(opt) === norm(t)));
+    const matches = obj.tags.filter((t) => field.options!.some((opt) => norm(opt) === norm(t)));
     if (field.type === "select") {
       // Exactly one match or skip — an object with two candidate tags for a
       // single-value field is ambiguous, left for manual resolution.
       if (matches.length !== 1) continue;
       const [tag] = matches;
-      fields[field.name] = field.options.find((opt) => norm(opt) === norm(tag))!;
-      tags = tags.filter((t) => t !== tag);
-      movedTags.push(tag);
+      const value = field.options.find((opt) => norm(opt) === norm(tag))!;
+      fields[field.name] = value;
+      promotions.push({ tag, field: field.name, value });
     } else {
       // multi-select: no ambiguity concept — an object can legitimately
       // carry more than one value here, so every matching tag moves in.
       if (matches.length === 0) continue;
-      fields[field.name] = matches.map(
-        (tag) => field.options!.find((opt) => norm(opt) === norm(tag))!
-      );
-      tags = tags.filter((t) => !matches.includes(t));
-      movedTags.push(...matches);
+      const values = matches.map((tag) => field.options!.find((opt) => norm(opt) === norm(tag))!);
+      fields[field.name] = values;
+      matches.forEach((tag, i) => promotions.push({ tag, field: field.name, value: values[i] }));
     }
   }
 
-  return { object: { ...obj, role: def.name, tags, fields }, roles: nextRoles, movedTags };
+  return { object: { ...obj, role: def.name, fields }, roles: nextRoles, promotions };
 }
 
 export const useStore = create<State>()(
@@ -882,40 +926,30 @@ export const useStore = create<State>()(
             return { objects: { ...s.objects, [objectId]: { ...obj, role: undefined } } };
           }
           if (!roleName.trim()) return {};
-          const { object, roles, movedTags } = applyRoleToObject(obj, roleName, s.roles);
-          const update: Partial<State> = {
-            objects: { ...s.objects, [objectId]: object },
-            roles,
-          };
-          if (movedTags.length > 0) {
-            const removals = s.localTagRemovals[objectId] ?? [];
-            update.localTagRemovals = {
-              ...s.localTagRemovals,
-              [objectId]: Array.from(new Set([...removals, ...movedTags])),
-            };
+          const { object, roles, promotions } = applyRoleToObject(obj, roleName, s.roles);
+          let tagPromotions = s.tagPromotions;
+          for (const promotion of promotions) {
+            tagPromotions = addPromotion(tagPromotions, objectId, promotion);
           }
-          return update;
+          return { objects: { ...s.objects, [objectId]: object }, roles, tagPromotions };
         }),
 
       bulkAssignRoles: (assignments) =>
         set((s) => {
           const objects = { ...s.objects };
           let roles = s.roles;
-          const localTagRemovals = { ...s.localTagRemovals };
+          let tagPromotions = s.tagPromotions;
           for (const { objectId, role } of assignments) {
             const obj = objects[objectId];
             if (!obj) continue;
             const applied = applyRoleToObject(obj, role, roles);
             objects[objectId] = applied.object;
             roles = applied.roles;
-            if (applied.movedTags.length > 0) {
-              const removals = localTagRemovals[objectId] ?? [];
-              localTagRemovals[objectId] = Array.from(
-                new Set([...removals, ...applied.movedTags])
-              );
+            for (const promotion of applied.promotions) {
+              tagPromotions = addPromotion(tagPromotions, objectId, promotion);
             }
           }
-          return { objects, roles, localTagRemovals };
+          return { objects, roles, tagPromotions };
         }),
 
       updateRoleFields: (roleName, fields, primaryFacets) =>
@@ -928,6 +962,110 @@ export const useStore = create<State>()(
             ...(primaryFacets !== undefined ? { primaryFacets } : {}),
           };
           return { roles: { ...s.roles, [key]: def } };
+        }),
+
+      fieldProvenance: {},
+      tagPromotions: {},
+
+      addRoleField: (roleName, field, pin = true) =>
+        set((s) => {
+          const key = norm(roleName);
+          const existing = s.roles[key];
+          const base: RoleDefinition = existing ?? { name: roleName.trim(), fields: [] };
+          if (base.fields.some((f) => norm(f.name) === norm(field.name))) return {};
+          const primaryFacets = base.primaryFacets ?? [];
+          return {
+            roles: {
+              ...s.roles,
+              [key]: {
+                ...base,
+                fields: [...base.fields, field],
+                // Pinning is what makes the new property visible in the
+                // ledger at all — a property you just asked for that doesn't
+                // appear anywhere would read as the gesture having failed.
+                ...(pin && primaryFacets.length < 5
+                  ? { primaryFacets: [...primaryFacets, field.name] }
+                  : {}),
+              },
+            },
+          };
+        }),
+
+      applyProposals: (proposals) =>
+        set((s) => {
+          if (proposals.length === 0) return {};
+          const objects = { ...s.objects };
+          const fieldProvenance = { ...s.fieldProvenance };
+          let tagPromotions = s.tagPromotions;
+          const now = new Date().toISOString();
+          let changed = false;
+
+          for (const proposal of proposals) {
+            const object = objects[proposal.objectId];
+            if (!object) continue;
+
+            // A hand-set value outranks any rule, forever. localUserTags is
+            // the app's existing record of "Samuel picked this himself" —
+            // reused here rather than inventing a second notion of manual.
+            const userValues = s.localUserTags[proposal.objectId] ?? [];
+            const current = object.fields[proposal.field];
+            const currentList = Array.isArray(current) ? current : current ? [current] : [];
+            if (currentList.some((v) => userValues.includes(v))) continue;
+
+            // A value this pipeline wrote may be replaced by a later, better
+            // run (that's what makes enrichment improvable); a value that
+            // arrived some other way is left alone.
+            const writtenBy = fieldProvenance[proposal.objectId]?.[proposal.field];
+            if (currentList.length > 0 && !writtenBy) continue;
+
+            objects[proposal.objectId] = {
+              ...object,
+              fields: { ...object.fields, [proposal.field]: proposal.value },
+              updatedAt: now,
+            };
+            fieldProvenance[proposal.objectId] = {
+              ...fieldProvenance[proposal.objectId],
+              [proposal.field]: proposal.providerId,
+            };
+            if (proposal.fromTag) {
+              tagPromotions = addPromotion(tagPromotions, proposal.objectId, {
+                tag: proposal.fromTag,
+                field: proposal.field,
+                value: Array.isArray(proposal.value) ? proposal.value[0] : proposal.value,
+              });
+            }
+            changed = true;
+          }
+
+          return changed ? { objects, fieldProvenance, tagPromotions } : {};
+        }),
+
+      clearFieldValues: (objectIds, fieldName) =>
+        set((s) => {
+          const objects = { ...s.objects };
+          const fieldProvenance = { ...s.fieldProvenance };
+          const now = new Date().toISOString();
+          let changed = false;
+          for (const id of objectIds) {
+            const object = objects[id];
+            if (!object || object.fields[fieldName] === undefined) continue;
+            const { [fieldName]: _cleared, ...rest } = object.fields;
+            objects[id] = { ...object, fields: rest, updatedAt: now };
+            if (fieldProvenance[id]) {
+              const { [fieldName]: _p, ...restProv } = fieldProvenance[id];
+              if (Object.keys(restProv).length === 0) delete fieldProvenance[id];
+              else fieldProvenance[id] = restProv;
+            }
+            changed = true;
+          }
+          if (!changed) return {};
+          // Any tag promoted into this field comes back — otherwise it would
+          // stay hidden from the tag bar with no value to justify it.
+          return {
+            objects,
+            fieldProvenance,
+            tagPromotions: revertPromotionsIntoField(s.tagPromotions, objectIds, fieldName),
+          };
         }),
 
       renameCollection: (id, name) =>
@@ -1540,6 +1678,8 @@ export const useStore = create<State>()(
         writingFontSize: state.writingFontSize,
         writingPageWidth: state.writingPageWidth,
         localUserTags: state.localUserTags,
+        fieldProvenance: state.fieldProvenance,
+        tagPromotions: state.tagPromotions,
         sidebarCollapsed: state.sidebarCollapsed,
       }),
       // Embeddings are deliberately excluded from what idbStorage actually

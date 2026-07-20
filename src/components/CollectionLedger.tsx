@@ -12,6 +12,8 @@ import {
 import { addMymindTag } from "../lib/mymindWrite";
 import { norm } from "../lib/textNorm";
 import { DRAG_MIME } from "../lib/objectDrag";
+import { previewProviders, proposeWithProvider } from "../lib/fieldExtraction";
+import { AddPropertyPopover } from "./AddPropertyPopover";
 import type { Collection, DesignObject, FacetField, RoleDefinition } from "../types";
 
 const VISIBLE_VALUES = 6;
@@ -61,6 +63,17 @@ export function CollectionLedger({
     }))
   );
   const [expandedField, setExpandedField] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [addingProperty, setAddingProperty] = useState(false);
+
+  /** Dropping cards onto a value assigns it — and records it as hand-picked,
+   * because a deliberate drag IS a hand-confirmation (unlike an extractor's
+   * guess, which deliberately stays unconfirmed). */
+  function assignValue(ids: string[], field: FacetField, value: string) {
+    const st = useStore.getState();
+    st.assignFieldValue(ids, field.name, value, field.type === "multi-select" ? "append" : "replace");
+    for (const id of ids) st.recordUserValue(id, value);
+  }
 
   const roleKeys = distinctRoleKeys(objects);
   const activeRole = resolveActiveRole(objects, roles, roleFilter);
@@ -152,35 +165,65 @@ export function CollectionLedger({
 
       {orderedPinned.map((field) => {
         const strength = computeFacetStrength(roleObjects, field, localUserTags);
-        const emphasis = classifyFacetEmphasis(strength);
-        if (emphasis === "hidden") return null;
+        // Pinned facets are never hidden — see classifyFacetEmphasis. A
+        // property Samuel just created must appear even at 0%, or the gesture
+        // reads as having silently failed.
+        const emphasis = classifyFacetEmphasis(strength, true);
         const values = computeFieldValueFrequency(roleObjects, field.name);
-        if (values.length === 0) return null;
         const expanded = expandedField === field.name;
         const shown = expanded ? values : values.slice(0, VISIBLE_VALUES);
         const hiddenCount = values.length - shown.length;
+        const emptyCount = roleObjects.length - Math.round(strength.coveragePct * roleObjects.length);
         return (
           <div key={field.name} className={emphasis === "muted" ? "opacity-60" : ""}>
             <ColumnLabel>{field.name}</ColumnLabel>
             <div className="flex flex-col gap-0.5">
+              {values.length === 0 && (
+                <span className="font-mono text-[11px] text-muted/70 italic">
+                  nothing filled yet
+                </span>
+              )}
               {shown.map((v) => {
                 const active =
                   state.facetFieldFilter?.field === field.name &&
                   state.facetFieldFilter.value === v.tag;
                 const userShare = computeValueUserShare(roleObjects, field, v.tag, localUserTags);
+                const over = dropTarget === `${field.name}::${v.tag}`;
                 return (
                   <button
                     key={v.tag}
                     onClick={() =>
                       state.setFacetFieldFilter(active ? null : { field: field.name, value: v.tag })
                     }
+                    // Inline assignment without leaving the collection: drop
+                    // cards straight onto a value. Same universal drag
+                    // contract Piles and the Classify folders already use —
+                    // a new gesture would be new chrome; this is none.
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDropTarget(`${field.name}::${v.tag}`);
+                    }}
+                    onDragLeave={() =>
+                      setDropTarget((cur) => (cur === `${field.name}::${v.tag}` ? null : cur))
+                    }
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDropTarget(null);
+                      const raw = e.dataTransfer.getData(DRAG_MIME);
+                      if (!raw) return;
+                      assignValue(JSON.parse(raw) as string[], field, v.tag);
+                    }}
                     className={[
-                      "text-left font-mono text-[12px] leading-5 hover:underline decoration-dotted underline-offset-2",
+                      "text-left font-mono text-[12px] leading-5 hover:underline decoration-dotted underline-offset-2 rounded",
                       active ? "text-accent" : userShare < 0.5 ? "text-muted/70" : "text-ink/80",
+                      over ? "ring-2 ring-accent/60 bg-accent/5" : "",
                     ].join(" ")}
                     title={
                       (active ? "Filtering — click to clear. " : "") +
-                      (userShare >= 0.5 ? "Hand-confirmed here" : "From mymind/AI, not yet hand-confirmed")
+                      (userShare >= 0.5
+                        ? "Hand-confirmed here"
+                        : "Derived, not yet hand-confirmed") +
+                      " · drop items here to give them this value"
                     }
                   >
                     {active ? "● " : ""}
@@ -204,16 +247,86 @@ export function CollectionLedger({
                   less
                 </button>
               )}
+              {emptyCount > 0 && <FillRow field={field} objects={roleObjects} empty={emptyCount} />}
             </div>
           </div>
         );
       })}
+
+      {activeRole && (
+        <div className="relative self-start">
+          <button
+            onClick={() => setAddingProperty((v) => !v)}
+            className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted/50 hover:text-ink transition-colors"
+            title={`Organize ${activeRole.name} by another property`}
+          >
+            + property
+          </button>
+          {addingProperty && (
+            <AddPropertyPopover
+              roleName={activeRole.name}
+              objects={roleObjects}
+              onClose={() => setAddingProperty(false)}
+            />
+          )}
+        </div>
+      )}
 
       {piles.length > 0 && (
         <div className="max-w-xs">
           <ColumnLabel>Piles</ColumnLabel>
           <PileChips piles={piles} />
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The repeatable half of enrichment: "138 empty · fill 121".
+ *
+ * Only rendered when a provider can actually contribute something that isn't
+ * already there — an offer with nothing behind it is noise, and a field the
+ * data genuinely can't answer (serif vs sans) must stay quiet rather than
+ * promise a fill it can't deliver. Re-running is safe by construction:
+ * applyProposals never overwrites a hand-set value, and only replaces its own
+ * earlier guesses, so this stays useful as the rules improve.
+ */
+function FillRow({
+  field,
+  objects,
+  empty,
+}: {
+  field: FacetField;
+  objects: DesignObject[];
+  empty: number;
+}) {
+  const missing = objects.filter((o) => {
+    const v = o.fields[field.name];
+    return Array.isArray(v) ? v.length === 0 : !v;
+  });
+  const best = previewProviders(missing, field.name, field)
+    .filter((p) => p.filled > 0)
+    .sort((a, b) => b.filled - a.filled)[0];
+
+  return (
+    <div className="font-mono text-[10px] text-muted/60 mt-0.5">
+      {empty} empty
+      {best && (
+        <>
+          {" · "}
+          <button
+            onClick={() =>
+              useStore
+                .getState()
+                .applyProposals(proposeWithProvider(best.provider, missing, field.name, field))
+            }
+            className="text-accent/80 hover:text-accent hover:underline decoration-dotted underline-offset-2"
+            title={`Derive ${best.filled} value${best.filled > 1 ? "s" : ""} from ${best.provider.label}. Never overwrites anything you set by hand.`}
+          >
+            fill {best.filled}
+          </button>
+        </>
       )}
     </div>
   );

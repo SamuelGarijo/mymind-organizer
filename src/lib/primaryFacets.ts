@@ -94,9 +94,21 @@ const WEAK_USER_CONFIRMED = 0.2;
  * a value for isn't worth prime real estate, and one that's mostly unverified
  * AI/mymind guesses shouldn't look as authoritative as a hand-confirmed one.
  * Plain constants, easy to retune — not derived from any other threshold in
- * the app. */
-export function classifyFacetEmphasis(strength: FacetStrength): FacetEmphasis {
-  if (strength.coveragePct < HIDE_COVERAGE) return "hidden";
+ * the app.
+ *
+ * `pinned` (2026-07-20) exempts a facet from HIDING, never from muting. The
+ * bug it fixes was circular and quietly fatal to the whole feature: a
+ * property you had just created had 0% coverage, so it was hidden, so there
+ * was nowhere to fill it from, so it stayed at 0% forever. Pinning is an
+ * explicit statement that this facet matters in this world — the coverage
+ * statistic must not overrule the user's own intent. Muting still applies:
+ * "you asked for this and it's still mostly empty" is honest.
+ */
+export function classifyFacetEmphasis(
+  strength: FacetStrength,
+  pinned = false
+): FacetEmphasis {
+  if (strength.coveragePct < HIDE_COVERAGE) return pinned ? "muted" : "hidden";
   if (strength.coveragePct < MUTE_COVERAGE) return "muted";
   if (strength.userConfirmedPct < WEAK_USER_CONFIRMED) return "muted";
   return "normal";

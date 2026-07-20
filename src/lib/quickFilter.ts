@@ -2,6 +2,7 @@ import type { DesignObject } from "../types";
 import { norm } from "./ruleEngine";
 import { asFieldString } from "./mymindSync";
 import { resolveTagOrigin } from "./tagOrigin";
+import { visibleTags, type TagPromotions } from "./tagPromotion";
 
 export type FacetFieldFilter = { field: string; value: string };
 
@@ -13,11 +14,17 @@ export type TypeFrequency = { type: string; count: number };
 const UNKNOWN_TYPE_LABEL = "Unspecified";
 
 /** Most common tags among the given objects, most frequent first. Powers the
- * facet chip bar so it always reflects whatever collection/view is active. */
-export function computeTopTags(objects: DesignObject[], limit = 30): TagFrequency[] {
+ * facet chip bar so it always reflects whatever collection/view is active.
+ * Promoted tags are excluded — once `rojo` is the Colour property's value it
+ * belongs to that column, not to the loose tag bar (lib/tagPromotion.ts). */
+export function computeTopTags(
+  objects: DesignObject[],
+  limit = 30,
+  promotions: TagPromotions = {}
+): TagFrequency[] {
   const counts = new Map<string, number>();
   for (const obj of objects) {
-    for (const tag of obj.tags) {
+    for (const tag of visibleTags(obj, promotions)) {
       counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
   }
@@ -33,11 +40,12 @@ export function computeTopTags(objects: DesignObject[], limit = 30): TagFrequenc
  * is the store's own record of which tags were added by hand here. */
 export function computeCuratedPiles(
   objects: DesignObject[],
-  localUserTags: Record<string, string[]>
+  localUserTags: Record<string, string[]>,
+  promotions: TagPromotions = {}
 ): TagFrequency[] {
   const counts = new Map<string, number>();
   for (const obj of objects) {
-    for (const tag of obj.tags) {
+    for (const tag of visibleTags(obj, promotions)) {
       if (resolveTagOrigin(obj, tag, localUserTags[obj.id]) !== "user") continue;
       counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
