@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "server:watch"],
       "port": 8787
+    },
+    {
+      "name": "organizer-dev-verify",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5774", "--strictPort"],
+      "port": 5774
     }
   ]
 }

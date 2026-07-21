@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { HeroImagePicker } from "./HeroImagePicker";
-import { TypologyPanel } from "./TypologyPanel";
+import { TypologyPanel, type CollectionMeaning } from "./TypologyPanel";
 import type { FacetField } from "../types";
 import { useStore } from "../store";
 
@@ -31,7 +31,7 @@ export function ManualCollectionModal({
   );
   // Creating a collection is an act of typology (2026-07-21) — the panel
   // proposes it, this holds the answer until Save.
-  const [typology, setTypology] = useState<{ name: string; fields: FacetField[] } | null>(null);
+  const [meaning, setMeaning] = useState<CollectionMeaning>({ kind: "selection" });
   const [autoTagsDraft, setAutoTagsDraft] = useState(
     existing?.type === "manual" ? (existing.autoTags ?? []).join(", ") : ""
   );
@@ -65,10 +65,11 @@ export function ManualCollectionModal({
       if (autoTags.length > 0) state.updateManualCollection(id, { autoTags });
     }
     state.updateCollectionMeta(id, { description, heroImageObjectId });
-    if (typology) {
-      useStore
-        .getState()
-        .applyTypology(typology.name, memberObjects.map((o) => o.id), typology.fields);
+    const memberIds = memberObjects.map((o) => o.id);
+    if (meaning.kind === "type") {
+      useStore.getState().applyTypology(meaning.name, memberIds, meaning.fields);
+    } else if (meaning.kind === "quality") {
+      useStore.getState().applyCollectionQuality(meaning.property, meaning.value, memberIds);
     }
     onClose();
   }
@@ -115,7 +116,7 @@ export function ManualCollectionModal({
         <TypologyPanel
           collectionName={name}
           members={memberObjects}
-          onApply={setTypology}
+          onApply={setMeaning}
         />
 
         {existing && (

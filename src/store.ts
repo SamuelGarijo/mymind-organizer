@@ -297,6 +297,17 @@ type State = {
     memberIds: string[],
     fields: FacetField[]
   ) => void;
+  /** A collection that names a shared QUALITY rather than a kind (Samuel,
+   * 2026-07-21): "New Topographics" is a movement its members belong to,
+   * not a species they are — they stay photographs. Writes the value on
+   * every member and declares the property on whatever entity types they
+   * already carry, so it renders and filters like any other. Additive:
+   * a thing can belong to several movements. One undo step. */
+  applyCollectionQuality: (
+    propertyName: string,
+    value: string,
+    memberIds: string[]
+  ) => void;
   /** Renames an entity type everywhere: its definition, every object
    * carrying it, and any tag promoted into one of its fields. */
   renameRole: (from: string, to: string) => void;
@@ -1352,6 +1363,81 @@ export const useStore = create<State>()(
         });
         get().setFlashNotice(
           `${memberIds.length.toLocaleString()} items are now ${trimmed}. Editable on any item.`
+        );
+      },
+
+      applyCollectionQuality: (propertyName, value, memberIds) => {
+        const field = propertyName.trim();
+        const label = value.trim();
+        if (!field || !label || memberIds.length === 0) return;
+        get().pushUndo(
+          `mark ${memberIds.length.toLocaleString()} items as ${field}: ${label}`
+        );
+        set((s) => {
+          // Which kinds are actually here — the property has to be declared
+          // on each of them or it renders nowhere.
+          const hostKeys = new Set<string>();
+          for (const id of memberIds) {
+            const role = s.objects[id]?.role;
+            if (role && s.roles[norm(role)]) hostKeys.add(norm(role));
+          }
+
+          const roles = { ...s.roles };
+          for (const key of hostKeys) {
+            const def = roles[key];
+            const existing = def.fields.find((f) => norm(f.name) === norm(field));
+            if (!existing) {
+              roles[key] = {
+                ...def,
+                // Multi-select from the start: a photograph can belong to
+                // more than one movement, and discovering that later would
+                // mean a schema change instead of a value.
+                fields: [...def.fields, { name: field, type: "multi-select", options: [label] }],
+                primaryFacets: [...(def.primaryFacets ?? []), field].slice(0, 5),
+              };
+            } else if (!(existing.options ?? []).includes(label)) {
+              roles[key] = {
+                ...def,
+                fields: def.fields.map((f) =>
+                  norm(f.name) === norm(field)
+                    ? { ...f, options: [...(f.options ?? []), label] }
+                    : f
+                ),
+              };
+            }
+          }
+
+          const objects = { ...s.objects };
+          let localUserTags = s.localUserTags;
+          const now = new Date().toISOString();
+          for (const id of memberIds) {
+            const o = objects[id];
+            if (!o) continue;
+            const current = o.fields[field];
+            const arr = Array.isArray(current) ? current : current ? [current] : [];
+            if (arr.includes(label)) continue;
+            const next = [...arr, label];
+            objects[id] = {
+              ...o,
+              fields: { ...o.fields, [field]: next.length === 1 ? next[0] : next },
+              updatedAt: now,
+            };
+            // Curating something into a collection is a hand-made
+            // statement, so the value reads as confirmed, not inferred.
+            const userTags = localUserTags[id] ?? [];
+            if (!userTags.includes(label)) {
+              localUserTags = { ...localUserTags, [id]: [...userTags, label] };
+            }
+          }
+          return { roles, objects, localUserTags };
+        });
+
+        const untyped = memberIds.filter((id) => !get().objects[id]?.role).length;
+        get().setFlashNotice(
+          `${memberIds.length.toLocaleString()} items marked ${field}: ${label}.` +
+            (untyped > 0
+              ? ` ${untyped.toLocaleString()} have no kind yet, so it won't show on them until they do.`
+              : "")
         );
       },
 

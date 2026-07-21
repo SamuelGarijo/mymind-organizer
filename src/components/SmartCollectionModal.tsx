@@ -11,7 +11,7 @@ import {
 } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
 import { HeroImagePicker } from "./HeroImagePicker";
-import { TypologyPanel } from "./TypologyPanel";
+import { TypologyPanel, type CollectionMeaning } from "./TypologyPanel";
 import type { DesignObject, FacetField, FilterCondition, FilterOperator, FilterSimilarity, TagGroups } from "../types";
 
 type Row = FilterCondition | FilterSimilarity;
@@ -91,7 +91,7 @@ export function SmartCollectionModal({
   const [heroImageObjectId, setHeroImageObjectId] = useState<string | null>(
     existing?.heroImageObjectId ?? null
   );
-  const [typology, setTypology] = useState<{ name: string; fields: FacetField[] } | null>(null);
+  const [meaning, setMeaning] = useState<CollectionMeaning>({ kind: "selection" });
   const [combinator, setCombinator] = useState<"AND" | "OR">(
     existing?.type === "smart" ? existing.rule.combinator : "AND"
   );
@@ -197,10 +197,11 @@ export function SmartCollectionModal({
       }
     }
     state.updateCollectionMeta(id, { description, heroImageObjectId });
-    if (typology) {
-      useStore
-        .getState()
-        .applyTypology(typology.name, matchingObjects.map((o) => o.id), typology.fields);
+    const memberIds = matchingObjects.map((o) => o.id);
+    if (meaning.kind === "type") {
+      useStore.getState().applyTypology(meaning.name, memberIds, meaning.fields);
+    } else if (meaning.kind === "quality") {
+      useStore.getState().applyCollectionQuality(meaning.property, meaning.value, memberIds);
     }
     onClose();
   }
@@ -238,7 +239,7 @@ export function SmartCollectionModal({
         <TypologyPanel
           collectionName={name}
           members={matchingObjects}
-          onApply={setTypology}
+          onApply={setMeaning}
         />
 
         <HeroImagePicker
