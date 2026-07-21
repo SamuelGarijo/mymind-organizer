@@ -64,6 +64,31 @@ type ViewSnapshot = {
   label: string;
 };
 
+/** The slices undo restores — everything that is the user's DOCUMENT, and
+ * nothing that is merely where they were looking. Undoing a bulk assign
+ * must not also yank the view back to another collection. */
+const UNDOABLE_KEYS = [
+  "objects",
+  "collections",
+  "collectionOrder",
+  "roles",
+  "tagGroups",
+  "localUserTags",
+  "localTagRemovals",
+  "deletedMymindIds",
+  "tagPromotions",
+  "fieldProvenance",
+  "sectionDescriptions",
+] as const;
+
+type UndoableSlice = Pick<State, (typeof UNDOABLE_KEYS)[number]>;
+
+export type UndoEntry = { label: string; slice: UndoableSlice };
+
+/** How many steps back the session remembers. Snapshots are reference-only
+ * (structural sharing), so this is bounded for tidiness, not for memory. */
+const UNDO_LIMIT = 50;
+
 type State = {
   objects: Record<string, DesignObject>;
   collections: Record<string, Collection>;
@@ -282,6 +307,24 @@ type State = {
    * change — a lens you pick up, not a stored mode. */
   organizeBy: string | null;
   setOrganizeBy: (field: string | null) => void;
+
+  /** Undo/redo over the DOCUMENT slices (Samuel, 2026-07-21, after one
+   * drag made twenty collections: "necesitamos un control Z... y si puede
+   * ser con un tooltip que diga qué estamos deshaciendo").
+   *
+   * Snapshot-based rather than command-based, and that's cheap here
+   * precisely because every mutation in this store already replaces its
+   * slices immutably: a snapshot is ~10 object references sharing all
+   * their structure with the live state, not a copy of 8,000 objects.
+   * Never persisted — history belongs to a session, and restoring a
+   * half-remembered undo stack across a reload would be worse than none. */
+  undoStack: UndoEntry[];
+  redoStack: UndoEntry[];
+  /** Call BEFORE mutating, with a human phrase ("delete 3 items", "create
+   * collection from 12 items") — it becomes the label the toast shows. */
+  pushUndo: (label: string) => void;
+  undo: () => void;
+  redo: () => void;
   /** Editorial blurbs for the chapters of an "Organize by" page —
    * `${norm(role)}::${norm(field)}::${norm(value)}` → prose. The organized
    * page is meant to read as something publishable (Samuel, 2026-07-21),
@@ -636,6 +679,13 @@ type PersistedState = Pick<
 // reference to `useStore` itself.
 let storeApi: StoreApi<State> | null = null;
 
+/** Cheap by construction: copies references, not data (see UNDOABLE_KEYS). */
+function captureUndoable(s: State): UndoableSlice {
+  const slice = {} as Record<string, unknown>;
+  for (const key of UNDOABLE_KEYS) slice[key] = s[key];
+  return slice as UndoableSlice;
+}
+
 /**
  * Applies a role to one object: creates its RoleDefinition (seeded from
  * CURATED_ROLE_FIELDS when the name is brand new — see that file) if it
@@ -835,7 +885,8 @@ export const useStore = create<State>()(
         return doomed.length;
       },
 
-      deleteObjectLocally: (id) =>
+      deleteObjectLocally: (id) => {
+        get().pushUndo("delete item");
         set((s) => {
           const existing = s.objects[id];
           if (!existing) return {};
@@ -848,7 +899,8 @@ export const useStore = create<State>()(
               : s.deletedMymindIds;
           const detailObjectId = s.detailObjectId === id ? null : s.detailObjectId;
           return { objects, deletedMymindIds, detailObjectId };
-        }),
+        });
+      },
 
       reconcileMymindDeletions: (presentIds) => {
         let removed = 0;
@@ -1012,7 +1064,10 @@ export const useStore = create<State>()(
           return { objects: { ...s.objects, [objectId]: object }, roles, tagPromotions };
         }),
 
-      bulkAssignRoles: (assignments) =>
+      bulkAssignRoles: (assignments) => {
+        get().pushUndo(
+          `type ${assignments.length.toLocaleString()} item${assignments.length === 1 ? "" : "s"}`
+        );
         set((s) => {
           const objects = { ...s.objects };
           let roles = s.roles;
@@ -1028,7 +1083,8 @@ export const useStore = create<State>()(
             }
           }
           return { objects, roles, tagPromotions };
-        }),
+        });
+      },
 
       updateRoleFields: (roleName, fields, primaryFacets) =>
         set((s) => {
@@ -1047,6 +1103,40 @@ export const useStore = create<State>()(
       justCreatedFieldName: null,
       organizeBy: null,
       setOrganizeBy: (field) => set({ organizeBy: field }),
+
+      undoStack: [],
+      redoStack: [],
+      pushUndo: (label) =>
+        set((s) => ({
+          undoStack: [...s.undoStack, { label, slice: captureUndoable(s) }].slice(-UNDO_LIMIT),
+          // Any fresh action abandons the redo branch — the usual contract.
+          redoStack: [],
+        })),
+      undo: () =>
+        set((s) => {
+          const entry = s.undoStack[s.undoStack.length - 1];
+          if (!entry) return {};
+          return {
+            ...entry.slice,
+            undoStack: s.undoStack.slice(0, -1),
+            // Redo restores what we're leaving, under the same label.
+            redoStack: [...s.redoStack, { label: entry.label, slice: captureUndoable(s) }],
+            flashNotice: `Undid: ${entry.label}`,
+          };
+        }),
+      redo: () =>
+        set((s) => {
+          const entry = s.redoStack[s.redoStack.length - 1];
+          if (!entry) return {};
+          return {
+            ...entry.slice,
+            redoStack: s.redoStack.slice(0, -1),
+            undoStack: [...s.undoStack, { label: entry.label, slice: captureUndoable(s) }].slice(
+              -UNDO_LIMIT
+            ),
+            flashNotice: `Redid: ${entry.label}`,
+          };
+        }),
 
       sectionDescriptions: {},
       setSectionDescription: (roleName, fieldName, value, text) =>
@@ -1135,7 +1225,11 @@ export const useStore = create<State>()(
         }
       },
 
-      applyProposals: (proposals) =>
+      applyProposals: (proposals) => {
+        const field = proposals[0]?.field;
+        get().pushUndo(
+          `fill ${proposals.length.toLocaleString()} ${field ? field + " " : ""}value${proposals.length === 1 ? "" : "s"}`
+        );
         set((s) => {
           if (proposals.length === 0) return {};
           const objects = { ...s.objects };
@@ -1182,7 +1276,8 @@ export const useStore = create<State>()(
           }
 
           return changed ? { objects, fieldProvenance, tagPromotions } : {};
-        }),
+        });
+      },
 
       revertProviderFills: (fieldName, providerId) => {
         const s = get();
@@ -1243,7 +1338,8 @@ export const useStore = create<State>()(
           return { roles, objects, fieldProvenance, tagPromotions };
         }),
 
-      clearFieldValues: (objectIds, fieldName) =>
+      clearFieldValues: (objectIds, fieldName) => {
+        get().pushUndo(`clear ${fieldName}`);
         set((s) => {
           const objects = { ...s.objects };
           const fieldProvenance = { ...s.fieldProvenance };
@@ -1269,7 +1365,8 @@ export const useStore = create<State>()(
             fieldProvenance,
             tagPromotions: revertPromotionsIntoField(s.tagPromotions, objectIds, fieldName),
           };
-        }),
+        });
+      },
 
       renameCollection: (id, name) =>
         set((s) => {
@@ -1775,6 +1872,7 @@ export const useStore = create<State>()(
 
       addFieldValue: (objectIds, fieldName, value) => {
         if (!value) return;
+        get().pushUndo(`file ${objectIds.length > 1 ? objectIds.length + " items" : "item"} under ${value}`);
         let promoted = false;
         set((s) => {
           const objects = { ...s.objects };
@@ -1839,7 +1937,8 @@ export const useStore = create<State>()(
         }
       },
 
-      removeFieldValue: (objectIds, fieldName, value) =>
+      removeFieldValue: (objectIds, fieldName, value) => {
+        get().pushUndo(`remove from ${value}`);
         set((s) => {
           const objects = { ...s.objects };
           let changed = false;
@@ -1864,7 +1963,8 @@ export const useStore = create<State>()(
             objects,
             tagPromotions: revertPromotionsIntoField(s.tagPromotions, objectIds, fieldName),
           };
-        }),
+        });
+      },
 
       addFieldOption: (fieldName, option) =>
         set((s) => {

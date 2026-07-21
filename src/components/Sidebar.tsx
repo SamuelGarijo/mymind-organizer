@@ -435,8 +435,11 @@ function CreateDropZone({
   onDropManual,
   onDropSmart,
 }: {
-  onDropManual: (objectId: string) => void;
-  onDropSmart: (objectId: string) => void;
+  /** The WHOLE dragged selection — one drop is one intent, so it makes one
+   * collection holding everything, not one collection per item (Samuel,
+   * 2026-07-21: dragging 20 things created 20 collections). */
+  onDropManual: (objectIds: string[]) => void;
+  onDropSmart: (objectIds: string[]) => void;
 }) {
   const [hoverSide, setHoverSide] = useState<"manual" | "smart" | null>(null);
 
@@ -446,7 +449,8 @@ function CreateDropZone({
     const raw = e.dataTransfer.getData(DRAG_MIME);
     if (!raw) return;
     const ids: string[] = JSON.parse(raw);
-    for (const id of ids) (side === "manual" ? onDropManual : onDropSmart)(id);
+    if (ids.length === 0) return;
+    (side === "manual" ? onDropManual : onDropSmart)(ids);
   }
 
   const halfClass = (side: "manual" | "smart") =>
@@ -800,16 +804,27 @@ export function Sidebar({
     });
   }
 
-  function handleDropCreateManual(objectId: string) {
-    const id = state.addManualCollection("New collection");
-    state.assignToManualCollection(objectId, id);
+  function handleDropCreateManual(objectIds: string[]) {
+    const st = useStore.getState();
+    st.pushUndo(
+      objectIds.length === 1
+        ? "create collection"
+        : `create collection from ${objectIds.length} items`
+    );
+    const id = st.addManualCollection("New collection");
+    for (const objectId of objectIds) st.assignToManualCollection(objectId, id);
+    if (objectIds.length > 1) {
+      st.setFlashNotice(`New collection with ${objectIds.length} items.`);
+    }
   }
 
   // Seeds a smart collection with a "similar to this" rule (default 40%
   // threshold) and opens it straight in the full editor — every parameter,
   // including that rule itself, stays reversible from there (remove it,
   // loosen/tighten the threshold, add a tag/facet condition alongside it).
-  function handleDropCreateSmart(objectId: string) {
+  function handleDropCreateSmart(objectIds: string[]) {
+    // A similarity rule needs ONE seed — the first of the selection.
+    const objectId = objectIds[0];
     const seed = state.objects[objectId];
     if (!seed) return;
     const rule: FilterGroup = {

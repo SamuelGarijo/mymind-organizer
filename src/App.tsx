@@ -463,6 +463,23 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  // ⌘Z / ⇧⌘Z over the archive itself (Samuel, 2026-07-21). Never while a
+  // text field has focus — there the browser's own undo is the right one,
+  // and stealing it would be worse than not having this at all.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      e.preventDefault();
+      const st = useStore.getState();
+      if (e.shiftKey) st.redo();
+      else st.undo();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const view = state.selectedView;
   // Channel-style framing for the current collection, if any (issue #87) —
   // description/hero image are collection metadata, not tied to smart vs.
