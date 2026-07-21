@@ -82,6 +82,7 @@ export function ClassifyPanel({
   fieldName,
   reservoirCount,
   onFieldChange,
+  fieldOptions,
   onFilterValue,
   activeFilterValue,
   onOpen,
@@ -98,6 +99,11 @@ export function ClassifyPanel({
    * note here (the grid itself carries no annotation). */
   reservoirCount: number;
   onFieldChange: (name: string) => void;
+  /** Which properties this drawer can switch between. Normally the role's
+   * pinned primary facets; on the "Organize by" page it's the same list of
+   * properties the page's own tabs offer, so the drawer and the page never
+   * disagree about what can be read/assigned (Samuel, 2026-07-21). */
+  fieldOptions?: string[];
   /** §1 — categories are navigable: called with a value (or
    * UNCLASSIFIED_VALUE) to narrow the main grid to that subset, null to
    * clear back to the whole collection. */
@@ -107,7 +113,7 @@ export function ClassifyPanel({
   activeFilterValue: string | null;
   onOpen: (id: string) => void;
 }) {
-  const primaryFacets = activeRole.primaryFacets ?? [];
+  const primaryFacets = fieldOptions ?? activeRole.primaryFacets ?? [];
   const activeField = activeRole.fields.find((f) => f.name === fieldName);
   const [dragOverLabel, setDragOverLabel] = useState<string | null>(null);
   // Folders created by hand this session that have no members yet — they

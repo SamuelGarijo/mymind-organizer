@@ -471,16 +471,25 @@ export default function App() {
     ? state.objects[currentCollection.heroImageObjectId]
     : undefined;
 
-  // --- Classify-mode derivations (the floating-panel inversion, N8) -------
-  // The panel folds by one primary facet at a time; the main grid becomes
-  // the reservoir — this collection's role-carrying things that have no
-  // value for that facet yet. Quick filters/search still apply (they narrow
-  // visibleObjects upstream), so you can search within the unclassified.
+  // --- Classify derivations -----------------------------------------------
+  // ONE space, not two (Samuel, 2026-07-21): Classify is a drawer that
+  // opens beside whatever you are already looking at — never a different
+  // view. So it coexists with the "Organize by" landing page, and when
+  // that page is active the drawer classifies by THAT property: reading a
+  // collection by Font Style and reaching its unclassified chapter, the
+  // thing you want open beside you is the Font Style drawers (Serif,
+  // Sans…), ready to receive what you drag out of the pile.
+  const organizeBy = useStore((s) => s.organizeBy);
   const primaryFacetNames = activeRole?.primaryFacets ?? [];
+  const organizeDrivenField =
+    organizeBy && activeRole?.fields.some((f) => norm(f.name) === norm(organizeBy))
+      ? organizeBy
+      : null;
   const effectiveClassifyField =
-    classifyField && primaryFacetNames.includes(classifyField)
+    organizeDrivenField ??
+    (classifyField && primaryFacetNames.includes(classifyField)
       ? classifyField
-      : primaryFacetNames[0] ?? null;
+      : primaryFacetNames[0] ?? null);
   const classifyOpen = state.classificationPanelOpen && !!activeRole;
   // While a category is explicitly selected in the panel (§1, 2026-07-21),
   // the grid shows THAT subset — visibleObjects already carries the
@@ -507,7 +516,6 @@ export default function App() {
   // read by (the active entity type's select/multi-select fields), and
   // which one is currently chosen. Search/filters still compose: the
   // editorial page organizes whatever the query has narrowed to.
-  const organizeBy = useStore((s) => s.organizeBy);
   const organizeFields = useMemo(
     () =>
       activeRole
@@ -754,13 +762,12 @@ export default function App() {
       );
       return;
     }
-    // Only now does classify actually take the compartment.
+    // Only now does classify actually take the compartment. The "Organize
+    // by" lens is deliberately left alone: reading a collection by a
+    // property and opening its drawers is ONE gesture in one space, not
+    // two competing views (Samuel, 2026-07-21).
     state.setWorkbenchOpen(false);
     state.openClassificationPanel();
-    // Classify assigns values; "Organize by" reads them as chapters. Both
-    // at once would render the editorial page while the grid is supposed
-    // to be the unclassified reservoir — drop the lens.
-    state.setOrganizeBy(null);
   }
 
   function handleExport() {
@@ -1105,12 +1112,12 @@ export default function App() {
                   {organizeFields.map((f) => (
                     <button
                       key={f.name}
-                      onClick={() => {
-                        // The other direction of the same exclusivity: an
-                        // editorial read closes the assignment workspace.
-                        if (organizeField?.name !== f.name) state.closeClassificationPanel();
-                        state.setOrganizeBy(organizeField?.name === f.name ? null : f.name);
-                      }}
+                      onClick={() =>
+                        // Switching the lens never closes the drawer — if
+                        // it's open it simply re-stocks with this
+                        // property's categories (see effectiveClassifyField).
+                        state.setOrganizeBy(organizeField?.name === f.name ? null : f.name)
+                      }
                       className={
                         organizeField?.name === f.name
                           ? "text-ink underline decoration-dotted underline-offset-4"
@@ -1195,21 +1202,25 @@ export default function App() {
                       roles={state.roles}
                       roleFilter={state.roleFilter}
                       localUserTags={state.localUserTags}
-                      suppressField={classifyOpen ? effectiveClassifyField : null}
+                      suppressField={classifyOpen && !organizeField ? effectiveClassifyField : null}
                     />
                   )}
                   <Grid
-                    objects={classifyOpen ? reservoirObjects : visibleObjects}
+                    // Only the plain grid becomes the reservoir. On the
+                    // organized page the unclassified pile is already a
+                    // chapter of its own, so opening the drawer must leave
+                    // the page exactly as it was.
+                    objects={classifyOpen && !organizeField ? reservoirObjects : visibleObjects}
                     facetColumns={facetColumns}
                     tagFrequency={tagFrequency}
                     viewKey={
-                      classifyOpen
+                      classifyOpen && !organizeField
                         ? `${viewKey}:classify:${effectiveClassifyField ?? ""}`
                         : viewKey
                     }
                     onOpen={state.openDetail}
                     emptyLabel={
-                      classifyOpen && effectiveClassifyField
+                      classifyOpen && !organizeField && effectiveClassifyField
                         ? `Everything here already has a ${effectiveClassifyField} — switch property or close the panel.`
                         : emptyLabel
                     }
@@ -1335,7 +1346,17 @@ export default function App() {
                   activeRole={activeRole}
                   fieldName={effectiveClassifyField ?? ""}
                   reservoirCount={unclassifiedCount}
-                  onFieldChange={setClassifyField}
+                  fieldOptions={
+                    organizeField ? organizeFields.map((f) => f.name) : undefined
+                  }
+                  onFieldChange={(name) => {
+                    setClassifyField(name);
+                    // One space: if the page is being read by a property,
+                    // switching the drawer switches the reading too — the
+                    // chapters and the drawers always describe the same
+                    // thing.
+                    if (organizeField) state.setOrganizeBy(name);
+                  }}
                   onFilterValue={(value) =>
                     useStore
                       .getState()
