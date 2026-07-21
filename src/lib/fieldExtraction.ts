@@ -211,7 +211,13 @@ function parsePalette(object: DesignObject): [string, number][] {
  * colours — below it we're naming compression noise, not a colour choice. */
 const PALETTE_SECONDARY_MIN = 0.15;
 
-const COLOR_FIELD = /^(colou?r|palette|dominant colou?r|tone)$/i;
+// "tone" was in this list and it was a real taxonomy bug (Samuel's audit,
+// 2026-07-21 §8): Typography's curated Tone field (Luxury, Editorial,
+// Street…) is a CULTURAL register, but the palette provider claimed the
+// name and its one-click fill wrote Black/White/Yellow into it — colour
+// data inside a semantic property. A provider must only serve fields whose
+// MEANING it can answer, not every field whose name it can pattern-match.
+const COLOR_FIELD = /^(colou?r|palette|dominant colou?r)$/i;
 
 const paletteColorProvider: EnrichmentProvider = {
   id: "palette-color",

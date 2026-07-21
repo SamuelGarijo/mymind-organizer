@@ -256,6 +256,17 @@ type State = {
    * into it — the true inverse of an enrichment pass, so a rule that turned
    * out wrong leaves nothing behind. */
   clearFieldValues: (objectIds: string[], fieldName: string) => void;
+  /** Reverts every value a specific provider wrote into a field, library-
+   * wide — hand-set values untouched (they carry no provider provenance).
+   * This is what fieldProvenance exists FOR: when a rule turns out to have
+   * been semantically wrong (palette colours written into Tone, 2026-07-21
+   * §8), its work can be surgically undone. Returns how many were cleared. */
+  revertProviderFills: (fieldName: string, providerId: string) => number;
+  /** Renames a field on one role AND migrates every carrier: object values
+   * re-keyed, provenance re-keyed, tag promotions re-pointed, primaryFacets
+   * updated. Values are shared vocabulary, so the rename is scoped to
+   * objects carrying this role — other roles' same-named fields stay. */
+  renameRoleField: (roleName: string, oldName: string, newName: string) => void;
   /** The field name most recently created through the "+ property" gesture
    * this session — transient (never persisted). CollectionLedger exempts
    * exactly this one column from coverage-based hiding, so a property born
@@ -1122,6 +1133,65 @@ export const useStore = create<State>()(
           return changed ? { objects, fieldProvenance, tagPromotions } : {};
         }),
 
+      revertProviderFills: (fieldName, providerId) => {
+        const s = get();
+        const ids = Object.keys(s.fieldProvenance).filter(
+          (id) => s.fieldProvenance[id]?.[fieldName] === providerId
+        );
+        if (ids.length > 0) s.clearFieldValues(ids, fieldName);
+        return ids.length;
+      },
+
+      renameRoleField: (roleName, oldName, newName) =>
+        set((s) => {
+          const key = norm(roleName);
+          const def = s.roles[key];
+          const trimmed = newName.trim();
+          if (!def || !trimmed || norm(oldName) === norm(trimmed)) return {};
+          if (def.fields.some((f) => norm(f.name) === norm(trimmed))) return {};
+
+          const roles = {
+            ...s.roles,
+            [key]: {
+              ...def,
+              fields: def.fields.map((f) =>
+                norm(f.name) === norm(oldName) ? { ...f, name: trimmed } : f
+              ),
+              ...(def.primaryFacets
+                ? {
+                    primaryFacets: def.primaryFacets.map((n) =>
+                      norm(n) === norm(oldName) ? trimmed : n
+                    ),
+                  }
+                : {}),
+            },
+          };
+
+          const objects = { ...s.objects };
+          const fieldProvenance = { ...s.fieldProvenance };
+          const tagPromotions = { ...s.tagPromotions };
+          for (const [id, obj] of Object.entries(objects)) {
+            if (!obj.role || norm(obj.role) !== key) continue;
+            if (obj.fields[oldName] !== undefined) {
+              const { [oldName]: moved, ...rest } = obj.fields;
+              objects[id] = { ...obj, fields: { ...rest, [trimmed]: moved } };
+            }
+            const prov = fieldProvenance[id];
+            if (prov?.[oldName] !== undefined) {
+              const { [oldName]: movedProv, ...restProv } = prov;
+              fieldProvenance[id] = { ...restProv, [trimmed]: movedProv };
+            }
+            const promos = tagPromotions[id];
+            if (promos?.some((p) => norm(p.field) === norm(oldName))) {
+              tagPromotions[id] = promos.map((p) =>
+                norm(p.field) === norm(oldName) ? { ...p, field: trimmed } : p
+              );
+            }
+          }
+
+          return { roles, objects, fieldProvenance, tagPromotions };
+        }),
+
       clearFieldValues: (objectIds, fieldName) =>
         set((s) => {
           const objects = { ...s.objects };
@@ -1779,6 +1849,30 @@ export const useStore = create<State>()(
           });
         });
         if (storeApi) applyCuratedCollectionsSeed(storeApi.getState);
+
+        // One-time taxonomy corrections (Samuel's audit, 2026-07-21) —
+        // same localStorage-guard pattern as the collections seed:
+        // 1. Palette colours had been one-click-filled into Typography's
+        //    Tone (a cultural register, not a colour) because the palette
+        //    provider pattern-matched the name. Surgically reverted via
+        //    provenance; hand-set Tone values are untouched.
+        // 2. Typography's "Type" field → "Font Style": "Type" collided
+        //    with entity type and media type, three meanings on one label.
+        if (storeApi && !localStorage.getItem("organizer-taxonomy-fix-1")) {
+          const s = storeApi.getState();
+          // An empty store has nothing to fix — leave the flag unset so the
+          // correction still applies once real data is present.
+          if (s.roles["typography"] || Object.keys(s.objects).length > 0) {
+            const cleared = s.revertProviderFills("Tone", "palette-color");
+            s.renameRoleField("Typography", "Type", "Font Style");
+            localStorage.setItem("organizer-taxonomy-fix-1", "done");
+            if (cleared > 0) {
+              s.setFlashNotice(
+                `Cleaned up: ${cleared.toLocaleString()} palette colours removed from Tone (they belong in a Colour property), and Typography's "Type" is now "Font Style".`
+              );
+            }
+          }
+        }
       },
     }
   )

@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { panelVariants } from "../lib/chrome";
 import { useStore } from "../store";
 import { orderedFacetBuckets } from "../lib/primaryFacets";
+import { UNCLASSIFIED_VALUE } from "../lib/quickFilter";
 import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { UNGROUPED_LABEL } from "../lib/grouping";
 import { norm } from "../lib/textNorm";
@@ -83,6 +84,8 @@ export function ClassifyPanel({
   fieldName,
   reservoirCount,
   onFieldChange,
+  onFilterValue,
+  activeFilterValue,
   onClose,
   onOpen,
 }: {
@@ -98,6 +101,13 @@ export function ClassifyPanel({
    * note here (the grid itself carries no annotation). */
   reservoirCount: number;
   onFieldChange: (name: string) => void;
+  /** §1 — categories are navigable: called with a value (or
+   * UNCLASSIFIED_VALUE) to narrow the main grid to that subset, null to
+   * clear back to the whole collection. */
+  onFilterValue: (value: string | null) => void;
+  /** The value currently narrowing the grid, so the active category can
+   * read as selected here. */
+  activeFilterValue: string | null;
   onClose: () => void;
   onOpen: (id: string) => void;
 }) {
@@ -180,8 +190,8 @@ export function ClassifyPanel({
           </button>
         </div>
         <p className="text-[12px] text-muted leading-relaxed">
-          "{activeRole.name}" has no primary facets pinned yet — pin some in Item Types (★ next to
-          a field) to lay out folders here.
+          "{activeRole.name}" has no primary facets pinned yet — pin some in its entity-type
+          fields (★ next to a field) to lay out categories here.
         </p>
       </motion.aside>
     );
@@ -208,6 +218,7 @@ export function ClassifyPanel({
 
   function folderRow(label: string, members: DesignObject[]) {
     const over = dragOverLabel === label;
+    const filtering = activeFilterValue === label;
     return (
       <div
         key={label}
@@ -223,7 +234,24 @@ export function ClassifyPanel({
         ].join(" ")}
       >
         <div className="flex items-baseline justify-between mb-1.5">
-          <span className="font-mono text-[12px] text-ink/85 truncate">{label}</span>
+          {/* A category is NAVIGABLE, not a static pile (§1): clicking it
+           * narrows the main grid to exactly this subset, beside the panel,
+           * on top of whatever collection/filters are already active. */}
+          <button
+            onClick={() => onFilterValue(filtering ? null : label)}
+            className={[
+              "font-mono text-[12px] truncate text-left hover:underline decoration-dotted underline-offset-2",
+              filtering ? "text-accent" : "text-ink/85",
+            ].join(" ")}
+            title={
+              filtering
+                ? "Showing only these — click to show the whole collection again"
+                : `Show only ${label} in the grid`
+            }
+          >
+            {filtering ? "● " : ""}
+            {label}
+          </button>
           <span className="font-mono text-[11px] text-muted shrink-0">{members.length}</span>
         </div>
         {members.length > 0 ? (
@@ -258,7 +286,11 @@ export function ClassifyPanel({
     >
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-line/70">
         <div className="flex items-center justify-between mb-2">
-          <PanelLabel>Classifying · {activeRole.name}</PanelLabel>
+          {/* Conversational, not architectural (§3): say what's happening
+           * in terms of the entity and property, never internal nouns. */}
+          <PanelLabel>
+            Classifying {activeRole.name} by {fieldName}
+          </PanelLabel>
           <button onClick={onClose} className="text-muted hover:text-ink text-[15px] leading-none" aria-label="Close">
             ×
           </button>
@@ -280,9 +312,14 @@ export function ClassifyPanel({
           </div>
         )}
         {reservoirCount > 0 && (
-          <div className="mt-1.5 font-mono text-[10px] text-muted/80">
-            {reservoirCount.toLocaleString()} unfolded — drag them in from the grid
-          </div>
+          <button
+            onClick={() => onFilterValue(UNCLASSIFIED_VALUE)}
+            className="mt-1.5 font-mono text-[10px] text-muted/80 hover:text-ink hover:underline decoration-dotted underline-offset-2 text-left"
+            title={`Show only the objects with no ${fieldName} yet`}
+          >
+            {reservoirCount.toLocaleString()} not yet classified by {fieldName} — drag them in, or
+            click to see them
+          </button>
         )}
       </div>
 
@@ -300,10 +337,13 @@ export function ClassifyPanel({
           }}
           className="flex items-center gap-1.5 pt-0.5"
         >
+          {/* Not a folder — a new VALUE of this property (§2): the category
+           * becomes a real option on the field the moment something lands
+           * in it, shared everywhere this property appears. */}
           <input
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
-            placeholder="+ new folder"
+            placeholder={`+ add ${fieldName} category`}
             className="flex-1 rounded-lg border border-dashed border-line bg-transparent px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent placeholder:text-muted/60"
           />
           {draftName.trim() !== "" && (

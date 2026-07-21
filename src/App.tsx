@@ -488,19 +488,38 @@ export default function App() {
       ? classifyField
       : primaryFacetNames[0] ?? null;
   const classifyOpen = state.classificationPanelOpen && !!activeRole;
+  // While a category is explicitly selected in the panel (§1, 2026-07-21),
+  // the grid shows THAT subset — visibleObjects already carries the
+  // facetFieldFilter, so the reservoir's own "no value yet" narrowing must
+  // step aside or the two would intersect to nothing. The reservoir view is
+  // the DEFAULT (nothing selected), not a mode the user is locked into.
+  const classifyValueSelected =
+    classifyOpen && state.facetFieldFilter?.field === effectiveClassifyField;
   const reservoirObjects = useMemo(() => {
     if (!classifyOpen || !activeRole || !effectiveClassifyField) return [];
     return visibleObjects.filter((o) => {
       if (!o.role || norm(o.role) !== norm(activeRole.name)) return false;
+      if (classifyValueSelected) return true;
       const raw = o.fields[effectiveClassifyField];
       const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
       return values.length === 0;
     });
-  }, [classifyOpen, activeRole, effectiveClassifyField, visibleObjects]);
+  }, [classifyOpen, activeRole, effectiveClassifyField, visibleObjects, classifyValueSelected]);
   const roleObjects = useMemo(() => {
     if (!activeRole) return [];
     return baseObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name));
   }, [baseObjects, activeRole]);
+  // The panel's "N not yet classified" must stay the TRUE unclassified
+  // count (§11 — coverage is a fact about the collection), independent of
+  // whatever subset the grid is currently narrowed to.
+  const unclassifiedCount = useMemo(() => {
+    if (!classifyOpen || !effectiveClassifyField) return 0;
+    return roleObjects.filter((o) => {
+      const raw = o.fields[effectiveClassifyField];
+      const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      return values.length === 0;
+    }).length;
+  }, [classifyOpen, effectiveClassifyField, roleObjects]);
   const collectionIds = useMemo(() => new Set(baseObjects.map((o) => o.id)), [baseObjects]);
   // Shared store-level list (same identity across App/DetailPanel/
   // Workbench/WritingWorkspace) — the similarity corpus cache keys on it.
@@ -681,7 +700,7 @@ export default function App() {
     // The one bulk action big enough to still warrant a pause — but in the
     // app's own voice, never window.confirm (Samuel, 2026-07-20).
     setConfirm({
-      title: `Assign an item type to ${assignments.length.toLocaleString()} objects?`,
+      title: `Assign an entity type to ${assignments.length.toLocaleString()} objects?`,
       body: summary,
       action: "Assign",
       onConfirm: () => useStore.getState().bulkAssignRoles(assignments),
@@ -844,7 +863,7 @@ export default function App() {
           </button>
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
-            Item types
+            Entity types
           </div>
           <button
             onClick={() => {
@@ -852,9 +871,9 @@ export default function App() {
               setPrefsOpen(false);
             }}
             className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
-            title="Suggests an item type for every object that doesn't have one yet, from its mymind type and tags — shows the impact before applying anything"
+            title="Suggests an entity type for every object that doesn't have one yet, from its mymind type and tags — shows the impact before applying anything"
           >
-            Auto-assign roles
+            Auto-assign entity types
           </button>
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
@@ -1184,8 +1203,20 @@ export default function App() {
           allObjects={allObjectsList}
           activeRole={activeRole}
           fieldName={effectiveClassifyField ?? ""}
-          reservoirCount={reservoirObjects.length}
+          reservoirCount={unclassifiedCount}
           onFieldChange={setClassifyField}
+          onFilterValue={(value) =>
+            useStore
+              .getState()
+              .setFacetFieldFilter(
+                value === null ? null : { field: effectiveClassifyField ?? "", value }
+              )
+          }
+          activeFilterValue={
+            state.facetFieldFilter?.field === effectiveClassifyField
+              ? state.facetFieldFilter.value
+              : null
+          }
           onClose={state.closeClassificationPanel}
           onOpen={state.openDetail}
         />

@@ -1396,7 +1396,7 @@ export function DetailPanel({
               className="text-[11px] uppercase tracking-wide text-muted"
               title="What kind of thing this item is (Photo, Author, Book…) — one type per item, app-wide. Its type decides which classification fields the item gets, in every collection. Local to this app, never synced to mymind."
             >
-              Item type
+              Entity type
             </label>
             <div className="mt-1.5 group/rolerow">
               <div className="flex flex-wrap items-center gap-1">

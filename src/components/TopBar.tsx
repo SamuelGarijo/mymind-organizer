@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import {
   computeFieldValueFrequency,
   searchTags,
+  UNCLASSIFIED_VALUE,
   type TagFrequency,
   type TypeFrequency,
 } from "../lib/quickFilter";
@@ -198,7 +199,8 @@ export function TopBar({
   if (roleFilter) {
     pills.push({
       key: "role",
-      label: `Role: ${roleFilter}`,
+      // "Entity type", never the internal noun "Role" (§4).
+      label: `Entity type: ${roleFilter}`,
       tone: "include",
       onRemove: () => setRoleFilter(""),
     });
@@ -206,7 +208,10 @@ export function TopBar({
   if (facetFieldFilter) {
     pills.push({
       key: "field",
-      label: `${facetFieldFilter.field}: ${facetFieldFilter.value}`,
+      label:
+        facetFieldFilter.value === UNCLASSIFIED_VALUE
+          ? `${facetFieldFilter.field}: not yet classified`
+          : `${facetFieldFilter.field}: ${facetFieldFilter.value}`,
       tone: "include",
       onRemove: () => setFacetFieldFilter(null),
     });
@@ -233,7 +238,7 @@ export function TopBar({
   if (groupBy) {
     pills.push({
       key: "group",
-      label: `Group: ${groupBy === ITEM_TYPE_GROUP ? "Role" : groupBy}`,
+      label: `Group: ${groupBy === ITEM_TYPE_GROUP ? "Entity type" : groupBy}`,
       tone: "include",
       onRemove: () => setGroupBy(null),
     });
@@ -712,7 +717,7 @@ export function TopBar({
                         groupBy === ITEM_TYPE_GROUP ? "text-accent" : "",
                       ].join(" ")}
                     >
-                      Role
+                      Entity type
                     </button>
                   )}
                   {groupableColumns.map((f) => (

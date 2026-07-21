@@ -136,7 +136,7 @@ export function CollectionLedger({
 
       {roleKeys.size >= 2 && (
         <div>
-          <ColumnLabel>Format</ColumnLabel>
+          <ColumnLabel>Entity type</ColumnLabel>
           <div className="flex flex-col gap-0.5">
             {roleOptions.map((role) => {
               const active = activeRole && norm(role.name) === norm(activeRole.name);

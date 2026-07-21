@@ -238,6 +238,14 @@ export type FacetField = {
   type: FacetFieldType;
   /** Meaningful for "select" and "multi-select" — the fixed choice list. */
   options?: string[];
+  /** Hierarchical VALUES within this one property (Samuel's brief,
+   * 2026-07-21 §5): child option → parent option, both members of
+   * `options` (e.g. "Geometric" → "Sans Serif", "Didone" → "Serif").
+   * Deliberately NOT another folder/nesting system — an object's stored
+   * value is always the plain option string; the hierarchy only informs
+   * how views group and indent ("Organize by" sections, classify
+   * categories). A flat field simply leaves this absent. */
+  optionParents?: Record<string, string>;
   /** Unmarked (undefined) fields render neutrally, outside either section,
    * until explicitly classified — see FacetFieldGroup. */
   group?: FacetFieldGroup;

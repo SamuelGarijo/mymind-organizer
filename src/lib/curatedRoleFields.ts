@@ -21,7 +21,11 @@ import type { FacetField } from "../types";
 export const CURATED_ROLE_FIELDS: Record<string, FacetField[]> = {
   typography: [
     {
-      name: "Type",
+      // "Font Style", not "Type" — "Type" already means two other things in
+      // this app (entity type, media type); three meanings on one label was
+      // Samuel's §4 complaint (2026-07-21). Existing data is migrated by
+      // the one-time taxonomy fix in store.ts's onRehydrateStorage.
+      name: "Font Style",
       type: "select",
       options: ["Serif", "Sans", "Grotesk", "Slab", "Condensed", "Display", "Mono"],
     },
