@@ -30,9 +30,33 @@ function PanelLabel({ children }: { children: React.ReactNode }) {
 
 /** Tiny thumbnail used in folder peeks and the similar strip — a failed
  * image falls back to the title, never a broken-image glyph. */
-function Peek({ object, onOpen }: { object: DesignObject; onOpen: (id: string) => void }) {
+function Peek({
+  object,
+  onOpen,
+  onRemove,
+}: {
+  object: DesignObject;
+  onOpen: (id: string) => void;
+  /** Present inside a category: the explicit way OUT, since dropping into
+   * another category now adds rather than moves (2026-07-21). */
+  onRemove?: () => void;
+}) {
   const [failed, setFailed] = useState(false);
   return (
+    <span className="relative shrink-0 group/peek">
+    {onRemove && (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        className="absolute -top-1 -right-1 z-10 w-4 h-4 rounded-full bg-panel border border-line text-muted hover:text-ink hover:border-ink/40 text-[10px] leading-none flex items-center justify-center opacity-0 group-hover/peek:opacity-100 transition-opacity shadow-card"
+        title="Remove from this category (keeps every other one)"
+        aria-label={`Remove ${object.title} from this category`}
+      >
+        ×
+      </button>
+    )}
     <button
       onClick={() => onOpen(object.id)}
       title={object.title}
@@ -40,7 +64,7 @@ function Peek({ object, onOpen }: { object: DesignObject; onOpen: (id: string) =
       // peek is a full object — pick it up and drop it on the bench, a
       // collection, or another folder, no navigation needed.
       {...objectDragProps([object.id])}
-      className="shrink-0 w-12 h-12 rounded-md overflow-hidden border border-line bg-line/20 hover:border-accent/50 cursor-grab active:cursor-grabbing"
+      className="block w-12 h-12 rounded-md overflow-hidden border border-line bg-line/20 hover:border-accent/50 cursor-grab active:cursor-grabbing"
     >
       {object.imageUrl && !failed ? (
         <img
@@ -55,6 +79,7 @@ function Peek({ object, onOpen }: { object: DesignObject; onOpen: (id: string) =
         </span>
       )}
     </button>
+    </span>
   );
 }
 
@@ -190,7 +215,6 @@ export function ClassifyPanel({
     );
   }
 
-  const mode = activeField.type === "multi-select" ? "append" : "replace";
 
   function handleDrop(e: React.DragEvent, label: string) {
     e.preventDefault();
@@ -206,7 +230,10 @@ export function ClassifyPanel({
     if (!activeField!.options?.some((opt) => norm(opt) === norm(label))) {
       st.addFieldOption(activeField!.name, label);
     }
-    st.assignFieldValue(ids, activeField!.name, label, mode);
+    // Filing something here ADDS it here — it keeps whatever categories it
+    // already belonged to (Samuel, 2026-07-21). Leaving one is the explicit
+    // × on the item, never a side effect of joining another.
+    st.addFieldValue(ids, activeField!.name, label);
   }
 
   function folderRow(label: string, members: DesignObject[]) {
@@ -250,7 +277,14 @@ export function ClassifyPanel({
         {members.length > 0 ? (
           <div className="flex gap-1.5 overflow-x-auto pb-0.5">
             {members.slice(0, 14).map((o) => (
-              <Peek key={o.id} object={o} onOpen={onOpen} />
+              <Peek
+                key={o.id}
+                object={o}
+                onOpen={onOpen}
+                onRemove={() =>
+                  useStore.getState().removeFieldValue([o.id], activeField!.name, label)
+                }
+              />
             ))}
             {members.length > 14 && (
               <span className="shrink-0 self-center font-mono text-[10px] text-muted px-1">

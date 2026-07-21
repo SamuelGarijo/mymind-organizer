@@ -310,9 +310,14 @@ export function Table({
     const raw = e.dataTransfer.getData(DRAG_MIME);
     if (!raw) return;
     const ids: string[] = JSON.parse(raw);
-    const value = label === UNGROUPED_LABEL ? "" : label;
-    const mode = groupedField?.type === "multi-select" ? "append" : "replace";
-    useStore.getState().assignFieldValue(ids, groupByField, value, mode);
+    // Dropping into the "no value" bucket is the one MOVE — it means
+    // "un-file this". Every real category ADDS, keeping the ones the object
+    // already sits in (2026-07-21).
+    if (label === UNGROUPED_LABEL) {
+      useStore.getState().assignFieldValue(ids, groupByField, "", "replace");
+      return;
+    }
+    useStore.getState().addFieldValue(ids, groupByField, label);
   }
 
   function handleNewValueDrop(e: React.DragEvent) {
@@ -326,14 +331,9 @@ export function Table({
   function confirmNewValue() {
     const trimmed = newValueDraft.trim();
     if (!trimmed || !groupByField || !pendingNewValueIds) return;
-    const { addFieldOption, assignFieldValue } = useStore.getState();
+    const { addFieldOption, addFieldValue } = useStore.getState();
     addFieldOption(groupByField, trimmed);
-    assignFieldValue(
-      pendingNewValueIds,
-      groupByField,
-      trimmed,
-      groupedField?.type === "multi-select" ? "append" : "replace"
-    );
+    addFieldValue(pendingNewValueIds, groupByField, trimmed);
     setPendingNewValueIds(null);
     setNewValueDraft("");
   }

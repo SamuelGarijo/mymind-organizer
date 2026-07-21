@@ -92,9 +92,9 @@ export function CollectionLedger({
    * because a deliberate drag IS a hand-confirmation (unlike an extractor's
    * guess, which deliberately stays unconfirmed). */
   function assignValue(ids: string[], field: FacetField, value: string) {
-    const st = useStore.getState();
-    st.assignFieldValue(ids, field.name, value, field.type === "multi-select" ? "append" : "replace");
-    for (const id of ids) st.recordUserValue(id, value);
+    // Adds to this category, keeping any the object already belongs to
+    // (2026-07-21) — addFieldValue records the hand-picked provenance too.
+    useStore.getState().addFieldValue(ids, field.name, value);
   }
 
   const roleKeys = distinctRoleKeys(objects);

@@ -567,6 +567,20 @@ type State = {
     value: string,
     mode: "replace" | "append"
   ) => void;
+  /** Files objects UNDER a category without evicting them from the ones
+   * they already belong to (Samuel, 2026-07-21: "one object can live in
+   * different categories or folders, so by default we don't move it away
+   * from its current place, we just add it to a new folder as well").
+   *
+   * A single-value property can't express that, so the first time a drop
+   * would give an object a second value the property itself is promoted to
+   * multi-select — a real schema change, announced, rather than a silent
+   * overwrite of the value that was already there. Use `removeFieldValue`
+   * for the deliberate opposite. */
+  addFieldValue: (objectIds: string[], fieldName: string, value: string) => void;
+  /** Takes one value off a field, leaving any others intact — "remove from
+   * this category", never "clear the property". */
+  removeFieldValue: (objectIds: string[], fieldName: string, value: string) => void;
   /** Adds a new option to every role's field definition sharing this exact
    * name (case-insensitive) — field names are shared vocabulary across
    * roles (issue #96), so a value created via one role's grouped view
@@ -1737,7 +1751,9 @@ export const useStore = create<State>()(
               mode === "append"
                 ? (() => {
                     const current = existing.fields[fieldName];
-                    const arr = Array.isArray(current) ? current : [];
+                    // A lone string is a real existing value, not "empty" —
+                    // treating it as [] silently dropped it on every append.
+                    const arr = Array.isArray(current) ? current : current ? [current] : [];
                     return arr.includes(value) ? arr : [...arr, value];
                   })()
                 : value;
@@ -1755,6 +1771,99 @@ export const useStore = create<State>()(
             }
           }
           return changed ? { objects, localUserTags } : {};
+        }),
+
+      addFieldValue: (objectIds, fieldName, value) => {
+        if (!value) return;
+        let promoted = false;
+        set((s) => {
+          const objects = { ...s.objects };
+          let localUserTags = s.localUserTags;
+          let changed = false;
+          const now = new Date().toISOString();
+
+          for (const id of objectIds) {
+            const existing = objects[id];
+            if (!existing) continue;
+            const current = existing.fields[fieldName];
+            const arr = Array.isArray(current) ? current : current ? [current] : [];
+            if (arr.includes(value)) continue;
+            const next = [...arr, value];
+            if (next.length > 1) promoted = true;
+            objects[id] = {
+              ...existing,
+              // One value stays a plain string — the shape only widens when
+              // the object genuinely belongs to more than one category.
+              fields: { ...existing.fields, [fieldName]: next.length === 1 ? next[0] : next },
+              updatedAt: now,
+            };
+            const userTags = localUserTags[id] ?? [];
+            if (!userTags.includes(value)) {
+              localUserTags = { ...localUserTags, [id]: [...userTags, value] };
+            }
+            changed = true;
+          }
+          if (!changed) return {};
+
+          // Only now, knowing an object really does hold two values, widen
+          // the property that describes them — every role sharing the name,
+          // since field names are shared vocabulary (issue #96).
+          let roles = s.roles;
+          if (promoted) {
+            let rolesChanged = false;
+            const next: typeof roles = { ...roles };
+            for (const [key, def] of Object.entries(roles)) {
+              if (!def.fields.some((f) => norm(f.name) === norm(fieldName) && f.type === "select")) {
+                continue;
+              }
+              rolesChanged = true;
+              next[key] = {
+                ...def,
+                fields: def.fields.map((f) =>
+                  norm(f.name) === norm(fieldName) && f.type === "select"
+                    ? { ...f, type: "multi-select" as const }
+                    : f
+                ),
+              };
+            }
+            if (rolesChanged) roles = next;
+            else promoted = false;
+          }
+
+          return promoted ? { objects, localUserTags, roles } : { objects, localUserTags };
+        });
+        if (promoted) {
+          get().setFlashNotice(
+            `"${fieldName}" now holds more than one value per item — things can sit in several of its categories at once.`
+          );
+        }
+      },
+
+      removeFieldValue: (objectIds, fieldName, value) =>
+        set((s) => {
+          const objects = { ...s.objects };
+          let changed = false;
+          const now = new Date().toISOString();
+          for (const id of objectIds) {
+            const existing = objects[id];
+            if (!existing) continue;
+            const current = existing.fields[fieldName];
+            const arr = Array.isArray(current) ? current : current ? [current] : [];
+            if (!arr.includes(value)) continue;
+            const kept = arr.filter((v) => v !== value);
+            const fields = { ...existing.fields };
+            if (kept.length === 0) delete fields[fieldName];
+            else fields[fieldName] = kept.length === 1 ? kept[0] : kept;
+            objects[id] = { ...existing, fields, updatedAt: now };
+            changed = true;
+          }
+          if (!changed) return {};
+          // A value taken back off is no longer justified by whatever tag
+          // was promoted into it.
+          return {
+            objects,
+            tagPromotions: revertPromotionsIntoField(s.tagPromotions, objectIds, fieldName),
+          };
         }),
 
       addFieldOption: (fieldName, option) =>
