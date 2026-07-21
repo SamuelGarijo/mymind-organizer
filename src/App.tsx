@@ -11,10 +11,11 @@ import { DetailCarousel } from "./components/DetailCarousel";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { TopBar } from "./components/TopBar";
-import { CollectionLedger, PileChips, RoleStrip } from "./components/CollectionLedger";
+import { CollectionLedger } from "./components/CollectionLedger";
 import { ClassifyPanel } from "./components/ClassifyPanel";
 import { Workbench } from "./components/Workbench";
 import { Membrane } from "./components/Membrane";
+import { MembraneTabs } from "./components/MembraneTabs";
 import { CanvasView } from "./components/CanvasView";
 import { DiscoveryStrip } from "./components/DiscoveryStrip";
 import { WritingWorkspace } from "./components/WritingWorkspace";
@@ -29,7 +30,6 @@ import {
   applyFacetTags,
   applyRoleFilter,
   applyTypeFilter,
-  computeCuratedPiles,
   computeObjectTypes,
   computeRoleFrequency,
   computeTopTags,
@@ -42,7 +42,6 @@ import { getStoredBackupHandle, writeBackup } from "./lib/autoBackup";
 import { parseBackup } from "./lib/backupValidation";
 import { norm } from "./lib/ruleEngine";
 import { surfaceVariants } from "./lib/chrome";
-import { viewTitle } from "./lib/viewLabel";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -233,15 +232,6 @@ export default function App() {
     [searchFiltered, state.facetTags, state.facetMode]
   );
 
-  // Curated Piles (user-created tags only) — deliberately computed from
-  // baseObjects, not the further-narrowed topTagsSource: piles are a stable
-  // set of buttons for this view/collection, not a self-narrowing facet
-  // browser, so clicking one filters the grid without other piles
-  // disappearing from the bar itself.
-  const curatedPiles = useMemo(
-    () => computeCuratedPiles(baseObjects, state.localUserTags, state.tagPromotions),
-    [baseObjects, state.localUserTags, state.tagPromotions]
-  );
   const topTags = useMemo(
     () => computeTopTags(topTagsSource, 30, state.tagPromotions),
     [topTagsSource, state.tagPromotions]
@@ -451,8 +441,14 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         const st = useStore.getState();
+        // ⌘J closes whichever tenant currently holds the compartment —
+        // Classify included, since the tab row advertises "Close (⌘J)".
+        // Without the classify branch the shortcut opened the bench
+        // *behind* an open Classify and read as doing nothing.
         if (st.openCanvasId) {
           st.openCanvas(null);
+        } else if (st.classificationPanelOpen) {
+          st.closeClassificationPanel();
         } else if (st.workbenchOpen) {
           st.setWorkbenchOpen(false);
         } else {
@@ -739,7 +735,6 @@ export default function App() {
       state.closeClassificationPanel();
       return;
     }
-    state.setWorkbenchOpen(false);
     // Workspace setup is a DEFAULT, not a dialog: assign, announce via
     // flash notice, open the panel. Every assignment stays editable from
     // any item's detail panel — that reversibility is the real safety, not
@@ -751,12 +746,21 @@ export default function App() {
         .map((id) => useStore.getState().objects[id])
         .filter((o): o is DesignObject => Boolean(o))
     ).size === 0) {
+      // Nothing to classify — leave the bench exactly as it was. Closing it
+      // speculatively before this check emptied the membrane of BOTH
+      // tenants and left the compartment showing nothing.
       state.setFlashNotice(
         "Couldn't suggest a type for anything here — assign one from an item's detail panel, then try again."
       );
       return;
     }
+    // Only now does classify actually take the compartment.
+    state.setWorkbenchOpen(false);
     state.openClassificationPanel();
+    // Classify assigns values; "Organize by" reads them as chapters. Both
+    // at once would render the editorial page while the grid is supposed
+    // to be the unclassified reservoir — drop the lens.
+    state.setOrganizeBy(null);
   }
 
   function handleExport() {
@@ -1003,24 +1007,6 @@ export default function App() {
             the sentence you're writing (Samuel, 2026-07-20). */}
         {!state.openWritingTarget && (
         <TopBar
-          title={viewTitle(state)}
-          count={visibleObjects.length}
-          isCollection={view.kind === "collection"}
-          boardOpen={state.classificationPanelOpen}
-          onClassifyClick={handleClassifyClick}
-          workbenchOpen={state.workbenchOpen}
-          workbenchCount={state.workbenchCount}
-          onWorkbenchClick={() => {
-            if (state.openCanvasId) {
-              useStore.getState().openCanvas(null);
-              state.setWorkbenchOpen(true);
-            } else if (state.workbenchOpen) {
-              state.setWorkbenchOpen(false);
-            } else {
-              state.closeClassificationPanel();
-              state.setWorkbenchOpen(true);
-            }
-          }}
           topTags={topTags}
           objectTypes={objectTypes}
           roleTypes={roleTypes}
@@ -1073,42 +1059,25 @@ export default function App() {
           )}
           {state.openWritingTarget ? (
             <WritingWorkspace />
-          ) : classifyOpen && activeRole ? (
-            <div className="h-full flex flex-col">
-              {/* Role picker stays reachable while classifying — contextual
-                  chrome tied to the intent (N21). */}
-              <div className={filterRowActive ? "pt-20" : "pt-14"}>
-                <RoleStrip objects={baseObjects} roles={state.roles} roleFilter={state.roleFilter} />
-              </div>
-              {/* The reservoir IS the main space (N8): the not-yet-
-                  classified things keep the sacred area; the categories
-                  live in the right membrane, which pushes this surface
-                  left — no reserved padding, the flex layout yields. */}
-              <div className={`flex-1 overflow-y-auto px-5 ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
-                <Grid
-                  objects={reservoirObjects}
-                  facetColumns={facetColumns}
-                  tagFrequency={tagFrequency}
-                  viewKey={viewKey + ":classify:" + (effectiveClassifyField ?? "")}
-                  onOpen={state.openDetail}
-                  emptyLabel={
-                    effectiveClassifyField
-                      ? `Everything here already has a ${effectiveClassifyField} — switch facet or close the panel.`
-                      : "Pin a primary facet to start folding this collection."
-                  }
-                  zoom={state.gridZoom}
-                />
-              </div>
-            </div>
           ) : state.viewMode === "table" ? (
             <div className={`h-full p-5 ${filterRowActive ? "pt-24" : "pt-16"}`}>
+              {/* Classify narrows the table exactly as it narrows the grid.
+                  Before the two render paths merged, classify preempted
+                  table view entirely; keeping the reservoir here is what
+                  makes the compartment mean the same thing in both. */}
               <Table
-                objects={visibleObjects}
+                objects={classifyOpen ? reservoirObjects : visibleObjects}
                 facetColumns={facetColumns}
                 tagFrequency={tagFrequency}
                 onOpen={state.openDetail}
-                emptyLabel={emptyLabel}
-                viewKey={viewKey}
+                emptyLabel={
+                  classifyOpen && effectiveClassifyField
+                    ? `Everything here already has a ${effectiveClassifyField} — switch property or close the panel.`
+                    : emptyLabel
+                }
+                viewKey={
+                  classifyOpen ? `${viewKey}:classify:${effectiveClassifyField ?? ""}` : viewKey
+                }
                 groupBy={state.groupBy}
               />
             </div>
@@ -1136,9 +1105,12 @@ export default function App() {
                   {organizeFields.map((f) => (
                     <button
                       key={f.name}
-                      onClick={() =>
-                        state.setOrganizeBy(organizeField?.name === f.name ? null : f.name)
-                      }
+                      onClick={() => {
+                        // The other direction of the same exclusivity: an
+                        // editorial read closes the assignment workspace.
+                        if (organizeField?.name !== f.name) state.closeClassificationPanel();
+                        state.setOrganizeBy(organizeField?.name === f.name ? null : f.name);
+                      }}
                       className={
                         organizeField?.name === f.name
                           ? "text-ink underline decoration-dotted underline-offset-4"
@@ -1159,7 +1131,10 @@ export default function App() {
                       + property
                     </button>
                     {addingProperty && (
-                      <div className="absolute right-0 top-6 z-40 w-[340px]">
+                      // z-[60] clears the command bar's own dropdowns (z-40)
+                      // and the DetailPanel scrim (z-40) — a popover the
+                      // user just summoned must never open underneath.
+                      <div className="absolute right-0 top-6 z-[60] w-[340px]">
                         <AddPropertyPopover
                           roleName={activeRole.name}
                           objects={roleObjects}
@@ -1191,16 +1166,24 @@ export default function App() {
                       roles={state.roles}
                       roleFilter={state.roleFilter}
                       localUserTags={state.localUserTags}
-                      piles={curatedPiles}
+                      suppressField={classifyOpen ? effectiveClassifyField : null}
                     />
                   )}
                   <Grid
-                    objects={visibleObjects}
+                    objects={classifyOpen ? reservoirObjects : visibleObjects}
                     facetColumns={facetColumns}
                     tagFrequency={tagFrequency}
-                    viewKey={viewKey}
+                    viewKey={
+                      classifyOpen
+                        ? `${viewKey}:classify:${effectiveClassifyField ?? ""}`
+                        : viewKey
+                    }
                     onOpen={state.openDetail}
-                    emptyLabel={emptyLabel}
+                    emptyLabel={
+                      classifyOpen && effectiveClassifyField
+                        ? `Everything here already has a ${effectiveClassifyField} — switch property or close the panel.`
+                        : emptyLabel
+                    }
                     zoom={state.gridZoom}
                     groupBy={state.groupBy}
                     minColumnWidth={state.openCanvasId ? 170 : undefined}
@@ -1288,32 +1271,61 @@ export default function App() {
       >
         {state.openCanvasId ? (
           <CanvasView key={state.openCanvasId} canvasId={state.openCanvasId} />
-        ) : classifyOpen && activeRole ? (
-          <ClassifyPanel
-            roleObjects={roleObjects}
-            collectionIds={collectionIds}
-            allObjects={allObjectsList}
-            activeRole={activeRole}
-            fieldName={effectiveClassifyField ?? ""}
-            reservoirCount={unclassifiedCount}
-            onFieldChange={setClassifyField}
-            onFilterValue={(value) =>
-              useStore
-                .getState()
-                .setFacetFieldFilter(
-                  value === null ? null : { field: effectiveClassifyField ?? "", value }
-                )
-            }
-            activeFilterValue={
-              state.facetFieldFilter?.field === effectiveClassifyField
-                ? state.facetFieldFilter.value
-                : null
-            }
-            onClose={state.closeClassificationPanel}
-            onOpen={state.openDetail}
-          />
         ) : (
-          <Workbench onOpenDetail={state.openDetail} />
+          <div className="h-full flex flex-col">
+            <MembraneTabs
+              active={classifyOpen ? "classify" : "bench"}
+              benchCount={state.workbenchCount}
+              canClassify={view.kind === "collection"}
+              onSelect={(tab) => {
+                // A tab SELECTS; it never toggles. handleClassifyClick is a
+                // toggle (it also serves ⌘-less entry from elsewhere), so
+                // re-clicking the active Classify tab would otherwise close
+                // the compartment and silently fall back to Bench.
+                if (tab === "classify") {
+                  if (classifyOpen) return;
+                  state.setWorkbenchOpen(false);
+                  handleClassifyClick();
+                } else {
+                  if (state.workbenchOpen && !classifyOpen) return;
+                  state.closeClassificationPanel();
+                  state.setWorkbenchOpen(true);
+                }
+              }}
+              onClose={() => {
+                state.closeClassificationPanel();
+                state.setWorkbenchOpen(false);
+              }}
+            />
+            <div className="flex-1 min-h-0">
+              {classifyOpen && activeRole ? (
+                <ClassifyPanel
+                  roleObjects={roleObjects}
+                  collectionIds={collectionIds}
+                  allObjects={allObjectsList}
+                  activeRole={activeRole}
+                  fieldName={effectiveClassifyField ?? ""}
+                  reservoirCount={unclassifiedCount}
+                  onFieldChange={setClassifyField}
+                  onFilterValue={(value) =>
+                    useStore
+                      .getState()
+                      .setFacetFieldFilter(
+                        value === null ? null : { field: effectiveClassifyField ?? "", value }
+                      )
+                  }
+                  activeFilterValue={
+                    state.facetFieldFilter?.field === effectiveClassifyField
+                      ? state.facetFieldFilter.value
+                      : null
+                  }
+                  onOpen={state.openDetail}
+                />
+              ) : (
+                <Workbench onOpenDetail={state.openDetail} />
+              )}
+            </div>
+          </div>
         )}
       </Membrane>
 

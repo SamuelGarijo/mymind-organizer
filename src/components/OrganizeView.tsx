@@ -147,7 +147,11 @@ export function OrganizeView({
           2026-07-21: the index must be an overlay, never displace the
           objects), picking up a panel background for legibility. */}
       <nav
-        className="group/rail sticky top-2 self-start shrink-0 w-4 z-20"
+        // top-[72px], not top-2: the scroll container reserves pt-16 (64px)
+        // for the floating command bar, and `sticky` resolves against the
+        // scrollport, not that padding — at top-2 the rail slid under the
+        // bar as soon as the page scrolled.
+        className="group/rail sticky top-[72px] self-start shrink-0 w-4 z-20"
         aria-label={`${field.name} chapters`}
       >
         <div className="w-4 group-hover/rail:w-48 overflow-hidden transition-[width] duration-200 rounded-xl group-hover/rail:bg-panel/95 group-hover/rail:shadow-cardHover group-hover/rail:backdrop-blur">

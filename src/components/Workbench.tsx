@@ -26,9 +26,8 @@ type UndoBuffer = { ids: string[]; label: string } | null;
  * required.
  *
  * Spatially it is a compartment of the workshop, not a floating inspector:
- * it slides in flush from the right edge (contrast with ClassifyPanel,
- * which floats — that distinction is deliberate: Classify is a conditional
- * module, the bench is architecture). The original view stays intact and
+ * it slides in flush from the right edge, sharing that compartment with
+ * ClassifyPanel as one of the membrane's two tabs. The original view stays intact and
  * usable beside it — non-destructive exploration ("don't navigate away
  * from a thought; open space beside it").
  *
@@ -43,7 +42,6 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
       collections: s.collections,
       collectionOrder: s.collectionOrder,
       workbenchIds: s.workbenchIds,
-      setWorkbenchOpen: s.setWorkbenchOpen,
       addToWorkbench: s.addToWorkbench,
       removeFromWorkbench: s.removeFromWorkbench,
       reorderWorkbench: s.reorderWorkbench,
@@ -162,21 +160,9 @@ export function Workbench({ onOpenDetail }: { onOpenDetail: (id: string) => void
       ].join(" ")}
       aria-label="Workbench"
     >
-      <div className="shrink-0 px-4 pt-4 pb-3 border-b border-line/60 flex items-center justify-between">
-        <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-          Workbench <span className="text-muted/60">{items.length}</span>
-        </div>
-        <button
-          onClick={() => state.setWorkbenchOpen(false)}
-          className="w-7 h-7 flex items-center justify-center text-muted hover:text-ink rounded-md hover:bg-line/40 text-[14px]"
-          aria-label="Close workbench"
-          title="Close (⌘J)"
-        >
-          <X size={14} />
-        </button>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
+      {/* No header of its own: the membrane's tab row already names this
+          compartment and carries the close (2026-07-21). */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-1 pb-3">
         {items.length === 0 ? (
           <div className="h-full flex items-center justify-center text-center px-6">
             <p className="font-mono text-[11px] leading-relaxed text-muted/70">

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { MagnifyingGlass, SlidersHorizontal, Sparkle, Tray } from "@phosphor-icons/react";
-import { readDraggedIds } from "../lib/objectDrag";
+import { MagnifyingGlass, SlidersHorizontal } from "@phosphor-icons/react";
 import { useStore } from "../store";
 import { surfaceVariants } from "../lib/chrome";
 import { useShallow } from "zustand/react/shallow";
@@ -17,6 +16,7 @@ import { colorForGroup } from "../lib/tagGroupColor";
 import { TOLERANCE_MAX, TOLERANCE_MIN, type ColorFilter } from "../lib/colorSearch";
 import { ITEM_TYPE_GROUP, rankableFacetColumns } from "../lib/grouping";
 import { makeId } from "../lib/id";
+import { pluralizeRole } from "./CollectionLedger";
 import type { DesignObject, FacetField, FilterCondition } from "../types";
 
 type Category = "tag" | "type" | "role" | "field" | "color" | "group";
@@ -44,14 +44,6 @@ function FilterIcon({ active }: { active: boolean }) {
  * recedes with it — N5): the active-filter pills, match mode, clear-all.
  */
 export function TopBar({
-  title,
-  count,
-  isCollection,
-  boardOpen,
-  onClassifyClick,
-  workbenchOpen,
-  workbenchCount,
-  onWorkbenchClick,
   topTags,
   objectTypes,
   roleTypes,
@@ -60,18 +52,6 @@ export function TopBar({
   colorFilter,
   setColorFilter,
 }: {
-  title: string;
-  count: number;
-  /** Collection views get the ✦ Classify affordance — it must stay reachable
-   * even once the ledger has scrolled away, so it lives here, not there. */
-  isCollection: boolean;
-  boardOpen: boolean;
-  onClassifyClick: () => void;
-  /** Workbench toggle — the temporary worktable compartment (⌘J). Visible
-   * in every view, unlike Classify which is collection-scoped. */
-  workbenchOpen: boolean;
-  workbenchCount: number;
-  onWorkbenchClick: () => void;
   /** Empty-query suggestions inside the popover's Tag category — the old
    * resident tag wall, demoted to summoned (choreography, not subtraction). */
   topTags: TagFrequency[];
@@ -172,12 +152,13 @@ export function TopBar({
   function closeMenu() {
     setMenuOpen(false);
     setSuggestOpen(false);
+    setMoreOpen(false);
     setQuery("");
     setPendingField(null);
   }
 
   useEffect(() => {
-    if (!menuOpen && !suggestOpen) return;
+    if (!menuOpen && !suggestOpen && !moreOpen) return;
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) closeMenu();
     }
@@ -190,7 +171,7 @@ export function TopBar({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [menuOpen, suggestOpen]);
+  }, [menuOpen, suggestOpen, moreOpen]);
 
   const pills: Pill[] = [];
   if (typeFilter) {
@@ -204,8 +185,9 @@ export function TopBar({
   if (roleFilter) {
     pills.push({
       key: "role",
-      // "Entity type", never the internal noun "Role" (§4).
-      label: `Entity type: ${roleFilter}`,
+      // Plain words, matching the ledger's "Here you can find" (2026-07-21)
+      // — the chip reads "only typographies", never a schema noun.
+      label: `only ${pluralizeRole(roleFilter)}`,
       tone: "include",
       onRemove: () => setRoleFilter(""),
     });
@@ -411,6 +393,7 @@ export function TopBar({
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => {
                 setSuggestOpen(true);
+                setMoreOpen(false);
                 setCompact(false);
               }}
               onKeyDown={(e) => {
@@ -539,7 +522,7 @@ export function TopBar({
           </AnimatePresence>
 
           <AnimatePresence>
-            {suggestOpen && !menuOpen && (
+            {suggestOpen && !menuOpen && !moreOpen && (
               <motion.div
                 custom={{ x: 0, y: -8 }}
                 variants={surfaceVariants}
@@ -900,50 +883,10 @@ export function TopBar({
           </AnimatePresence>
         </div>
 
-        <div className="absolute right-5 top-3 flex items-center gap-1.5 pointer-events-auto">
-          <button
-            onClick={onWorkbenchClick}
-            onDragOver={(e) => {
-              // Dragging a card toward the pill is intent enough — open the
-              // compartment so the drop can land inside it.
-              e.preventDefault();
-              if (!workbenchOpen) onWorkbenchClick();
-            }}
-            onDrop={(e) => {
-              // Dropping ON the pill itself also lands in the bench (issue
-              // #132: the pill is the bench's handle, not just its toggle).
-              e.preventDefault();
-              const ids = readDraggedIds(e);
-              if (ids.length > 0) useStore.getState().addToWorkbench(ids);
-            }}
-            className={[
-              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
-              workbenchOpen
-                ? "border-accent/50 text-ink"
-                : "border-line/60 text-muted hover:text-ink",
-            ].join(" ")}
-            title="Workbench — a temporary worktable for gathering references before they mean anything (⌘J)"
-            aria-pressed={workbenchOpen}
-          >
-            <Tray size={13} className="inline -mt-0.5 mr-1" />
-            Bench{workbenchCount > 0 ? ` ${workbenchCount}` : ""}
-          </button>
-          {isCollection && (
-          <button
-            onClick={onClassifyClick}
-            className={[
-              "shrink-0 font-mono text-[12px] px-3.5 py-2 rounded border bg-panel shadow-card transition-[box-shadow,color,border-color] hover:shadow-cardHover",
-              boardOpen
-                ? "border-accent/50 text-ink"
-                : "border-line/60 text-muted hover:text-ink",
-            ].join(" ")}
-            title="Open this collection's folders — sets up a type and starter facets automatically if none exist yet"
-          >
-            <Sparkle size={13} weight={boardOpen ? "fill" : "regular"} className="inline -mt-0.5 mr-1" />
-            {boardOpen ? "Classifying" : "Classify"}
-          </button>
-          )}
-        </div>
+        {/* Bench / Classify used to float here as two pills, one command-bar
+            width away from colliding with it (Samuel, 2026-07-21). They now
+            live INSIDE the right membrane as its two tabs — the compartment
+            names its own tenants; nothing floats over the workspace. */}
       </div>
 
     </div>

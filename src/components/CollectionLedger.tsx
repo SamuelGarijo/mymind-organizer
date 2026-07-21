@@ -40,7 +40,7 @@ function ColumnLabel({ children }: { children: React.ReactNode }) {
 /**
  * The collection's own workspace header (design-philosophy Principle 8 —
  * "every collection is a world"), rendered are.na-channel style: quiet
- * editorial columns — Info, Type, one column per pinned facet, Piles.
+ * editorial columns — Info, "Here you can find", one per pinned property.
  *
  * Deliberately NOT chrome: this renders INSIDE the grid's scroll container,
  * so it occupies zero resting-state band budget (N1) and recedes by the most
@@ -54,7 +54,7 @@ export function CollectionLedger({
   roles,
   roleFilter,
   localUserTags,
-  piles,
+  suppressField,
 }: {
   collection: Collection;
   heroObject?: DesignObject;
@@ -64,7 +64,12 @@ export function CollectionLedger({
   roles: Record<string, RoleDefinition>;
   roleFilter: string;
   localUserTags: Record<string, string[]>;
-  piles: TagFrequency[];
+  /** The property currently being classified in the right membrane, if any.
+   * Its column is dropped here: the membrane is already showing that exact
+   * value list, with drop targets and counts, and two live copies of one
+   * property in two visual languages is precisely the duplication this
+   * refactor set out to remove (Samuel, 2026-07-21). */
+  suppressField?: string | null;
 }) {
   const state = useStore(
     useShallow((s) => ({
@@ -109,16 +114,17 @@ export function CollectionLedger({
   const pinnedByName = activeRole ? new Map(activeRole.fields.map((f) => [f.name, f])) : new Map();
   const orderedPinned: FacetField[] = (activeRole?.primaryFacets ?? [])
     .map((name) => pinnedByName.get(name))
-    .filter((f): f is FacetField => Boolean(f));
+    .filter((f): f is FacetField => Boolean(f))
+    .filter((f) => !suppressField || norm(f.name) !== norm(suppressField));
 
   const description = collection.description;
 
   const hasInfo = Boolean(description || heroObject?.imageUrl);
-  const hasAnything = hasInfo || roleKeys.size > 0 || piles.length > 0;
+  const hasAnything = hasInfo || roleKeys.size > 0;
   if (!hasAnything) {
     return (
       <div className="pb-5 font-mono text-[12px] text-muted/80">
-        No item types assigned in this collection yet — ✦ Classify (top right) sets this world
+        Nothing here has a kind yet — open Classify (right panel) and this world sets itself
         up.
       </div>
     );
@@ -287,13 +293,6 @@ export function CollectionLedger({
           All-objects / By-X tabs row, 2026-07-21): the existing properties
           and the gesture to add one now live in ONE place, so it's always
           clear what the collection already has. */}
-
-      {piles.length > 0 && (
-        <div className="max-w-xs">
-          <ColumnLabel>Piles</ColumnLabel>
-          <PileChips piles={piles} />
-        </div>
-      )}
     </div>
   );
 }
@@ -348,147 +347,6 @@ function FillRow({
           </button>
         </>
       )}
-    </div>
-  );
-}
-
-/**
- * Curated piles — user-created tags as lightweight desk piles. Click to
- * filter, drop a card to tag it. Rendered inside the ledger for collections
- * and standalone above the grid for library-wide views; in both cases it's
- * content that scrolls, never a resident band.
- */
-export function PileChips({ piles }: { piles: TagFrequency[] }) {
-  const state = useStore(
-    useShallow((s) => ({
-      objects: s.objects,
-      facetTags: s.facetTags,
-      toggleFacetTag: s.toggleFacetTag,
-      addObjectTag: s.addObjectTag,
-    }))
-  );
-  const [expanded, setExpanded] = useState(false);
-  const [dragOverPile, setDragOverPile] = useState<string | null>(null);
-
-  function assignTag(objectId: string, tag: string) {
-    const object = state.objects[objectId];
-    if (!object || object.tags.includes(tag)) return;
-    state.addObjectTag(objectId, tag);
-    if (object.source === "mymind") void addMymindTag(objectId, tag);
-  }
-
-  const selectedSet = new Set(state.facetTags);
-  // Selected piles pin first so an active filter never hides under "more".
-  const ordered = [
-    ...piles.filter((p) => selectedSet.has(p.tag)),
-    ...piles.filter((p) => !selectedSet.has(p.tag)),
-  ];
-  const shown = expanded ? ordered : ordered.slice(0, 8);
-  const hiddenCount = ordered.length - shown.length;
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {shown.map(({ tag, count }) => {
-        const active = selectedSet.has(tag);
-        const dragOver = dragOverPile === tag;
-        return (
-          <button
-            key={tag}
-            onClick={() => state.toggleFacetTag(tag)}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOverPile(tag);
-            }}
-            onDragLeave={() => setDragOverPile(dragOverPile === tag ? null : dragOverPile)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOverPile(null);
-              const raw = e.dataTransfer.getData(DRAG_MIME);
-              if (!raw) return;
-              const ids: string[] = JSON.parse(raw);
-              for (const id of ids) assignTag(id, tag);
-            }}
-            className={[
-              "tag-chip gap-1 shrink-0 font-mono",
-              active ? "bg-ink text-white border-ink" : "",
-              dragOver ? "ring-2 ring-accent ring-offset-1 ring-offset-canvas" : "",
-            ].join(" ")}
-            title={`${tag} — click to filter, drop an item here to add this tag to it`}
-          >
-            {tag}
-            <span className={active ? "text-white/60" : "text-muted"}>{count}</span>
-          </button>
-        );
-      })}
-      {(hiddenCount > 0 || expanded) && (
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="font-mono text-[11px] text-muted hover:text-ink shrink-0 px-1"
-        >
-          {expanded ? "less" : `+${hiddenCount} more`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-/**
- * One-line role picker shown above the Board while classifying — the only
- * ledger piece that must stay visible in board mode (you switch roles while
- * boarding). Contextual chrome tied to the board intent: appears with it,
- * recedes with it (N21).
- */
-export function RoleStrip({
-  objects,
-  roles,
-  roleFilter,
-}: {
-  objects: DesignObject[];
-  roles: Record<string, RoleDefinition>;
-  roleFilter: string;
-}) {
-  const setRoleFilter = useStore((s) => s.setRoleFilter);
-  const roleKeys = distinctRoleKeys(objects);
-  const activeRole = resolveActiveRole(objects, roles, roleFilter);
-  if (roleKeys.size < 2 || !activeRole) return null;
-
-  const roleOptions = Array.from(roleKeys)
-    .map((key) => roles[key])
-    .filter((def): def is RoleDefinition => Boolean(def))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  return (
-    // Identical language to the ledger's "Here you can find" (2026-07-21):
-    // one vocabulary for the collection's composition, whichever view
-    // you're in — with "everything" always one click away.
-    <div className="shrink-0 px-5 pt-3 flex items-center gap-1.5 flex-wrap">
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted shrink-0">
-        Here you can find
-      </span>
-      <button
-        onClick={() => setRoleFilter("")}
-        className={[
-          "tag-chip font-mono",
-          roleFilter === "" ? "border-accent/40 bg-accent/5 text-ink" : "",
-        ].join(" ")}
-        title="Everything in this collection, all kinds together"
-      >
-        everything
-      </button>
-      {roleOptions.map((role) => (
-        <button
-          key={role.name}
-          onClick={() => setRoleFilter(roleFilter === role.name ? "" : role.name)}
-          className={[
-            "tag-chip font-mono",
-            roleFilter !== "" && norm(role.name) === norm(activeRole.name)
-              ? "border-accent/40 bg-accent/5 text-ink"
-              : "",
-          ].join(" ")}
-        >
-          {pluralizeRole(role.name)}
-        </button>
-      ))}
     </div>
   );
 }

@@ -84,7 +84,6 @@ export function ClassifyPanel({
   onFieldChange,
   onFilterValue,
   activeFilterValue,
-  onClose,
   onOpen,
 }: {
   /** Collection members carrying the active role — the folders' population. */
@@ -106,7 +105,6 @@ export function ClassifyPanel({
   /** The value currently narrowing the grid, so the active category can
    * read as selected here. */
   activeFilterValue: string | null;
-  onClose: () => void;
   onOpen: (id: string) => void;
 }) {
   const primaryFacets = activeRole.primaryFacets ?? [];
@@ -174,12 +172,9 @@ export function ClassifyPanel({
 
   if (!activeField) {
     return (
-      <aside className="h-full flex flex-col p-5" aria-label="Classification">
-        <div className="flex items-center justify-between mb-3">
+      <aside className="h-full flex flex-col px-5 pb-5" aria-label="Classification">
+        <div className="mb-3">
           <PanelLabel>Classifying · {activeRole.name}</PanelLabel>
-          <button onClick={onClose} className="text-muted hover:text-ink" aria-label="Close">
-            ×
-          </button>
         </div>
         <p className="text-[12px] text-muted leading-relaxed">
           "{activeRole.name}" has no primary facets pinned yet — pin some in its entity-type
@@ -276,16 +271,14 @@ export function ClassifyPanel({
       className="h-full flex flex-col overflow-hidden"
       aria-label="Classification categories"
     >
-      <div className="shrink-0 px-4 pt-4 pb-3 border-b border-line/70">
-        <div className="flex items-center justify-between mb-2">
-          {/* Conversational, not architectural (§3): say what's happening
-           * in terms of the entity and property, never internal nouns. */}
+      <div className="shrink-0 px-4 pb-3 border-b border-line/70">
+        {/* Conversational, not architectural (§3): say what's happening in
+         * terms of the entity and property, never internal nouns. The
+         * membrane's tab row owns the close. */}
+        <div className="mb-2">
           <PanelLabel>
             Classifying {activeRole.name} by {fieldName}
           </PanelLabel>
-          <button onClick={onClose} className="text-muted hover:text-ink text-[15px] leading-none" aria-label="Close">
-            ×
-          </button>
         </div>
         {primaryFacets.length > 1 && (
           <div className="flex items-center gap-1 flex-wrap">
