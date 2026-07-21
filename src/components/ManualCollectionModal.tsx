@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { HeroImagePicker } from "./HeroImagePicker";
 import { useStore } from "../store";
 
 /** Collections are just named folders now — classification fields belong
@@ -25,9 +26,6 @@ export function ManualCollectionModal({
   const [description, setDescription] = useState(existing?.description ?? "");
   const [heroImageObjectId, setHeroImageObjectId] = useState<string | null>(
     existing?.heroImageObjectId ?? null
-  );
-  const [heroTitleDraft, setHeroTitleDraft] = useState(
-    existing?.heroImageObjectId ? state.objects[existing.heroImageObjectId]?.title ?? "" : ""
   );
   const [autoTagsDraft, setAutoTagsDraft] = useState(
     existing?.type === "manual" ? (existing.autoTags ?? []).join(", ") : ""
@@ -104,26 +102,13 @@ export function ManualCollectionModal({
           className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
         />
 
-        {memberObjects.length > 0 && (
-          <div className="mt-2">
-            <input
-              list="manual-hero-candidates"
-              value={heroTitleDraft}
-              onChange={(e) => {
-                const value = e.target.value;
-                setHeroTitleDraft(value);
-                const match = memberObjects.find((o) => o.title === value);
-                setHeroImageObjectId(match ? match.id : null);
-              }}
-              placeholder="Hero image (optional) — pick an item already in this collection"
-              className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
-            />
-            <datalist id="manual-hero-candidates">
-              {memberObjects.map((o) => (
-                <option key={o.id} value={o.title} />
-              ))}
-            </datalist>
-          </div>
+        {existing && (
+          <HeroImagePicker
+            candidates={memberObjects}
+            selectedId={heroImageObjectId}
+            onSelect={setHeroImageObjectId}
+            emptyHint="Nothing with a picture in here yet — drag some cards in and one can front the collection."
+          />
         )}
 
         <div className="mt-4 flex justify-end gap-2">

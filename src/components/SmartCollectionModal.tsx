@@ -10,6 +10,7 @@ import {
   matchesSmartCollection,
 } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
+import { HeroImagePicker } from "./HeroImagePicker";
 import type { DesignObject, FilterCondition, FilterOperator, FilterSimilarity, TagGroups } from "../types";
 
 type Row = FilterCondition | FilterSimilarity;
@@ -88,9 +89,6 @@ export function SmartCollectionModal({
   const [description, setDescription] = useState(existing?.description ?? "");
   const [heroImageObjectId, setHeroImageObjectId] = useState<string | null>(
     existing?.heroImageObjectId ?? null
-  );
-  const [heroTitleDraft, setHeroTitleDraft] = useState(
-    existing?.heroImageObjectId ? state.objects[existing.heroImageObjectId]?.title ?? "" : ""
   );
   const [combinator, setCombinator] = useState<"AND" | "OR">(
     existing?.type === "smart" ? existing.rule.combinator : "AND"
@@ -230,27 +228,12 @@ export function SmartCollectionModal({
           className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent resize-y"
         />
 
-        {matchingObjects.length > 0 && (
-          <div className="mt-2">
-            <input
-              list="smart-hero-candidates"
-              value={heroTitleDraft}
-              onChange={(e) => {
-                const value = e.target.value;
-                setHeroTitleDraft(value);
-                const match = matchingObjects.find((o) => o.title === value);
-                setHeroImageObjectId(match ? match.id : null);
-              }}
-              placeholder="Hero image (optional) — pick an item currently matching this search"
-              className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
-            />
-            <datalist id="smart-hero-candidates">
-              {matchingObjects.map((o) => (
-                <option key={o.id} value={o.title} />
-              ))}
-            </datalist>
-          </div>
-        )}
+        <HeroImagePicker
+          candidates={matchingObjects}
+          selectedId={heroImageObjectId}
+          onSelect={setHeroImageObjectId}
+          emptyHint="Nothing with a picture matches this rule yet."
+        />
 
         <div className="mt-4 flex items-center gap-2 text-[12px]">
           <span className="text-muted">Match</span>
