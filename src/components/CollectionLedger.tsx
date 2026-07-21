@@ -425,14 +425,34 @@ function RoleRow({
         {active ? "● " : ""}
         {roleWord(role.name)} <span className="text-muted/60">{count}</span>
       </button>
-      {/* Summoned by attention, gone with it — a standing "fix" on every row
-          would turn a quiet index into a control panel. */}
+      {/* Summoned by attention, gone with it — a standing pair of controls on
+          every row would turn a quiet index into a control panel.
+
+          Remove comes first and is the blunt one, because most of what
+          landed in this list was never wanted (Samuel, 2026-07-21). Keeping
+          the word as a property is the second offer, for the cases where it
+          IS a real attribute — german as a nationality — rather than the
+          only way out. */}
+      <button
+        onClick={() => {
+          useStore.getState().deleteRole(role.name);
+          useStore
+            .getState()
+            .setFlashNotice(
+              `"${roleWord(role.name)}" is gone. ${count} item${count > 1 ? "s" : ""} back to no kind. ⌘Z undoes it.`
+            );
+        }}
+        className="opacity-0 group-hover/role:opacity-100 transition-opacity text-muted/50 hover:text-ink text-[10px]"
+        title={`Delete the "${roleWord(role.name)}" kind. Its ${count} item${count > 1 ? "s go" : " goes"} back to having no kind; tags and properties are untouched.`}
+      >
+        remove
+      </button>
       <button
         onClick={() => setFixing(true)}
         className="opacity-0 group-hover/role:opacity-100 transition-opacity text-muted/50 hover:text-accent text-[10px]"
-        title={`"${roleWord(role.name)}" isn't a kind of thing? Turn it into a property of something that is. Nothing is lost.`}
+        title={`Keep the word: turn "${roleWord(role.name)}" into a property of a kind that is one.`}
       >
-        not a kind
+        keep as property
       </button>
     </div>
   );

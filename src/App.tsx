@@ -47,7 +47,6 @@ import { CredentialsModal } from "./components/CredentialsModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { OrganizeView } from "./components/OrganizeView";
 import { AddPropertyPopover } from "./components/AddPropertyPopover";
-import { EntityTypeDiscoveryModal } from "./components/EntityTypeDiscoveryModal";
 import { suggestRole } from "./lib/roleSuggestion";
 import type { DesignObject, FacetField } from "./types";
 
@@ -324,7 +323,6 @@ export default function App() {
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
   // "+ property" lives on the property strip (tabs row) — see below.
   const [addingProperty, setAddingProperty] = useState(false);
-  const [discoverTypesOpen, setDiscoverTypesOpen] = useState(false);
   // The app-voiced replacement for window.confirm — any component requests
   // one via the store; this is the single render site (see ConfirmDialog).
   const confirm = useStore((s) => s.pendingConfirm);
@@ -927,16 +925,6 @@ export default function App() {
           >
             Auto-assign entity types
           </button>
-          <button
-            onClick={() => {
-              setDiscoverTypesOpen(true);
-              setPrefsOpen(false);
-            }}
-            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40"
-            title="Reads your own tags to find the kinds of thing this archive actually contains, beyond the handful the app ships with"
-          >
-            Discover kinds in my archive…
-          </button>
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
             Detail view
@@ -1518,9 +1506,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {discoverTypesOpen && (
-        <EntityTypeDiscoveryModal onClose={() => setDiscoverTypesOpen(false)} />
-      )}
 
       {confirm && (
         <ConfirmDialog

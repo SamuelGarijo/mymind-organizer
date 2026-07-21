@@ -74,6 +74,22 @@ export function TypologyPanel({
   const selected = chosen ?? new Set((proposal?.properties ?? []).map((p) => p.field.name));
   const label = (nameDraft || collectionName).trim();
 
+  /** The kinds this archive already has, biggest first. Offering these is
+   * the whole point: the system stopped inventing kinds from tags, so the
+   * vocabulary now grows only when Samuel names something — and reusing
+   * what he named before should always be one click. */
+  const existingKinds = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const o of allObjectsOf(objects)) {
+      if (!o.role) continue;
+      counts.set(norm(o.role), (counts.get(norm(o.role)) ?? 0) + 1);
+    }
+    return Object.values(roles)
+      .map((r) => ({ name: r.name, count: counts.get(norm(r.name)) ?? 0 }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+  }, [roles, objects]);
+
   /** What the members already are — the reason QUALITY is usually the
    * truer answer: if they're all photographs, this collection is a thing
    * ABOUT them, not a replacement for what they are. */
@@ -223,13 +239,45 @@ export function TypologyPanel({
 
       {meaning === "type" && (
         <div className="mt-2 space-y-2">
+          {/* Kinds you already have come first, and the collection's own name
+              is NOT pre-filled (Samuel, 2026-07-21). Defaulting to the
+              collection name is how a photography movement became a species:
+              the field arrived already answered, and confirming was easier
+              than thinking. Reuse should be the cheap gesture; inventing a
+              new kind should cost typing. */}
+          {existingKinds.length > 0 && (
+            <div className="flex flex-wrap items-baseline gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+                Reuse
+              </span>
+              {existingKinds.map((kind) => (
+                <button
+                  key={kind.name}
+                  onClick={() => {
+                    setNameDraft(kind.name);
+                    publish("type", kind.name);
+                  }}
+                  className={[
+                    "px-2 py-0.5 rounded-md font-mono text-[11px] transition-colors",
+                    norm(label) === norm(kind.name)
+                      ? "bg-ink text-white"
+                      : "text-muted hover:text-ink hover:bg-line/40",
+                  ].join(" ")}
+                  title={`${kind.count.toLocaleString()} items already carry this kind`}
+                >
+                  {kind.name.toLowerCase()}{" "}
+                  <span className="opacity-50">{kind.count.toLocaleString()}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <input
-            value={nameDraft || proposal.name}
+            value={nameDraft}
             onChange={(e) => {
               setNameDraft(e.target.value);
               publish("type", e.target.value);
             }}
-            placeholder="Name this kind…"
+            placeholder={existingKinds.length > 0 ? "…or name a new kind" : "Name this kind…"}
             className="w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
           />
 

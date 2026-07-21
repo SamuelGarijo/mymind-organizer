@@ -27,7 +27,6 @@ import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
 import { rankByHybridSimilarity, rankBySimilarityMode } from "./lib/hybridSimilarity";
 import { sortByRecency } from "./lib/recency";
 import { MYMIND_OWNED_FIELD_KEYS } from "./lib/mymindSync";
-import { suggestRole } from "./lib/roleSuggestion";
 import type { Proposal } from "./lib/fieldExtraction";
 import {
   addPromotion,
@@ -323,6 +322,20 @@ type State = {
    * `fieldName = roleName` instead, and is either re-typed to `newRole` or
    * left untyped. The definition is removed. */
   demoteRoleToValue: (roleName: string, fieldName: string, newRole: string | null) => void;
+  /** Deletes an entity type outright: the definition goes, and everything
+   * typed with it goes back to having no kind at all (Samuel, 2026-07-21,
+   * looking at "german / urban / storefront / european" in his own list:
+   * "elimina esa puta mierda y deja que yo añada las tipologías").
+   *
+   * Deliberately blunter than `demoteRoleToValue` above, which is the right
+   * repair when the word is a real attribute worth keeping. Most of the
+   * discovered junk isn't worth keeping at all, and making the user invent
+   * a property to host a word they never wanted is a tax, not a kindness.
+   *
+   * Nothing else is touched — tags, fields and collection membership are
+   * untouched, so "no kind" is exactly the state the object was in before
+   * something typed it without asking. Undoable like everything else. */
+  deleteRole: (roleName: string) => void;
   /** Renames a field on one role AND migrates every carrier: object values
    * re-keyed, provenance re-keyed, tag promotions re-pointed, primaryFacets
    * updated. Values are shared vocabulary, so the rename is scoped to
@@ -390,12 +403,10 @@ type State = {
   clearConfirm: () => void;
   /** Workspace setup as a DEFAULT, not a dialog (Samuel, 2026-07-20:
    * native confirm popups are unacceptable, and a collection should set
-   * itself up). Runs suggestRole over the role-less objects among `ids`,
-   * bulk-assigns in one update, pins a starter facet set for any present
-   * role that has fields but no pins, and announces what happened through
-   * flashNotice instead of asking permission first — every assignment
-   * stays editable from any item's detail panel, which is the honest
-   * reversibility a confirm dialog only pretends to add. */
+   * itself up). Pins a starter facet set for any present kind that has
+   * fields but no pins — surfacing structure that already exists, which
+   * needs no permission. It no longer TYPES anything: deciding what things
+   * are is the user's call, asked out loud by the collection panel. */
   setupWorkspaceFor: (ids: string[]) => void;
   renameCollection: (id: string, name: string) => void;
   /** Updates a collection's optional channel-style metadata (issue #87) —
@@ -1215,30 +1226,16 @@ export const useStore = create<State>()(
         }),
 
       setupWorkspaceFor: (ids) => {
-        const s = get();
-        const members = ids
-          .map((id) => s.objects[id])
-          .filter((o): o is DesignObject => Boolean(o));
-
-        const assignments: { objectId: string; role: string }[] = [];
-        const counts = new Map<string, number>();
-        for (const obj of members) {
-          if (obj.role) continue;
-          const suggestion = suggestRole(obj);
-          if (!suggestion) continue;
-          assignments.push({ objectId: obj.id, role: suggestion });
-          counts.set(suggestion, (counts.get(suggestion) ?? 0) + 1);
-        }
-        if (assignments.length > 0) {
-          s.bulkAssignRoles(assignments);
-          const summary = Array.from(counts.entries())
-            .sort((a, b) => b[1] - a[1])
-            .map(([role, count]) => `${role} ${count}`)
-            .join(" · ");
-          s.setFlashNotice(
-            `Typed ${assignments.length.toLocaleString()} item${assignments.length === 1 ? "" : "s"} — ${summary}. Editable on any item.`
-          );
-        }
+        // Deliberately no longer types anything (Samuel, 2026-07-21: "deja
+        // que yo añada las roles o tipologías"). This used to run suggestRole
+        // over every untyped member the moment a collection was saved, which
+        // meant making a collection silently decided what forty-seven things
+        // WERE — and the collection panel now asks that question out loud,
+        // with the archive's existing kinds offered for reuse. Two answers to
+        // one question, one of them unasked, is worse than either alone.
+        //
+        // The pinning below stays: it surfaces structure that already exists
+        // rather than inventing any, so it needs no permission.
 
         // Starter pins for any present role with fields but nothing pinned
         // yet, so the workspace has facets to show without a second gesture.
@@ -1481,6 +1478,22 @@ export const useStore = create<State>()(
             if (o.role && norm(o.role) === fromKey) objects[id] = { ...o, role: intoDef.name };
           }
           return { roles, objects };
+        });
+      },
+
+      deleteRole: (roleName) => {
+        get().pushUndo(`delete the ${roleName.toLowerCase()} kind`);
+        set((s) => {
+          const key = norm(roleName);
+          if (!s.roles[key]) return {};
+          const { [key]: _gone, ...roles } = s.roles;
+          const objects = { ...s.objects };
+          const now = new Date().toISOString();
+          for (const [id, o] of Object.entries(objects)) {
+            if (!o.role || norm(o.role) !== key) continue;
+            objects[id] = { ...o, role: undefined, updatedAt: now };
+          }
+          return { objects, roles };
         });
       },
 
