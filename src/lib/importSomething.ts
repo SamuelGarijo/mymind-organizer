@@ -169,12 +169,48 @@ export async function importUrl(input: string): Promise<ImportResult> {
     return { objects: [], skipped: [`${url} — not a link we can read`] };
   }
 
-  // A pasted link is kept as a link. No fetching, no scraping, no
-  // screenshotting: that's a different feature with its own network
-  // policy, and guessing at one here would be the wrong kind of clever.
+  // A link arrives as what it IS, not as a hostname. The proxy reads the
+  // page's own og: metadata — title, description, preview image — because
+  // the browser can't read cross-origin HTML and because that fetch needs
+  // an SSRF guard that only the server can enforce (server/unfurlRoutes).
+  //
+  // Unfurling is best-effort by design: a paywalled, offline or
+  // metadata-less page still becomes a saved link with its URL intact. The
+  // fallback title is the hostname and path, which is what this used to do
+  // for everything.
   const object = baseObject(parsed.hostname.replace(/^www\./, "") + parsed.pathname);
   object.source = "external";
   object.sourceUrl = parsed.toString();
   object.fields.source_url = parsed.toString();
+
+  try {
+    const res = await fetch("/api/unfurl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: parsed.toString() }),
+    });
+    if (res.ok) {
+      const meta = (await res.json()) as {
+        url?: string;
+        title?: string;
+        description?: string;
+        imageUrl?: string;
+        siteName?: string;
+      };
+      if (meta.title?.trim()) object.title = meta.title.trim();
+      if (meta.imageUrl) object.imageUrl = meta.imageUrl;
+      if (meta.description?.trim()) object.fields.summary = meta.description.trim();
+      if (meta.siteName?.trim()) object.fields.site_name = meta.siteName.trim();
+      // The URL after redirects is the canonical one — a shortened link
+      // should be saved as where it actually goes.
+      if (meta.url) {
+        object.sourceUrl = meta.url;
+        object.fields.source_url = meta.url;
+      }
+    }
+  } catch {
+    /* offline, or the proxy is down — the link is still worth keeping */
+  }
+
   return { objects: [object], skipped: [] };
 }

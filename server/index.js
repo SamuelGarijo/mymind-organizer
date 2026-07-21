@@ -3,6 +3,7 @@ import express from "express";
 import { router } from "./routes.js";
 import { arenaRouter } from "./arenaRoutes.js";
 import { geminiRouter } from "./geminiRoutes.js";
+import { unfurlRouter } from "./unfurlRoutes.js";
 import {
   clearArenaToken,
   clearGeminiKey,
@@ -18,6 +19,7 @@ app.use(express.json());
 app.use("/api/mymind", router);
 app.use("/api/arena", arenaRouter);
 app.use("/api/gemini", geminiRouter);
+app.use("/api/unfurl", unfurlRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({
