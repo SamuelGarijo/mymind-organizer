@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "motion/react";
-import { panelVariants } from "../lib/chrome";
 import { useStore } from "../store";
 import { orderedFacetBuckets } from "../lib/primaryFacets";
 import { UNCLASSIFIED_VALUE } from "../lib/quickFilter";
@@ -176,13 +174,7 @@ export function ClassifyPanel({
 
   if (!activeField) {
     return (
-      <motion.aside
-        custom={{ x: 24, y: 0 }}
-        variants={panelVariants}
-        initial="hidden"
-        animate="visible"
-        exit="exit"
-        className="fixed right-4 top-20 bottom-6 w-[380px] z-30 flex flex-col rounded-2xl border border-line bg-panel/95 backdrop-blur shadow-cardHover p-5">
+      <aside className="h-full flex flex-col p-5" aria-label="Classification">
         <div className="flex items-center justify-between mb-3">
           <PanelLabel>Classifying · {activeRole.name}</PanelLabel>
           <button onClick={onClose} className="text-muted hover:text-ink" aria-label="Close">
@@ -193,7 +185,7 @@ export function ClassifyPanel({
           "{activeRole.name}" has no primary facets pinned yet — pin some in its entity-type
           fields (★ next to a field) to lay out categories here.
         </p>
-      </motion.aside>
+      </aside>
     );
   }
 
@@ -275,14 +267,14 @@ export function ClassifyPanel({
   }
 
   return (
-    <motion.aside
-      custom={{ x: 24, y: 0 }}
-      variants={panelVariants}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-      className="fixed right-4 top-20 bottom-6 w-[380px] z-30 flex flex-col rounded-2xl border border-line bg-panel/95 backdrop-blur shadow-cardHover overflow-hidden"
-      aria-label="Classification folders"
+    // Membrane content (§6, 2026-07-21): Classify is a compartment of the
+    // workshop like the Workbench — it opens inward from the right edge and
+    // the main surface yields space. The Membrane owns position, depth and
+    // reveal (inner shadow, recessed canvas tone); this is just the
+    // cavity's content, no chrome of its own.
+    <aside
+      className="h-full flex flex-col overflow-hidden"
+      aria-label="Classification categories"
     >
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-line/70">
         <div className="flex items-center justify-between mb-2">
@@ -388,6 +380,6 @@ export function ClassifyPanel({
           </div>
         </div>
       )}
-    </motion.aside>
+    </aside>
   );
 }

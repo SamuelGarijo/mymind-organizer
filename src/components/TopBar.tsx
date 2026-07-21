@@ -16,7 +16,8 @@ import { norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
 import { TOLERANCE_MAX, TOLERANCE_MIN, type ColorFilter } from "../lib/colorSearch";
 import { ITEM_TYPE_GROUP, rankableFacetColumns } from "../lib/grouping";
-import type { DesignObject, FacetField } from "../types";
+import { makeId } from "../lib/id";
+import type { DesignObject, FacetField, FilterCondition } from "../types";
 
 type Category = "tag" | "type" | "role" | "field" | "color" | "group";
 
@@ -133,6 +134,10 @@ export function TopBar({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  // §7 (2026-07-21): the overflow surface for active filters — pills live
+  // INSIDE the command bar's single row; past the first few, "More" reveals
+  // the complete active query plus match mode / clear / save-as-collection.
+  const [moreOpen, setMoreOpen] = useState(false);
   // Deliberate downward scrolling compacts the bar (diving into the
   // things); any upward intent restores it. Focus always wins.
   const [compact, setCompact] = useState(false);
@@ -245,6 +250,62 @@ export function TopBar({
   }
 
   const hasAnyFilter = pills.length > 0;
+
+  /** How many pills ride inline in the bar row before "More +N" takes over
+   * — a fixed budget, not a measurement: the bar's structure must never
+   * change shape as filters accumulate (§7). */
+  const INLINE_PILLS = 3;
+
+  // §7: any meaningful query+filter combination can be kept. Everything the
+  // rule engine can express maps in; what it can't (colour, entity-type
+  // filter, "not yet classified") simply isn't offered rather than saved
+  // wrong.
+  const savableAsCollection =
+    (searchQuery.trim() !== "" ||
+      facetTags.length > 0 ||
+      excludedTags.length > 0 ||
+      typeFilter !== "" ||
+      (facetFieldFilter !== null && facetFieldFilter.value !== UNCLASSIFIED_VALUE));
+
+  function saveAsSmartCollection() {
+    const children: FilterCondition[] = [];
+    if (searchQuery.trim() !== "") {
+      children.push({ kind: "condition", id: makeId("cond"), field: "text", operator: "contains", value: searchQuery.trim() });
+    }
+    for (const tag of facetTags) {
+      children.push({ kind: "condition", id: makeId("cond"), field: "tag", operator: "includes", value: tag });
+    }
+    for (const tag of excludedTags) {
+      children.push({ kind: "condition", id: makeId("cond"), field: "tag", operator: "notEquals", value: tag });
+    }
+    if (typeFilter !== "") {
+      children.push({ kind: "condition", id: makeId("cond"), field: "entity_type", operator: "equals", value: typeFilter });
+    }
+    if (facetFieldFilter && facetFieldFilter.value !== UNCLASSIFIED_VALUE) {
+      children.push({ kind: "condition", id: makeId("cond"), field: facetFieldFilter.field, operator: "equals", value: facetFieldFilter.value });
+    }
+    if (children.length === 0) return;
+    const name =
+      searchQuery.trim() ||
+      pills
+        .slice(0, 2)
+        .map((p) => p.label.split(": ").pop())
+        .join(" · ") ||
+      "Saved search";
+    const st = useStore.getState();
+    // Tag matching in saved rules is AND by construction (every condition
+    // must pass) — matches the bar's "all" mode; "any" combinations keep
+    // their live behavior in the bar but save as all-of.
+    const id = st.addSmartCollection(name, {
+      kind: "group",
+      id: makeId("group"),
+      combinator: facetMode === "OR" && facetTags.length > 1 ? "OR" : "AND",
+      children,
+    });
+    setMoreOpen(false);
+    st.setSelectedView({ kind: "collection", collectionId: id });
+    st.setFlashNotice(`Saved as "${name}" — it fills itself and updates live. Rename via ⋯ in the sidebar.`);
+  }
   const groupableColumns = rankableFacetColumns(fieldFilterPool, facetColumns);
   const hasRoles = fieldFilterPool.some((o) => o.role);
   const fieldValueOptions = pendingField ? computeFieldValueFrequency(fieldFilterPool, pendingField) : [];
@@ -339,6 +400,10 @@ export function TopBar({
               compact && !suggestOpen ? "pl-4 pr-1 py-0.5" : "pl-5 pr-1.5 py-1.5",
             ].join(" ")}
           >
+            {/* §7 (2026-07-21): ONE row, always the same structure —
+                Search…  [pills]  More  φ — never a second band underneath.
+                Past the first few pills, "More" reveals the complete
+                active query (plus match mode / clear / save). */}
             <div className="flex items-center gap-1">
             <MagnifyingGlass size={14} className="shrink-0 text-muted mr-2" />
             <input
@@ -352,9 +417,9 @@ export function TopBar({
                 if (e.key === "Escape") closeMenu();
                 if (e.key === "Enter") setSuggestOpen(false);
               }}
-              placeholder="Search your archive…"
+              placeholder="Search…"
               title="Fuzzy search — title matches outrank tag/summary matches. Click a suggestion chip to filter."
-              className="flex-1 min-w-0 bg-transparent font-mono text-[13px] outline-none py-1"
+              className="flex-1 min-w-[110px] bg-transparent font-mono text-[13px] outline-none py-1"
             />
             {searchQuery !== "" && (
               <button
@@ -365,10 +430,33 @@ export function TopBar({
                 ×
               </button>
             )}
+            {hasAnyFilter && (
+              <div className="flex items-center gap-1.5 shrink min-w-0 overflow-hidden">
+                {pills.slice(0, INLINE_PILLS).map(renderPill)}
+              </div>
+            )}
+            {hasAnyFilter && (
+              <button
+                onClick={() => {
+                  setMoreOpen((v) => !v);
+                  setSuggestOpen(false);
+                  setMenuOpen(false);
+                }}
+                className={[
+                  "shrink-0 font-mono text-[11px] px-1.5 py-0.5 rounded-lg",
+                  moreOpen ? "text-accent" : "text-muted hover:text-ink hover:bg-line/40",
+                ].join(" ")}
+                title="The complete active query — every filter, match mode, save as collection"
+                aria-expanded={moreOpen}
+              >
+                {pills.length > INLINE_PILLS ? `More +${pills.length - INLINE_PILLS}` : "More"}
+              </button>
+            )}
             <button
               onClick={() => {
                 setMenuOpen((v) => !v);
                 setSuggestOpen(false);
+                setMoreOpen(false);
               }}
               className={[
                 "shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors",
@@ -383,49 +471,72 @@ export function TopBar({
               <FilterIcon active={hasAnyFilter} />
             </button>
             </div>
-
-            {hasAnyFilter && (
-              <div className="flex flex-wrap items-center gap-1.5 pr-2 pb-1 pt-0.5">
-                {pills.map(renderPill)}
-
-                {facetTags.length > 1 && (
-                  <div className="flex items-center gap-1 text-[11px]">
-                    <span className="text-muted">Match</span>
-                    <div className="inline-flex rounded-lg border border-line overflow-hidden">
-                      {(["AND", "OR"] as const).map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => setFacetMode(m)}
-                          className={[
-                            "px-2 py-0.5",
-                            facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
-                          ].join(" ")}
-                          title={m === "AND" ? "Must have all included tags" : "Match any included tag"}
-                        >
-                          {m === "AND" ? "all" : "any"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => {
-                    setTypeFilter("");
-                    setRoleFilter("");
-                    setFacetFieldFilter(null);
-                    clearFacetTags();
-                    clearExcludedTags();
-                    setColorFilter(null);
-                    setGroupBy(null);
-                  }}
-                  className="text-[11px] text-muted hover:text-ink underline decoration-dotted"
-                >
-                  clear all
-                </button>
-              </div>
-            )}
           </div>
+
+          <AnimatePresence>
+            {moreOpen && hasAnyFilter && (
+              <motion.div
+                custom={{ x: 0, y: -8 }}
+                variants={surfaceVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="absolute z-40 top-full mt-2 left-0 right-0 rounded-2xl border border-line/70 bg-panel/95 backdrop-blur shadow-cardHover p-3"
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {pills.map(renderPill)}
+
+                  {facetTags.length > 1 && (
+                    <div className="flex items-center gap-1 text-[11px]">
+                      <span className="text-muted">Match</span>
+                      <div className="inline-flex rounded-lg border border-line overflow-hidden">
+                        {(["AND", "OR"] as const).map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => setFacetMode(m)}
+                            className={[
+                              "px-2 py-0.5",
+                              facetMode === m ? "bg-ink text-white" : "bg-panel hover:bg-line/40",
+                            ].join(" ")}
+                            title={m === "AND" ? "Must have all included tags" : "Match any included tag"}
+                          >
+                            {m === "AND" ? "all" : "any"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2.5 pt-2 border-t border-line/60 flex items-center gap-3 font-mono text-[11px]">
+                  {savableAsCollection && (
+                    <button
+                      onClick={saveAsSmartCollection}
+                      className="text-accent hover:underline decoration-dotted underline-offset-2"
+                      title="Keep this exact query as a smart collection — it fills itself and updates live"
+                    >
+                      Save as Smart Collection
+                    </button>
+                  )}
+                  <span className="flex-1" />
+                  <button
+                    onClick={() => {
+                      setTypeFilter("");
+                      setRoleFilter("");
+                      setFacetFieldFilter(null);
+                      clearFacetTags();
+                      clearExcludedTags();
+                      setColorFilter(null);
+                      setGroupBy(null);
+                      setMoreOpen(false);
+                    }}
+                    className="text-muted hover:text-ink underline decoration-dotted"
+                  >
+                    clear all
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <AnimatePresence>
             {suggestOpen && !menuOpen && (

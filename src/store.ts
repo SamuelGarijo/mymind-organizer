@@ -274,6 +274,14 @@ type State = {
    * low-coverage pinned facet crowding the ledger (Samuel, 2026-07-20:
    * the blanket exemption read as an invasive wall of chrome). */
   justCreatedFieldName: string | null;
+  /** §9 (2026-07-21): the collection's second mode. null = "All objects"
+   * (normal masonry/table); a field name = "Organize by" — the collection
+   * rebuilt as an editorial landing page, one section per value of that
+   * property, "Not yet classified" last. A way of BROWSING the collection;
+   * Classify remains the workspace for assigning. Transient, reset on view
+   * change — a lens you pick up, not a stored mode. */
+  organizeBy: string | null;
+  setOrganizeBy: (field: string | null) => void;
   /** The app-voiced replacement for window.confirm (banned — Samuel,
    * 2026-07-20): any component can request one; App renders the single
    * ConfirmDialog. Transient, never persisted. Reserved for genuinely
@@ -1008,6 +1016,8 @@ export const useStore = create<State>()(
       fieldProvenance: {},
       tagPromotions: {},
       justCreatedFieldName: null,
+      organizeBy: null,
+      setOrganizeBy: (field) => set({ organizeBy: field }),
       pendingConfirm: null,
       requestConfirm: (confirm) => set({ pendingConfirm: confirm }),
       clearConfirm: () => set({ pendingConfirm: null }),
@@ -1276,6 +1286,9 @@ export const useStore = create<State>()(
           excludedTags: [],
           facetFieldFilter: null,
           colorFilter: null,
+          // A lens on ONE collection's values doesn't survive into another
+          // world — same reasoning as the filters above.
+          organizeBy: null,
         }),
       openDetail: (id) => set({ detailObjectId: id }),
       closeDetail: () => set({ detailObjectId: null }),

@@ -46,6 +46,7 @@ import { viewTitle } from "./lib/viewLabel";
 import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { OrganizeView } from "./components/OrganizeView";
 import { suggestRole } from "./lib/roleSuggestion";
 import type { DesignObject, FacetField } from "./types";
 
@@ -121,6 +122,7 @@ export default function App() {
       setCanvasSplitWidth: s.setCanvasSplitWidth,
       workbenchCount: s.workbenchIds.length,
       setWorkbenchOpen: s.setWorkbenchOpen,
+      setOrganizeBy: s.setOrganizeBy,
       objectRelations: s.objectRelations,
       viewBackStack: s.viewBackStack,
       flashNotice: s.flashNotice,
@@ -181,18 +183,11 @@ export default function App() {
   }, [baseObjects, state.typeFilter, state.facetTags, state.facetMode, state.excludedTags, state.facetFieldFilter]);
   const roleTypes = useMemo(() => computeRoleFrequency(roleTypesPool), [roleTypesPool]);
 
-  // When any filter is active the command bar grows a second row (the
-  // pills now live INSIDE it) — content padding follows so nothing at
-  // rest hides under the taller bar.
-  const filterRowActive = !!(
-    state.typeFilter ||
-    state.roleFilter ||
-    state.facetFieldFilter ||
-    state.facetTags.length > 0 ||
-    state.excludedTags.length > 0 ||
-    state.colorFilter ||
-    state.groupBy
-  );
+  // §7 (2026-07-21): the command bar is ONE row whether or not filters are
+  // active — pills ride inline and overflow into "More", never a second
+  // band. The bar's height no longer varies, so content padding doesn't
+  // either.
+  const filterRowActive = false;
 
   const typeFiltered = useMemo(
     () => applyTypeFilter(baseObjects, state.typeFilter),
@@ -509,6 +504,25 @@ export default function App() {
     if (!activeRole) return [];
     return baseObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name));
   }, [baseObjects, activeRole]);
+  // §9: the "Organize by" lens — which properties this collection can be
+  // read by (the active entity type's select/multi-select fields), and
+  // which one is currently chosen. Search/filters still compose: the
+  // editorial page organizes whatever the query has narrowed to.
+  const organizeBy = useStore((s) => s.organizeBy);
+  const organizeFields = useMemo(
+    () =>
+      activeRole
+        ? activeRole.fields.filter((f) => f.type === "select" || f.type === "multi-select")
+        : [],
+    [activeRole]
+  );
+  const organizeField = organizeBy
+    ? organizeFields.find((f) => norm(f.name) === norm(organizeBy)) ?? null
+    : null;
+  const organizeObjects = useMemo(() => {
+    if (!activeRole || !organizeField) return [];
+    return visibleObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name));
+  }, [visibleObjects, activeRole, organizeField]);
   // The panel's "N not yet classified" must stay the TRUE unclassified
   // count (§11 — coverage is a fact about the collection), independent of
   // whatever subset the grid is currently narrowed to.
@@ -1063,9 +1077,11 @@ export default function App() {
               <div className={filterRowActive ? "pt-20" : "pt-14"}>
                 <RoleStrip objects={baseObjects} roles={state.roles} roleFilter={state.roleFilter} />
               </div>
-              {/* The reservoir IS the main space (N8): the not-yet-folded
-                  things keep the sacred area; folders float beside them. */}
-              <div className={`flex-1 overflow-y-auto pl-5 pr-[26rem] ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
+              {/* The reservoir IS the main space (N8): the not-yet-
+                  classified things keep the sacred area; the categories
+                  live in the right membrane, which pushes this surface
+                  left — no reserved padding, the flex layout yields. */}
+              <div className={`flex-1 overflow-y-auto px-5 ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
                 <Grid
                   objects={reservoirObjects}
                   facetColumns={facetColumns}
@@ -1095,32 +1111,78 @@ export default function App() {
             </div>
           ) : (
             <div className={`h-full overflow-y-auto px-5 ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
-              {/* The collection's workspace header is CONTENT, not chrome —
-                  it scrolls away with the grid (are.na channel-header move;
-                  design-philosophy Principle 8 + N1). */}
-              {view.kind === "collection" && currentCollection && (
-                <CollectionLedger
-                  collection={currentCollection}
-                  heroObject={heroObject}
-                  objects={baseObjects}
-                  roles={state.roles}
-                  roleFilter={state.roleFilter}
-                  localUserTags={state.localUserTags}
-                  piles={curatedPiles}
-                />
+              {/* §9 (2026-07-21): the collection's two modes — "All
+                  objects" (normal masonry) and "Organize by" (editorial
+                  landing page, one chapter per value). Quiet mono tabs,
+                  content not chrome — they scroll away with the page. */}
+              {view.kind === "collection" && activeRole && organizeFields.length > 0 && (
+                <div className="pb-4 flex items-center gap-3 font-mono text-[11px]">
+                  <button
+                    onClick={() => state.setOrganizeBy(null)}
+                    className={
+                      !organizeField
+                        ? "text-ink underline decoration-dotted underline-offset-4"
+                        : "text-muted hover:text-ink"
+                    }
+                  >
+                    All objects
+                  </button>
+                  {organizeFields.map((f) => (
+                    <button
+                      key={f.name}
+                      onClick={() =>
+                        state.setOrganizeBy(organizeField?.name === f.name ? null : f.name)
+                      }
+                      className={
+                        organizeField?.name === f.name
+                          ? "text-ink underline decoration-dotted underline-offset-4"
+                          : "text-muted hover:text-ink"
+                      }
+                      title={`Read this collection by ${f.name} — one chapter per value`}
+                    >
+                      By {f.name}
+                    </button>
+                  ))}
+                </div>
               )}
-              <Grid
-                objects={visibleObjects}
-                facetColumns={facetColumns}
-                tagFrequency={tagFrequency}
-                viewKey={viewKey}
-                onOpen={state.openDetail}
-                emptyLabel={emptyLabel}
-                zoom={state.gridZoom}
-                groupBy={state.groupBy}
-                minColumnWidth={state.openCanvasId ? 170 : undefined}
-                hideTags={!!state.openCanvasId}
-              />
+              {organizeField && activeRole ? (
+                <OrganizeView
+                  objects={organizeObjects}
+                  field={organizeField}
+                  tagFrequency={tagFrequency}
+                  onOpen={state.openDetail}
+                  zoom={state.gridZoom}
+                />
+              ) : (
+                <>
+                  {/* The collection's workspace header is CONTENT, not
+                      chrome — it scrolls away with the grid (are.na
+                      channel-header move; Principle 8 + N1). */}
+                  {view.kind === "collection" && currentCollection && (
+                    <CollectionLedger
+                      collection={currentCollection}
+                      heroObject={heroObject}
+                      objects={baseObjects}
+                      roles={state.roles}
+                      roleFilter={state.roleFilter}
+                      localUserTags={state.localUserTags}
+                      piles={curatedPiles}
+                    />
+                  )}
+                  <Grid
+                    objects={visibleObjects}
+                    facetColumns={facetColumns}
+                    tagFrequency={tagFrequency}
+                    viewKey={viewKey}
+                    onOpen={state.openDetail}
+                    emptyLabel={emptyLabel}
+                    zoom={state.gridZoom}
+                    groupBy={state.groupBy}
+                    minColumnWidth={state.openCanvasId ? 170 : undefined}
+                    hideTags={!!state.openCanvasId}
+                  />
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1158,12 +1220,19 @@ export default function App() {
           while a slit of the sacred space stays visible on the left as
           the place to drag things from. Never a takeover of the archive
           view. */}
+      {/* One compartment, three tenants (canvas > classify > workbench):
+          Classify shares the same membrane as the Workbench (§6,
+          2026-07-21) — same inward opening, same inner shadow, same
+          yielding of space. One spatial language, never a floating panel
+          over the work. */}
       <Membrane
         edge="right"
-        open={state.workbenchOpen || !!state.openCanvasId}
+        open={state.workbenchOpen || !!state.openCanvasId || classifyOpen}
         onToggle={() => {
           if (state.openCanvasId) {
             useStore.getState().openCanvas(null);
+          } else if (classifyOpen) {
+            state.closeClassificationPanel();
           } else if (state.workbenchOpen) {
             state.setWorkbenchOpen(false);
           } else {
@@ -1177,51 +1246,51 @@ export default function App() {
                 winW - 220,
                 Math.max(480, state.canvasSplitWidth ?? winW - 300)
               )
-            : 360
+            : classifyOpen
+              ? 400
+              : 360
         }
         resizable={!!state.openCanvasId}
         onResizeTo={(px) => state.setCanvasSplitWidth(Math.min(winW - 220, Math.max(480, px)))}
         seamLabel={
           state.openCanvasId
             ? "Close the canvas (layout is saved)"
-            : "Workbench — a temporary worktable (⌘J)"
+            : classifyOpen
+              ? "Close classification"
+              : "Workbench — a temporary worktable (⌘J)"
         }
         id="workbench-membrane"
       >
         {state.openCanvasId ? (
           <CanvasView key={state.openCanvasId} canvasId={state.openCanvasId} />
+        ) : classifyOpen && activeRole ? (
+          <ClassifyPanel
+            roleObjects={roleObjects}
+            collectionIds={collectionIds}
+            allObjects={allObjectsList}
+            activeRole={activeRole}
+            fieldName={effectiveClassifyField ?? ""}
+            reservoirCount={unclassifiedCount}
+            onFieldChange={setClassifyField}
+            onFilterValue={(value) =>
+              useStore
+                .getState()
+                .setFacetFieldFilter(
+                  value === null ? null : { field: effectiveClassifyField ?? "", value }
+                )
+            }
+            activeFilterValue={
+              state.facetFieldFilter?.field === effectiveClassifyField
+                ? state.facetFieldFilter.value
+                : null
+            }
+            onClose={state.closeClassificationPanel}
+            onOpen={state.openDetail}
+          />
         ) : (
           <Workbench onOpenDetail={state.openDetail} />
         )}
       </Membrane>
-
-      <AnimatePresence>
-      {classifyOpen && activeRole && (
-        <ClassifyPanel
-          roleObjects={roleObjects}
-          collectionIds={collectionIds}
-          allObjects={allObjectsList}
-          activeRole={activeRole}
-          fieldName={effectiveClassifyField ?? ""}
-          reservoirCount={unclassifiedCount}
-          onFieldChange={setClassifyField}
-          onFilterValue={(value) =>
-            useStore
-              .getState()
-              .setFacetFieldFilter(
-                value === null ? null : { field: effectiveClassifyField ?? "", value }
-              )
-          }
-          activeFilterValue={
-            state.facetFieldFilter?.field === effectiveClassifyField
-              ? state.facetFieldFilter.value
-              : null
-          }
-          onClose={state.closeClassificationPanel}
-          onOpen={state.openDetail}
-        />
-      )}
-      </AnimatePresence>
 
       {/* Status toasts — floating, never a band that pushes content (N3).
           Success self-dismisses; errors and the backup warning persist. */}
