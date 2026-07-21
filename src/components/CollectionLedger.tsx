@@ -13,10 +13,21 @@ import { addMymindTag } from "../lib/mymindWrite";
 import { norm } from "../lib/textNorm";
 import { DRAG_MIME } from "../lib/objectDrag";
 import { previewProviders, proposeWithProvider } from "../lib/fieldExtraction";
-import { AddPropertyPopover } from "./AddPropertyPopover";
 import type { Collection, DesignObject, FacetField, RoleDefinition } from "../types";
 
 const VISIBLE_VALUES = 6;
+
+/** "typographies, articles, pictures" — the composition of a collection
+ * read as plain words (Samuel, 2026-07-21: "Entity type" was internal
+ * vocabulary leaking into the UI; the user-facing question is "what can I
+ * find here?"). Naive pluralization is fine for display: it never touches
+ * the stored role name. */
+export function pluralizeRole(name: string): string {
+  const lower = name.toLowerCase();
+  if (/s$/.test(lower)) return lower;
+  if (/[^aeiou]y$/.test(lower)) return lower.slice(0, -1) + "ies";
+  return lower + "s";
+}
 
 function ColumnLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -65,7 +76,6 @@ export function CollectionLedger({
   const justCreatedField = useStore((s) => s.justCreatedFieldName);
   const [expandedField, setExpandedField] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [addingProperty, setAddingProperty] = useState(false);
 
   /** Dropping cards onto a value assigns it — and records it as hand-picked,
    * because a deliberate drag IS a hand-confirmation (unlike an extractor's
@@ -136,10 +146,24 @@ export function CollectionLedger({
 
       {roleKeys.size >= 2 && (
         <div>
-          <ColumnLabel>Entity type</ColumnLabel>
+          {/* Plain words, not schema vocabulary (2026-07-21): the question
+           * this column answers is "what's in here?" — with "everything"
+           * as a real, first-class answer, never only the narrowed lens. */}
+          <ColumnLabel>Here you can find</ColumnLabel>
           <div className="flex flex-col gap-0.5">
+            <button
+              onClick={() => state.setRoleFilter("")}
+              className={[
+                "text-left font-mono text-[12px] leading-5 hover:underline decoration-dotted underline-offset-2",
+                roleFilter === "" ? "text-ink" : "text-muted hover:text-ink",
+              ].join(" ")}
+              title="Show everything in this collection, all kinds together"
+            >
+              {roleFilter === "" ? "● " : ""}everything{" "}
+              <span className="text-muted/60">{objects.length}</span>
+            </button>
             {roleOptions.map((role) => {
-              const active = activeRole && norm(role.name) === norm(activeRole.name);
+              const active = roleFilter !== "" && norm(role.name) === norm(roleFilter);
               return (
                 <button
                   key={role.name}
@@ -149,13 +173,13 @@ export function CollectionLedger({
                     active ? "text-ink" : "text-muted hover:text-ink",
                   ].join(" ")}
                   title={
-                    roleFilter === role.name
-                      ? "Showing only this type — click to clear"
-                      : "Focus this type's facets"
+                    active
+                      ? "Showing only these — click to see everything again"
+                      : `Show only the ${pluralizeRole(role.name)}`
                   }
                 >
                   {active ? "● " : ""}
-                  {role.name}{" "}
+                  {pluralizeRole(role.name)}{" "}
                   <span className="text-muted/60">{roleCounts.get(norm(role.name)) ?? 0}</span>
                 </button>
               );
@@ -259,24 +283,10 @@ export function CollectionLedger({
         );
       })}
 
-      {activeRole && (
-        <div className="relative self-start">
-          <button
-            onClick={() => setAddingProperty((v) => !v)}
-            className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted/50 hover:text-ink transition-colors"
-            title={`Organize ${activeRole.name} by another property`}
-          >
-            + property
-          </button>
-          {addingProperty && (
-            <AddPropertyPopover
-              roleName={activeRole.name}
-              objects={roleObjects}
-              onClose={() => setAddingProperty(false)}
-            />
-          )}
-        </div>
-      )}
+      {/* "+ property" moved to the property strip above the page (the
+          All-objects / By-X tabs row, 2026-07-21): the existing properties
+          and the gesture to add one now live in ONE place, so it's always
+          clear what the collection already has. */}
 
       {piles.length > 0 && (
         <div className="max-w-xs">
@@ -448,20 +458,35 @@ export function RoleStrip({
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
+    // Identical language to the ledger's "Here you can find" (2026-07-21):
+    // one vocabulary for the collection's composition, whichever view
+    // you're in — with "everything" always one click away.
     <div className="shrink-0 px-5 pt-3 flex items-center gap-1.5 flex-wrap">
       <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted shrink-0">
-        Type
+        Here you can find
       </span>
+      <button
+        onClick={() => setRoleFilter("")}
+        className={[
+          "tag-chip font-mono",
+          roleFilter === "" ? "border-accent/40 bg-accent/5 text-ink" : "",
+        ].join(" ")}
+        title="Everything in this collection, all kinds together"
+      >
+        everything
+      </button>
       {roleOptions.map((role) => (
         <button
           key={role.name}
           onClick={() => setRoleFilter(roleFilter === role.name ? "" : role.name)}
           className={[
             "tag-chip font-mono",
-            norm(role.name) === norm(activeRole.name) ? "border-accent/40 bg-accent/5 text-ink" : "",
+            roleFilter !== "" && norm(role.name) === norm(activeRole.name)
+              ? "border-accent/40 bg-accent/5 text-ink"
+              : "",
           ].join(" ")}
         >
-          {role.name}
+          {pluralizeRole(role.name)}
         </button>
       ))}
     </div>

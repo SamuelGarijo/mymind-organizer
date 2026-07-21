@@ -47,6 +47,7 @@ import { computeTagFrequency } from "./lib/tagDistinctiveness";
 import { CredentialsModal } from "./components/CredentialsModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { OrganizeView } from "./components/OrganizeView";
+import { AddPropertyPopover } from "./components/AddPropertyPopover";
 import { suggestRole } from "./lib/roleSuggestion";
 import type { DesignObject, FacetField } from "./types";
 
@@ -330,6 +331,8 @@ export default function App() {
   const [arenaExportObjectId, setArenaExportObjectId] = useState<string | null>(null);
   const [fullResync, setFullResync] = useState(false);
   const [syncState, setSyncState] = useState<SyncStatus>({ status: "idle" });
+  // "+ property" lives on the property strip (tabs row) — see below.
+  const [addingProperty, setAddingProperty] = useState(false);
   // The app-voiced replacement for window.confirm — any component requests
   // one via the store; this is the single render site (see ConfirmDialog).
   const confirm = useStore((s) => s.pendingConfirm);
@@ -1111,11 +1114,14 @@ export default function App() {
             </div>
           ) : (
             <div className={`h-full overflow-y-auto px-5 ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
-              {/* §9 (2026-07-21): the collection's two modes — "All
-                  objects" (normal masonry) and "Organize by" (editorial
-                  landing page, one chapter per value). Quiet mono tabs,
-                  content not chrome — they scroll away with the page. */}
-              {view.kind === "collection" && activeRole && organizeFields.length > 0 && (
+              {/* §9 (2026-07-21) + property strip (same day's follow-up):
+                  ONE row answers both "how can I read this collection?"
+                  (All objects / By <property> tabs) and "what properties
+                  does it already have?" — the tabs ARE the property list,
+                  and "+ property" sits at the strip's far right, Notion-
+                  fashion but in this app's quiet register. Content, not
+                  chrome — it scrolls away with the page. */}
+              {view.kind === "collection" && activeRole && (
                 <div className="pb-4 flex items-center gap-3 font-mono text-[11px]">
                   <button
                     onClick={() => state.setOrganizeBy(null)}
@@ -1143,6 +1149,25 @@ export default function App() {
                       By {f.name}
                     </button>
                   ))}
+                  <span className="flex-1" />
+                  <div className="relative">
+                    <button
+                      onClick={() => setAddingProperty((v) => !v)}
+                      className="text-muted/60 hover:text-ink transition-colors uppercase tracking-[0.12em] text-[10px]"
+                      title={`Organize ${activeRole.name} by another property`}
+                    >
+                      + property
+                    </button>
+                    {addingProperty && (
+                      <div className="absolute right-0 top-6 z-40 w-[340px]">
+                        <AddPropertyPopover
+                          roleName={activeRole.name}
+                          objects={roleObjects}
+                          onClose={() => setAddingProperty(false)}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               {organizeField && activeRole ? (

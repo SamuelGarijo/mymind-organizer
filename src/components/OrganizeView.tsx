@@ -140,45 +140,49 @@ export function OrganizeView({
 
   return (
     <div className="flex gap-1">
-      {/* Chapter rail (§10): a narrow vertical index, quiet at rest (ticks),
-          names on hover of the rail, current chapter marked. Sticky inside
-          the page's own scroll — chrome that lives WITH the content, not a
-          resident global band. */}
+      {/* Chapter rail (§10): a narrow vertical index, quiet at rest
+          (ticks), names on hover, current chapter marked. The nav's LAYOUT
+          box never changes width — the expanding list is an inner surface
+          that overflows OVER the cards like a hover menu (Samuel,
+          2026-07-21: the index must be an overlay, never displace the
+          objects), picking up a panel background for legibility. */}
       <nav
-        className="group/rail sticky top-2 self-start shrink-0 w-4 hover:w-44 transition-[width] duration-200 overflow-hidden z-10"
+        className="group/rail sticky top-2 self-start shrink-0 w-4 z-20"
         aria-label={`${field.name} chapters`}
       >
-        <div className="flex flex-col gap-1 py-1">
-          {sections.map((section) => {
-            const active = current === section.label;
-            return (
-              <button
-                key={section.label}
-                onClick={() => jumpTo(section.label)}
-                className={[
-                  "flex items-center gap-2 text-left",
-                  section.parent ? "pl-3" : "",
-                ].join(" ")}
-                title={`${section.label} · ${section.objects.length}`}
-              >
-                <span
+        <div className="w-4 group-hover/rail:w-48 overflow-hidden transition-[width] duration-200 rounded-xl group-hover/rail:bg-panel/95 group-hover/rail:shadow-cardHover group-hover/rail:backdrop-blur">
+          <div className="flex flex-col gap-1 py-1 group-hover/rail:p-2">
+            {sections.map((section) => {
+              const active = current === section.label;
+              return (
+                <button
+                  key={section.label}
+                  onClick={() => jumpTo(section.label)}
                   className={[
-                    "shrink-0 rounded-full transition-all",
-                    active ? "w-3 h-0.5 bg-ink" : "w-2 h-px bg-line",
+                    "flex items-center gap-2 text-left",
+                    section.parent ? "pl-3" : "",
                   ].join(" ")}
-                />
-                <span
-                  className={[
-                    "font-mono text-[10px] truncate opacity-0 group-hover/rail:opacity-100 transition-opacity",
-                    active ? "text-ink" : "text-muted",
-                    section.label === LABEL_NOT_CLASSIFIED ? "italic" : "",
-                  ].join(" ")}
+                  title={`${section.label} · ${section.objects.length}`}
                 >
-                  {section.label} <span className="text-muted/60">{section.objects.length}</span>
-                </span>
-              </button>
-            );
-          })}
+                  <span
+                    className={[
+                      "shrink-0 rounded-full transition-all",
+                      active ? "w-3 h-0.5 bg-ink" : "w-2 h-px bg-line",
+                    ].join(" ")}
+                  />
+                  <span
+                    className={[
+                      "font-mono text-[10px] truncate opacity-0 group-hover/rail:opacity-100 transition-opacity",
+                      active ? "text-ink" : "text-muted",
+                      section.label === LABEL_NOT_CLASSIFIED ? "italic" : "",
+                    ].join(" ")}
+                  >
+                    {section.label} <span className="text-muted/60">{section.objects.length}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </nav>
 
