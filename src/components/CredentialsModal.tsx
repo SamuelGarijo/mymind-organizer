@@ -73,7 +73,7 @@ export function CredentialsModal({
         </p>
 
         {health?.credentialsConfigured && (
-          <p className="text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 mb-3">
+          <p className="text-[12px] text-ok bg-ok/10 border border-ok/30 rounded-lg px-2.5 py-1.5 mb-3">
             Currently connected with key <code>{health.kid}</code>. Paste a different key below to
             replace it — e.g. a Read only key from mymind's Extensions page, if you'd rather this
             app not be able to write anything.
@@ -98,7 +98,7 @@ export function CredentialsModal({
           />
         </div>
 
-        {error && <p className="text-[12px] text-red-700 mt-2">{error}</p>}
+        {error && <p className="text-[12px] text-danger mt-2">{error}</p>}
 
         <div className="mt-4 flex justify-end gap-2">
           {dismissible && (

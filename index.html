@@ -12,6 +12,28 @@
       href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
       rel="stylesheet"
     />
+    <!--
+      Runs before first paint so a dark-mode launch never flashes white.
+      The real preference lives in the persisted store, but that's
+      IndexedDB and async — it rehydrates after the page has painted. This
+      reads a synchronous localStorage mirror of the same choice; if it's
+      absent or says "system", the OS decides.
+    -->
+    <script>
+      (function () {
+        try {
+          var choice = localStorage.getItem("organizer-theme") || "system";
+          var dark =
+            choice === "dark" ||
+            (choice === "system" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

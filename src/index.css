@@ -2,6 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Light and dark, as one set of variables (Samuel, 2026-07-21).
+ *
+ * Channels, not hex, so Tailwind's slash-opacity survives — `text-ink/70`
+ * and `bg-accent/5` are everywhere in this codebase.
+ *
+ * There is deliberately NO `prefers-color-scheme` media query here. "Follow
+ * the system" is resolved in JS and written to `data-theme` like any other
+ * choice, so exactly one mechanism decides the theme. A media query
+ * alongside an explicit attribute means two, and the day they disagree is
+ * the day the toggle appears to do nothing.
+ */
+:root,
+:root[data-theme="light"] {
+  --color-canvas: 244 243 240;
+  --color-panel: 255 255 255;
+  --color-ink: 28 28 28;
+  --color-muted: 138 138 133;
+  --color-line: 231 229 224;
+  --color-accent: 106 92 255;
+  --color-ok: 4 120 87;
+  --color-danger: 185 28 28;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.05);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.06), 0 10px 24px rgba(0, 0, 0, 0.09);
+  color-scheme: light;
+}
+
+/*
+ * Warm near-black, not pure #000. The light theme is a warm paper grey and
+ * the dark one is its own negative — a cold black under these warm greys
+ * would read as a different product. Ink stays slightly off-white for the
+ * same reason contrast guidance suggests: full white on near-black is
+ * where long reading starts to buzz, and this is an archive for looking at
+ * things for a long time.
+ *
+ * The accent lifts (106,92,255 → 143,132,255): the light-mode violet is
+ * legible on paper and muddy on charcoal.
+ */
+:root[data-theme="dark"] {
+  --color-canvas: 19 19 18;
+  --color-panel: 28 28 27;
+  --color-ink: 236 234 229;
+  --color-muted: 133 131 124;
+  --color-line: 46 45 42;
+  --color-accent: 143 132 255;
+  --color-ok: 52 168 128;
+  --color-danger: 240 116 116;
+  /* Deeper and wider, because a black shadow on a dark canvas does nothing
+     — the lift that separates a card from the page has to come from a real
+     shadow, not a hint of one. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.35);
+  --shadow-card-hover: 0 2px 6px rgba(0, 0, 0, 0.5), 0 12px 28px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {

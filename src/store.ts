@@ -23,6 +23,7 @@ import type { FacetMode } from "./lib/quickFilter";
 import type { ColorFilter } from "./lib/colorSearch";
 import { createIdbStorage } from "./lib/idbStorage";
 import { LOCAL_ASSET_KEY, loadLocalAssetUrls } from "./lib/localAssets";
+import { applyTheme, type ThemeChoice } from "./lib/theme";
 import { loadEmbeddings, saveEmbeddings } from "./lib/embeddingsStorage";
 import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
 import { rankByHybridSimilarity, rankBySimilarityMode } from "./lib/hybridSimilarity";
@@ -134,6 +135,12 @@ type State = {
    * container-width-based column count (lib/masonry.ts's columnsForWidth),
    * not an absolute column count, so it still adapts as the window/sidebar
    * resizes. Positive = smaller cards (more columns), negative = bigger. */
+  /** Light, dark, or follow the OS. A comfort setting like gridZoom, so it
+   * persists — and it's the CHOICE that's stored, never the resolved value:
+   * saving "dark" because the laptop was dark at 9pm would strand a user
+   * who meant "follow the system". */
+  theme: ThemeChoice;
+  setTheme: (theme: ThemeChoice) => void;
   gridZoom: number;
 
   /** Masonry grid vs. virtualized table — same filtered/sorted dataset. */
@@ -722,6 +729,7 @@ type PersistedState = Pick<
   | "tagGroups"
   | "roles"
   | "lastBackupAt"
+  | "theme"
   | "viewMode"
   | "detailViewMode"
   | "deletedMymindIds"
@@ -842,6 +850,7 @@ export const useStore = create<State>()(
       typeFilter: "",
       roleFilter: "",
       groupBy: null,
+      theme: "system",
       gridZoom: 0,
       viewMode: "grid",
       detailViewMode: "side",
@@ -2054,6 +2063,13 @@ export const useStore = create<State>()(
       setTypeFilter: (type) => set({ typeFilter: type }),
       setRoleFilter: (role) => set({ roleFilter: role }),
       setGroupBy: (field) => set({ groupBy: field }),
+      setTheme: (theme) => {
+        // Applied here as well as in the effect that watches it: the
+        // attribute should flip on the same frame as the click, not after
+        // React has re-rendered a few thousand cards.
+        applyTheme(theme);
+        set({ theme });
+      },
       setGridZoom: (zoom) => set({ gridZoom: Math.max(-2, Math.min(3, zoom)) }),
       setViewMode: (mode) => set({ viewMode: mode }),
       setDetailViewMode: (mode) => set({ detailViewMode: mode }),
@@ -2402,6 +2418,7 @@ export const useStore = create<State>()(
         tagGroups: state.tagGroups,
         roles: state.roles,
         lastBackupAt: state.lastBackupAt,
+        theme: state.theme,
         viewMode: state.viewMode,
         detailViewMode: state.detailViewMode,
         deletedMymindIds: state.deletedMymindIds,
@@ -2426,6 +2443,12 @@ export const useStore = create<State>()(
       // writes (see its stripEmbeddings replacer) — merge them back in from
       // their own separate store once this rehydration finishes.
       onRehydrateStorage: () => () => {
+        // Before anything else: the persisted theme. index.html already
+        // applies a first guess pre-paint, but that guess can only read the
+        // OS — this is where an explicit light/dark the user chose last
+        // session actually takes effect.
+        if (storeApi) applyTheme(storeApi.getState().theme);
+
         // Object URLs die with the session, so every locally imported
         // asset gets a fresh one here from the bytes in IndexedDB. The
         // imageUrl that was persisted alongside the object is a dead

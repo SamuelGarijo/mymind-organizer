@@ -1321,7 +1321,7 @@ export function DetailPanel({
                     removeTag(activeTag);
                     setActiveTag(null);
                   }}
-                  className="shrink-0 text-red-700/80 hover:text-red-700"
+                  className="shrink-0 text-danger/80 hover:text-danger"
                   title="Remove this tag from the item (local only — never deleted in mymind)"
                 >
                   Remove
@@ -1532,11 +1532,11 @@ export function DetailPanel({
           )}
 
           {tagPushError && (
-            <div className="flex items-start justify-between gap-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+            <div className="flex items-start justify-between gap-2 text-[12px] text-danger bg-danger/10 border border-danger/30 rounded-lg px-2.5 py-1.5">
               <span>{tagPushError}</span>
               <button
                 onClick={() => setTagPushError(null)}
-                className="text-red-700/60 hover:text-red-700 shrink-0"
+                className="text-danger/60 hover:text-danger shrink-0"
                 aria-label="Dismiss"
               >
                 ×
@@ -1545,11 +1545,11 @@ export function DetailPanel({
           )}
 
           {notePushError && (
-            <div className="flex items-start justify-between gap-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+            <div className="flex items-start justify-between gap-2 text-[12px] text-danger bg-danger/10 border border-danger/30 rounded-lg px-2.5 py-1.5">
               <span>{notePushError}</span>
               <button
                 onClick={() => setNotePushError(null)}
-                className="text-red-700/60 hover:text-red-700 shrink-0"
+                className="text-danger/60 hover:text-danger shrink-0"
                 aria-label="Dismiss"
               >
                 ×
@@ -1558,11 +1558,11 @@ export function DetailPanel({
           )}
 
           {contentPushError && (
-            <div className="flex items-start justify-between gap-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+            <div className="flex items-start justify-between gap-2 text-[12px] text-danger bg-danger/10 border border-danger/30 rounded-lg px-2.5 py-1.5">
               <span>{contentPushError}</span>
               <button
                 onClick={() => setContentPushError(null)}
-                className="text-red-700/60 hover:text-red-700 shrink-0"
+                className="text-danger/60 hover:text-danger shrink-0"
                 aria-label="Dismiss"
               >
                 ×
@@ -1788,7 +1788,7 @@ export function DetailPanel({
           <div className="pt-3 border-t border-line">
             <button
               onClick={handleDelete}
-              className="w-full text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50"
+              className="w-full text-sm px-3 py-1.5 rounded-lg border border-danger/30 text-danger hover:bg-danger/10"
               title={
                 object.source === "mymind"
                   ? "Removes it from The Organizer only — mymind is untouched, we never delete there"

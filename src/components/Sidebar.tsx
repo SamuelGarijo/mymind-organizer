@@ -170,7 +170,7 @@ function RowMenu({ label, actions }: { label: string; actions: RowAction[] }) {
                   }}
                   className={[
                     "w-full text-left px-2.5 py-1.5 rounded-lg font-mono text-[12px] hover:bg-line/30",
-                    a.danger ? "text-red-700/80 hover:text-red-700" : "text-ink/85",
+                    a.danger ? "text-danger/80 hover:text-danger" : "text-ink/85",
                   ].join(" ")}
                 >
                   {a.label}

@@ -72,7 +72,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
 
           {this.state.exportError && (
-            <p className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+            <p className="text-[12px] text-danger bg-danger/10 border border-danger/30 rounded-lg px-2.5 py-1.5">
               {this.state.exportError}
             </p>
           )}

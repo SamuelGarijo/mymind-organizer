@@ -331,7 +331,7 @@ export function DiscoveryStrip({
             {arenaLoading ? (
               <p className="font-mono text-[11px] text-muted/70">searching are.na…</p>
             ) : arenaError ? (
-              <p className="font-mono text-[11px] text-red-700">{arenaError}</p>
+              <p className="font-mono text-[11px] text-danger">{arenaError}</p>
             ) : !arenaResults ? (
               <button
                 onClick={() => void runArenaSearch()}

@@ -698,7 +698,7 @@ export function TopBar({
                               toggleExcludeTag(tag);
                               closeMenu();
                             }}
-                            className="w-6 h-6 rounded-md font-mono text-[13px] text-muted hover:text-red-600 hover:bg-red-50"
+                            className="w-6 h-6 rounded-md font-mono text-[13px] text-muted hover:text-red-600 hover:bg-danger/10"
                             title="Exclude this tag"
                           >
                             −

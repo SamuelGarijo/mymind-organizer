@@ -8,6 +8,7 @@ import { Grid } from "./components/Grid";
 import { Table } from "./components/Table";
 import { DetailPanel } from "./components/DetailPanel";
 import { DetailCarousel } from "./components/DetailCarousel";
+import { applyTheme, THEME_LABELS, watchSystemTheme } from "./lib/theme";
 import { AddSomethingModal } from "./components/AddSomethingModal";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
@@ -445,6 +446,15 @@ export default function App() {
       setRestoreNotice(true);
     }
   }, []);
+
+  // Keeps the document in step with the choice, and — only while the choice
+  // is "system" — with the OS flipping at sunset. An explicit light or dark
+  // must never be overridden by the clock.
+  const theme = useStore((s) => s.theme);
+  useEffect(() => {
+    applyTheme(theme);
+    return watchSystemTheme(theme, () => applyTheme(theme));
+  }, [theme]);
 
   // Dropping files from the desktop anywhere in the window opens the door
   // holding them (Samuel, 2026-07-21). Guarded on the "Files" dataTransfer
@@ -964,6 +974,31 @@ export default function App() {
           </button>
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+            Appearance
+          </div>
+          <div className="flex gap-1">
+            {(["light", "dark", "system"] as const).map((choice) => (
+              <button
+                key={choice}
+                onClick={() => useStore.getState().setTheme(choice)}
+                className={[
+                  "flex-1 px-2.5 py-1.5 rounded border font-mono text-[12px] transition-colors",
+                  theme === choice
+                    ? "border-accent/50 bg-accent/5 text-ink"
+                    : "border-line text-muted hover:text-ink hover:bg-line/40",
+                ].join(" ")}
+                title={
+                  choice === "system"
+                    ? "Follows your operating system, including when it changes at sunset"
+                    : `Always ${choice}`
+                }
+              >
+                {THEME_LABELS[choice]}
+              </button>
+            ))}
+          </div>
+
+          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
             Detail view
           </div>
           <p className="text-[11px] text-muted mb-1.5">
@@ -1005,7 +1040,7 @@ export default function App() {
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">Are.na</div>
           {arenaConfigured ? (
-            <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5 mb-1.5 flex items-center justify-between gap-2">
+            <div className="text-[11px] text-ok bg-ok/10 border border-ok/30 rounded px-2.5 py-1.5 mb-1.5 flex items-center justify-between gap-2">
               <span className="truncate">
                 Connected
                 {arenaAccount ? (
@@ -1019,7 +1054,7 @@ export default function App() {
               </span>
               <button
                 onClick={disconnectArena}
-                className="shrink-0 text-emerald-800/70 hover:text-emerald-900 underline decoration-dotted"
+                className="shrink-0 text-ok/70 hover:text-ok underline decoration-dotted"
                 title="Remove the Are.na token from this machine"
               >
                 disconnect
@@ -1049,20 +1084,20 @@ export default function App() {
               {arenaSaving ? "…" : "Save"}
             </button>
           </div>
-          {arenaError && <p className="text-[11px] text-red-700 mt-1">{arenaError}</p>}
+          {arenaError && <p className="text-[11px] text-danger mt-1">{arenaError}</p>}
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
             Classifier
           </div>
           {geminiConfigured ? (
-            <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5 mb-1.5 flex items-center justify-between gap-2">
+            <div className="text-[11px] text-ok bg-ok/10 border border-ok/30 rounded px-2.5 py-1.5 mb-1.5 flex items-center justify-between gap-2">
               <span className="truncate">Gemini key saved</span>
               <button
                 onClick={async () => {
                   await fetch("/api/setup/gemini-disconnect", { method: "POST" });
                   setGeminiConfigured(false);
                 }}
-                className="shrink-0 text-emerald-800/70 hover:text-emerald-900 underline decoration-dotted"
+                className="shrink-0 text-ok/70 hover:text-ok underline decoration-dotted"
                 title="Remove the Gemini key from this machine"
               >
                 disconnect
@@ -1110,7 +1145,7 @@ export default function App() {
               {geminiSaving ? "…" : "Save"}
             </button>
           </div>
-          {geminiError && <p className="text-[11px] text-red-700 mt-1">{geminiError}</p>}
+          {geminiError && <p className="text-[11px] text-danger mt-1">{geminiError}</p>}
           {/* Where, in plain words. The feature was invisible not because it
               was hidden but because nothing ever said it existed. */}
           <ul className="text-[11px] text-muted mt-2 space-y-1.5">
@@ -1578,11 +1613,11 @@ export default function App() {
           </motion.div>
         )}
         {restoreNotice && (
-          <motion.div key="restore" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
+          <motion.div key="restore" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-ok/30 bg-ok/10 shadow-cardHover px-3.5 py-2.5 text-[12px] text-ok flex items-start justify-between gap-3">
             <span>Your data is back and ready to use!</span>
             <button
               onClick={() => setRestoreNotice(false)}
-              className="text-emerald-800/60 hover:text-emerald-800 shrink-0"
+              className="text-ok/60 hover:text-ok shrink-0"
               aria-label="Dismiss"
             >
               ×
@@ -1590,7 +1625,7 @@ export default function App() {
           </motion.div>
         )}
         {syncState.status === "error" && (
-          <motion.div key="sync-error" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-red-200 bg-red-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-red-800 flex items-start justify-between gap-3">
+          <motion.div key="sync-error" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-danger/30 bg-danger/10 shadow-cardHover px-3.5 py-2.5 text-[12px] text-red-800 flex items-start justify-between gap-3">
             <span>{syncState.message}</span>
             <button
               onClick={() => setSyncState({ status: "idle" })}
@@ -1602,7 +1637,7 @@ export default function App() {
           </motion.div>
         )}
         {syncState.status === "done" && (
-          <motion.div key="sync-done" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-emerald-200 bg-emerald-50 shadow-cardHover px-3.5 py-2.5 text-[12px] text-emerald-800 flex items-start justify-between gap-3">
+          <motion.div key="sync-done" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded-lg border border-ok/30 bg-ok/10 shadow-cardHover px-3.5 py-2.5 text-[12px] text-ok flex items-start justify-between gap-3">
             <span>
               {syncState.count === 0
                 ? "Already up to date — no new or changed items."
@@ -1616,7 +1651,7 @@ export default function App() {
             </span>
             <button
               onClick={() => setSyncState({ status: "idle" })}
-              className="text-emerald-800/60 hover:text-emerald-800 shrink-0"
+              className="text-ok/60 hover:text-ok shrink-0"
               aria-label="Dismiss"
             >
               ×

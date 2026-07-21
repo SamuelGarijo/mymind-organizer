@@ -152,7 +152,7 @@ export function ArenaExportModal({
           {account === undefined ? (
             <span className="text-muted">checking Are.na account…</span>
           ) : account === null ? (
-            <span className="text-red-700">
+            <span className="text-danger">
               Not connected — add an Are.na token in Preferences first.
             </span>
           ) : (
@@ -235,7 +235,7 @@ export function ArenaExportModal({
                 />
                 <div className="max-h-44 overflow-y-auto flex flex-col gap-0.5">
                   {channelsError ? (
-                    <p className="text-[11px] text-red-700 px-1 py-2">{channelsError}</p>
+                    <p className="text-[11px] text-danger px-1 py-2">{channelsError}</p>
                   ) : channels === null ? (
                     <p className="text-[11px] text-muted px-1 py-2 font-mono">loading channels…</p>
                   ) : filteredChannels.length === 0 ? (
@@ -282,7 +282,7 @@ export function ArenaExportModal({
               )}
             </div>
 
-            {error && <p className="text-[12px] text-red-700 mt-2">{error}</p>}
+            {error && <p className="text-[12px] text-danger mt-2">{error}</p>}
 
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={onClose} className="text-sm px-3 py-1.5 rounded hover:bg-line/40 text-ink/70">
@@ -325,7 +325,7 @@ export function ArenaExportModal({
             {(skippedResults.length > 0 || failedResults.length > 0) && (
               <div className="max-h-28 overflow-y-auto mb-2 rounded border border-line/60 p-2 font-mono text-[10px] space-y-0.5">
                 {failedResults.map((r) => (
-                  <div key={r.objectId} className="text-red-700 truncate">
+                  <div key={r.objectId} className="text-danger truncate">
                     ✗ {r.title}: {r.reason}
                   </div>
                 ))}
