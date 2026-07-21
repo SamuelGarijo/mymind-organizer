@@ -188,28 +188,16 @@ export function CollectionLedger({
               {roleFilter === "" ? "● " : ""}everything{" "}
               <span className="text-muted/60">{objects.length}</span>
             </button>
-            {roleOptions.map((role) => {
-              const active = roleFilter !== "" && norm(role.name) === norm(roleFilter);
-              return (
-                <button
-                  key={role.name}
-                  onClick={() => state.setRoleFilter(roleFilter === role.name ? "" : role.name)}
-                  className={[
-                    "text-left font-mono text-[12px] leading-5 hover:underline decoration-dotted underline-offset-2",
-                    active ? "text-ink" : "text-muted hover:text-ink",
-                  ].join(" ")}
-                  title={
-                    active
-                      ? "Showing only these — click to see everything again"
-                      : `Show only the ${roleWord(role.name)}`
-                  }
-                >
-                  {active ? "● " : ""}
-                  {roleWord(role.name)}{" "}
-                  <span className="text-muted/60">{roleCounts.get(norm(role.name)) ?? 0}</span>
-                </button>
-              );
-            })}
+            {roleOptions.map((role) => (
+              <RoleRow
+                key={role.name}
+                role={role}
+                count={roleCounts.get(norm(role.name)) ?? 0}
+                active={roleFilter !== "" && norm(role.name) === norm(roleFilter)}
+                siblings={roleOptions}
+                onToggle={() => state.setRoleFilter(roleFilter === role.name ? "" : role.name)}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -313,6 +301,139 @@ export function CollectionLedger({
           All-objects / By-X tabs row, 2026-07-21): the existing properties
           and the gesture to add one now live in ONE place, so it's always
           clear what the collection already has. */}
+    </div>
+  );
+}
+
+/**
+ * One line of "Here you can find" — and the place a wrong kind gets fixed
+ * (Samuel, 2026-07-21, looking at his own list: "german is not a role, it's
+ * a property (nationality) within a role, eg artist. I want to be able of
+ * deleting these typologies").
+ *
+ * He's right twice. German, european, urban, residential, storefront and
+ * typography are all attributes that became species, because entity type
+ * was for a long time the only bucket the system could auto-create, so
+ * every homeless word landed there. And `demoteRoleToValue` — which does
+ * exactly the right thing, moving the word into a property and the objects
+ * into a real kind — has existed for days with no way to reach it. Built
+ * and unreachable is the same as not built.
+ *
+ * So the repair lives on the row that shows the mistake, hover-summoned,
+ * and it is phrased as his sentence rather than as an operation: german is
+ * a NATIONALITY of an ARTIST. Nothing is deleted — the word survives as a
+ * value, the objects keep a kind, and one ⌘Z puts it all back.
+ */
+function RoleRow({
+  role,
+  count,
+  active,
+  siblings,
+  onToggle,
+}: {
+  role: RoleDefinition;
+  count: number;
+  active: boolean;
+  siblings: RoleDefinition[];
+  onToggle: () => void;
+}) {
+  const [fixing, setFixing] = useState(false);
+  const [property, setProperty] = useState("");
+  // The biggest other kind is the likeliest home, and pre-filling it means
+  // the common case is two words and Enter.
+  const [host, setHost] = useState(() => siblings.find((r) => r.name !== role.name)?.name ?? "");
+
+  function apply() {
+    const field = property.trim();
+    if (!field) return;
+    useStore.getState().demoteRoleToValue(role.name, field, host.trim() || null);
+    useStore
+      .getState()
+      .setFlashNotice(
+        `"${role.name}" is now a ${field}${host.trim() ? ` of ${roleWord(host)}` : ""}, on ${count} item${count > 1 ? "s" : ""}. ⌘Z undoes it.`
+      );
+    setFixing(false);
+  }
+
+  if (fixing) {
+    return (
+      <div className="font-mono text-[12px] leading-5 flex flex-wrap items-baseline gap-1">
+        <span className="text-ink">{roleWord(role.name)}</span>
+        <span className="text-muted/70">is a</span>
+        <input
+          autoFocus
+          value={property}
+          onChange={(e) => setProperty(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter/Escape are spoken for globally (Enter opens the focused
+            // card), and without this the keystroke that should commit the
+            // repair opens something instead. Caught live, 2026-07-21.
+            if (e.key === "Enter" || e.key === "Escape") e.stopPropagation();
+            if (e.key === "Enter") apply();
+            if (e.key === "Escape") setFixing(false);
+          }}
+          placeholder="nationality"
+          className="w-24 bg-transparent border-b border-line focus:border-accent outline-none"
+        />
+        <span className="text-muted/70">of</span>
+        <input
+          list="ledger-kinds"
+          value={host}
+          onChange={(e) => setHost(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter/Escape are spoken for globally (Enter opens the focused
+            // card), and without this the keystroke that should commit the
+            // repair opens something instead. Caught live, 2026-07-21.
+            if (e.key === "Enter" || e.key === "Escape") e.stopPropagation();
+            if (e.key === "Enter") apply();
+            if (e.key === "Escape") setFixing(false);
+          }}
+          placeholder="artist"
+          className="w-24 bg-transparent border-b border-line focus:border-accent outline-none"
+        />
+        <datalist id="ledger-kinds">
+          {siblings.map((r) => (
+            <option key={r.name} value={r.name} />
+          ))}
+        </datalist>
+        <button
+          onClick={apply}
+          disabled={!property.trim()}
+          className="text-accent/85 hover:text-accent disabled:opacity-40"
+        >
+          ok
+        </button>
+        <button onClick={() => setFixing(false)} className="text-muted/60 hover:text-muted">
+          esc
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group/role font-mono text-[12px] leading-5 flex items-baseline gap-1.5">
+      <button
+        onClick={onToggle}
+        className={[
+          "text-left hover:underline decoration-dotted underline-offset-2",
+          active ? "text-ink" : "text-muted hover:text-ink",
+        ].join(" ")}
+        title={
+          active ? "Showing only these — click to see everything again" : `Show only the ${roleWord(role.name)}`
+        }
+      >
+        {active ? "● " : ""}
+        {roleWord(role.name)} <span className="text-muted/60">{count}</span>
+      </button>
+      {/* Summoned by attention, gone with it — a standing "fix" on every row
+          would turn a quiet index into a control panel. */}
+      <button
+        onClick={() => setFixing(true)}
+        className="opacity-0 group-hover/role:opacity-100 transition-opacity text-muted/50 hover:text-accent text-[10px]"
+        title={`"${roleWord(role.name)}" isn't a kind of thing? Turn it into a property of something that is. Nothing is lost.`}
+      >
+        not a kind
+      </button>
     </div>
   );
 }

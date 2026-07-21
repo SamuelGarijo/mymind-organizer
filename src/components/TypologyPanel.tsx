@@ -141,17 +141,21 @@ export function TypologyPanel({
 
   const optionClass = (v: typeof meaning) =>
     [
-      "w-full text-left px-2.5 py-2 rounded-lg border transition-colors",
-      meaning === v ? "border-accent/50 bg-accent/5" : "border-line/70 hover:bg-line/25",
+      "px-2 py-0.5 rounded-md font-mono text-[11px] transition-colors",
+      meaning === v ? "bg-ink text-white" : "text-muted hover:text-ink hover:bg-line/40",
     ].join(" ");
 
   return (
-    <div className="mt-3 rounded-xl border border-line/70 bg-canvas/50 p-3">
-      <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-2">
-        What is this collection?
-      </div>
-
-      <div className="space-y-1">
+    // One line at rest, not three cards (Samuel, 2026-07-21: "this is
+    // overcomplicated"). The question is worth asking; three paragraphs of
+    // explanation for a question with three one-word answers was not. Each
+    // answer explains itself only once chosen, and "just a selection" —
+    // the default and the common case — has nothing to explain at all.
+    <div className="mt-3">
+      <div className="flex flex-wrap items-baseline gap-1.5">
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+          This is
+        </span>
         <button
           onClick={() => {
             setMeaning("selection");
@@ -159,12 +163,8 @@ export function TypologyPanel({
           }}
           className={optionClass("selection")}
         >
-          <span className="block text-[12px] text-ink">Just a selection</span>
-          <span className="block font-mono text-[10px] text-muted">
-            Things I put together. Changes nothing about them.
-          </span>
+          a selection
         </button>
-
         <button
           onClick={() => {
             setMeaning("quality");
@@ -172,20 +172,8 @@ export function TypologyPanel({
           }}
           className={optionClass("quality")}
         >
-          <span className="block text-[12px] text-ink">
-            Something they share
-            {presentKinds.length > 0 && (
-              <span className="font-mono text-[10px] text-muted">
-                {" "}
-                · they stay {presentKinds.map((k) => k.name.toLowerCase()).join(" / ")}
-              </span>
-            )}
-          </span>
-          <span className="block font-mono text-[10px] text-muted">
-            A movement, a style, a theme — becomes a property they carry, not a species they are.
-          </span>
+          something they share
         </button>
-
         <button
           onClick={() => {
             setMeaning("type");
@@ -193,50 +181,48 @@ export function TypologyPanel({
           }}
           className={optionClass("type")}
         >
-          <span className="block text-[12px] text-ink">A kind of thing</span>
-          <span className="block font-mono text-[10px] text-muted">
-            Typeface, photograph, book. Rarer than it sounds — only if these things ARE this.
-          </span>
+          a kind of thing
         </button>
       </div>
 
       {meaning === "quality" && (
-        <div className="mt-3 space-y-2">
-          <div className="flex gap-1.5">
-            <input
-              list="quality-properties"
-              value={qualityProperty}
-              onChange={(e) => {
-                setQualityProperty(e.target.value);
-                publish("quality", label, selected, aiFields, e.target.value);
-              }}
-              placeholder="Property…"
-              className="w-36 shrink-0 rounded-lg border border-line px-2.5 py-1.5 font-mono text-[12px] outline-none focus:border-accent"
-            />
-            <datalist id="quality-properties">
-              {QUALITY_PROPERTIES.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-            <input
-              value={nameDraft || collectionName}
-              onChange={(e) => {
-                setNameDraft(e.target.value);
-                publish("quality", e.target.value);
-              }}
-              placeholder="Value…"
-              className="flex-1 min-w-0 rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
-            />
-          </div>
-          <p className="font-mono text-[10px] text-muted leading-relaxed">
-            {members.length.toLocaleString()} items get {qualityProperty || "that property"}:{" "}
-            {label || "…"}. Added, never replacing — a thing can belong to several.
-          </p>
+        <div className="mt-2 flex flex-wrap items-baseline gap-1.5 font-mono text-[12px]">
+          <span className="text-muted/70">they all share the</span>
+          <input
+            list="quality-properties"
+            value={qualityProperty}
+            onChange={(e) => {
+              setQualityProperty(e.target.value);
+              publish("quality", label, selected, aiFields, e.target.value);
+            }}
+            placeholder="movement"
+            className="w-28 bg-transparent border-b border-line focus:border-accent outline-none"
+          />
+          <datalist id="quality-properties">
+            {QUALITY_PROPERTIES.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
+          <input
+            value={nameDraft || collectionName}
+            onChange={(e) => {
+              setNameDraft(e.target.value);
+              publish("quality", e.target.value);
+            }}
+            placeholder="value"
+            className="w-40 bg-transparent border-b border-line focus:border-accent outline-none"
+          />
+          <span className="text-[10px] text-muted/60">
+            {members.length.toLocaleString()} items · they stay{" "}
+            {presentKinds.length > 0
+              ? presentKinds.map((k) => k.name.toLowerCase()).join(" / ")
+              : "what they are"}
+          </span>
         </div>
       )}
 
       {meaning === "type" && (
-        <div className="mt-3 space-y-2.5">
+        <div className="mt-2 space-y-2">
           <input
             value={nameDraft || proposal.name}
             onChange={(e) => {
