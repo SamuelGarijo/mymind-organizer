@@ -7,7 +7,17 @@ import { UNGROUPED_LABEL } from "../lib/grouping";
 import { norm } from "../lib/textNorm";
 import { asFieldString } from "../lib/mymindSync";
 import { DRAG_MIME, objectDragProps } from "../lib/objectDrag";
+import {
+  AUTO_APPLY_CONFIDENCE,
+  ClassifierUnavailable,
+  classifierProvider,
+} from "../lib/fieldExtraction";
+import { AskGemini } from "./AskGemini";
 import type { DesignObject, RoleDefinition } from "../types";
+
+/** Same ceiling the ledger uses — one round is at most four batches, so a
+ * wrong taxonomy is caught cheaply instead of billed across an archive. */
+const CLASSIFY_LIMIT = 100;
 
 /** Roles / mymind types that read as *text* — the cross-category bridge:
  * when a collection's things are images, related reading links out to the
@@ -146,6 +156,56 @@ export function ClassifyPanel({
   const [draftFolders, setDraftFolders] = useState<string[]>([]);
   const [draftName, setDraftName] = useState("");
   useEffect(() => setDraftFolders([]), [fieldName, activeRole.name]);
+
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  useEffect(() => setAskError(null), [fieldName, activeRole.name]);
+
+  /** The pile this drawer exists to empty — and the classifier only ever
+   * touches it, never anything already answered. */
+  const unclassified = useMemo(
+    () =>
+      roleObjects.filter((o) => {
+        const v = o.fields[fieldName];
+        return Array.isArray(v) ? v.length === 0 : !v;
+      }),
+    [roleObjects, fieldName]
+  );
+
+  async function askClassifier() {
+    if (!activeField) return;
+    const batch = unclassified.slice(0, CLASSIFY_LIMIT);
+    useStore.getState().requestConfirm({
+      title: `Have ${fieldName} read?`,
+      body: `${batch.length} item${batch.length > 1 ? "s" : ""} with no ${fieldName} yet. Their titles, tags and summaries go to Gemini, which answers with one of ${fieldName}'s own categories — it can't invent new ones. Confident answers are applied, the rest are left for you. One ⌘Z undoes all of it.`,
+      action: "Read them",
+      onConfirm: async () => {
+        setAsking(true);
+        setAskError(null);
+        try {
+          const proposals =
+            (await classifierProvider.proposeAsync?.(batch, fieldName, { field: activeField })) ??
+            [];
+          if (proposals.length === 0) {
+            setAskError("nothing it could defend");
+            return;
+          }
+          const state = useStore.getState();
+          state.applyProposals(proposals);
+          const sure = proposals.filter((p) => p.confidence >= AUTO_APPLY_CONFIDENCE).length;
+          state.setFlashNotice(
+            `${fieldName}: ${proposals.length} read, ${sure} confidently. Values it wasn't sure of stay marked as not yet yours.`
+          );
+        } catch (err) {
+          setAskError(
+            err instanceof ClassifierUnavailable ? "no key yet" : (err as Error).message || "failed"
+          );
+        } finally {
+          setAsking(false);
+        }
+      },
+    });
+  }
 
   const buckets = useMemo(
     () => (activeField ? orderedFacetBuckets(roleObjects, activeField) : []),
@@ -337,14 +397,34 @@ export function ClassifyPanel({
           </div>
         )}
         {reservoirCount > 0 && (
-          <button
-            onClick={() => onFilterValue(UNCLASSIFIED_VALUE)}
-            className="mt-1.5 font-mono text-[10px] text-muted/80 hover:text-ink hover:underline decoration-dotted underline-offset-2 text-left"
-            title={`Show only the objects with no ${fieldName} yet`}
-          >
-            {reservoirCount.toLocaleString()} not yet classified by {fieldName} — drag them in, or
-            click to see them
-          </button>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <button
+              onClick={() => onFilterValue(UNCLASSIFIED_VALUE)}
+              className="font-mono text-[10px] text-muted/80 hover:text-ink hover:underline decoration-dotted underline-offset-2 text-left"
+              title={`Show only the objects with no ${fieldName} yet`}
+            >
+              {reservoirCount.toLocaleString()} not yet classified by {fieldName} — drag them in,
+              or click to see them
+            </button>
+            {/* The third and most obvious touchpoint (Samuel, 2026-07-21:
+             * "haz más obvios los puntos de contacto"), and the one that
+             * needed it most: this drawer is where classifying actually
+             * happens, staring at a pile that has to be dragged one by one.
+             * Offering the model right beside that count is the difference
+             * between a feature you own and a feature you remember exists.
+             *
+             * Same conditions as everywhere else: only with categories
+             * already declared, only on the unclassified, never automatic. */}
+            {unclassified.length > 0 && (activeField?.options ?? []).length >= 2 && (
+              <AskGemini
+                label={`ask about ${Math.min(unclassified.length, CLASSIFY_LIMIT)}`}
+                busy={asking}
+                onAsk={askClassifier}
+                detail={`Looks at ${Math.min(unclassified.length, CLASSIFY_LIMIT)} of them one by one and picks from ${fieldName}'s own categories, using`}
+              />
+            )}
+            {askError && <span className="font-mono text-[10px] text-muted/70">{askError}</span>}
+          </div>
         )}
       </div>
 

@@ -12,6 +12,7 @@ import {
 import { addMymindTag } from "../lib/mymindWrite";
 import { norm } from "../lib/textNorm";
 import { DRAG_MIME } from "../lib/objectDrag";
+import { AskGemini } from "./AskGemini";
 import {
   AUTO_APPLY_CONFIDENCE,
   ClassifierUnavailable,
@@ -612,14 +613,12 @@ function FillRow({
       {unreachable.length > 0 && (
         <>
           {" · "}
-          <button
-            onClick={askClassifier}
-            disabled={asking}
-            className="text-accent/80 hover:text-accent hover:underline decoration-dotted underline-offset-2 disabled:opacity-50"
-            title={`Look at ${unreachable.length} item${unreachable.length > 1 ? "s" : ""} one by one and choose from ${field.name}'s own categories. Costs a request per batch of 25 — nothing else here does.`}
-          >
-            {asking ? "reading…" : `ask about ${unreachable.length}`}
-          </button>
+          <AskGemini
+            label={`ask about ${unreachable.length}`}
+            busy={asking}
+            onAsk={askClassifier}
+            detail={`Looks at ${unreachable.length} item${unreachable.length > 1 ? "s" : ""} one by one and picks from ${field.name}'s own categories, using`}
+          />
         </>
       )}
       {error && <span className="ml-1 text-muted/80">{error}</span>}

@@ -4,6 +4,7 @@ import { getKnownFields } from "../lib/fieldCatalog";
 import { proposeTypology, type TypologyProperty } from "../lib/collectionTypology";
 import { ClassifierUnavailable, suggestTaxonomy, toFacetFields } from "../lib/classifier";
 import { norm } from "../lib/textNorm";
+import { AskGemini } from "./AskGemini";
 import type { DesignObject, FacetField } from "../types";
 
 /**
@@ -338,14 +339,14 @@ export function TypologyPanel({
           </div>
 
           <div className="pt-1 border-t border-line/60">
-            <button
-              onClick={askClassifier}
-              disabled={asking}
-              className="font-mono text-[11px] text-accent/85 hover:text-accent hover:underline decoration-dotted underline-offset-2 disabled:opacity-50"
-              title="Reads only these items' words — one request, no images, no ids"
-            >
-              {asking ? "reading your words…" : "ask what else is worth knowing"}
-            </button>
+            <AskGemini
+              label="ask what else is worth knowing"
+              busy={asking}
+              busyLabel="reading your words…"
+              onAsk={askClassifier}
+              size="block"
+              detail="One request. Only these items' own tag words and titles go to"
+            />
             {aiError && (
               <p className="mt-1 font-mono text-[10px] text-muted leading-relaxed">{aiError}</p>
             )}

@@ -500,6 +500,13 @@ type State = {
   /** One-line ephemeral notice for interaction feedback (e.g. why a drop
    * was rejected) — rendered in App's toast stack, auto-dismissed there.
    * Transient UI state, never persisted. */
+  /** Whether a Gemini key is configured on the local proxy. Transient and
+   * never persisted — the key lives in .env and the browser only ever
+   * learns yes/no, from /api/health at startup. Lifted out of App's local
+   * state so the two touchpoints that offer the classifier can say "needs
+   * a key" instead of silently not appearing. */
+  geminiConfigured: boolean;
+  setGeminiConfigured: (configured: boolean) => void;
   flashNotice: string | null;
   setFlashNotice: (notice: string | null) => void;
 
@@ -1765,6 +1772,8 @@ export const useStore = create<State>()(
           };
         }),
 
+      geminiConfigured: false,
+      setGeminiConfigured: (configured) => set({ geminiConfigured: configured }),
       flashNotice: null,
       setFlashNotice: (notice) => set({ flashNotice: notice }),
 

@@ -367,7 +367,11 @@ export default function App() {
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const autoSyncedOnMount = useRef(false);
   const [arenaConfigured, setArenaConfigured] = useState(false);
-  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  // Mirrored into the store (not local state) so the classifier's two
+  // touchpoints can announce themselves as needing a key rather than
+  // vanishing — an invisible feature is an undiscoverable one.
+  const geminiConfigured = useStore((s) => s.geminiConfigured);
+  const setGeminiConfigured = useStore((s) => s.setGeminiConfigured);
   const [geminiKeyDraft, setGeminiKeyDraft] = useState("");
   const [geminiSaving, setGeminiSaving] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
@@ -1033,10 +1037,9 @@ export default function App() {
             </div>
           ) : (
             <p className="text-[11px] text-muted mb-1.5">
-              Your own Gemini key, for the one judgement counting can't make: which of your
-              recurring words are properties, and which word belongs to which. Used when you ask,
-              once per typology — never per object. Only tag words and titles are sent; no images,
-              no ids. Separate from mymind entirely.
+              Your own Gemini key, for the judgements counting can't make. It never runs on its
+              own — only from the two ✦ offers below. Separate from mymind entirely; the key
+              stays on this machine.
             </p>
           )}
           <div className="flex gap-1">
@@ -1075,6 +1078,22 @@ export default function App() {
             </button>
           </div>
           {geminiError && <p className="text-[11px] text-red-700 mt-1">{geminiError}</p>}
+          {/* Where, in plain words. The feature was invisible not because it
+              was hidden but because nothing ever said it existed. */}
+          <ul className="text-[11px] text-muted mt-2 space-y-1.5">
+            <li>
+              <span className="text-ink">✦ ask what else is worth knowing</span> — when you
+              create or edit a collection and call it a kind of thing. One request per
+              collection. Reads only the words your items already carry and answers with
+              properties worth having. It cannot invent vocabulary.
+            </li>
+            <li>
+              <span className="text-ink">✦ ask about N</span> — hover a property column in a
+              collection. Looks at the items nothing could work out for itself, one by one, and
+              picks from that property's own categories. Costs a request per 25 items, capped at
+              100 per round. Confident answers apply, the rest wait for you; ⌘Z undoes the lot.
+            </li>
+          </ul>
     </div>
   );
 
