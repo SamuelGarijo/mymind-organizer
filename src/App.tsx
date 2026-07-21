@@ -185,12 +185,6 @@ export default function App() {
   }, [baseObjects, state.typeFilter, state.facetTags, state.facetMode, state.excludedTags, state.facetFieldFilter]);
   const roleTypes = useMemo(() => computeRoleFrequency(roleTypesPool), [roleTypesPool]);
 
-  // §7 (2026-07-21): the command bar is ONE row whether or not filters are
-  // active — pills ride inline and overflow into "More", never a second
-  // band. The bar's height no longer varies, so content padding doesn't
-  // either.
-  const filterRowActive = false;
-
   const typeFiltered = useMemo(
     () => applyTypeFilter(baseObjects, state.typeFilter),
     [baseObjects, state.typeFilter]
@@ -375,6 +369,7 @@ export default function App() {
   // Mirrored into the store (not local state) so the classifier's two
   // touchpoints can announce themselves as needing a key rather than
   // vanishing — an invisible feature is an undiscoverable one.
+  const sidebarPinned = useStore((s) => !s.sidebarCollapsed);
   const geminiConfigured = useStore((s) => s.geminiConfigured);
   const setGeminiConfigured = useStore((s) => s.setGeminiConfigured);
   const [geminiKeyDraft, setGeminiKeyDraft] = useState("");
@@ -1239,7 +1234,7 @@ export default function App() {
           {state.openWritingTarget ? (
             <WritingWorkspace />
           ) : state.viewMode === "table" ? (
-            <div className={`h-full p-5 ${filterRowActive ? "pt-24" : "pt-16"}`}>
+            <div className="h-full p-5 pt-16">
               {/* Classify narrows the table exactly as it narrows the grid.
                   Before the two render paths merged, classify preempted
                   table view entirely; keeping the reservoir here is what
@@ -1261,7 +1256,7 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className={`h-full overflow-y-auto px-5 ${filterRowActive ? "pt-24" : "pt-16"} pb-5`} data-content-scroll>
+            <div className="h-full overflow-y-auto px-5 pt-16 pb-5" data-content-scroll>
               {/* §9 (2026-07-21) + property strip (same day's follow-up):
                   ONE row answers both "how can I read this collection?"
                   (All objects / By <property> tabs) and "what properties
@@ -1565,7 +1560,13 @@ export default function App() {
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="fixed bottom-4 left-4 z-40 flex items-center gap-1 rounded border border-line/70 bg-panel shadow-cardHover pl-1 pr-1 py-1 font-mono text-[11px]"
+            // Clears the pinned sidebar instead of sitting on top of its
+            // footer (issue #140 §2). Raising the z-index alone only decided
+            // WHICH of two things wins an overlap neither should have — the
+            // pill is 16px from the left edge and the sidebar occupies
+            // 8…264px, so pinned they were always in the same place.
+            style={{ left: sidebarPinned ? 272 : 16 }}
+            className="fixed bottom-4 z-[60] flex items-center gap-1 rounded border border-line/70 bg-panel shadow-cardHover pl-1 pr-1 py-1 font-mono text-[11px]"
           >
             <button
               onClick={() => {
@@ -1605,7 +1606,13 @@ export default function App() {
         />
       )}
 
-      <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 max-w-sm">
+      {/* z-[60], not z-40 (issue #140): the toast stack and the back-stack
+          pill sat at the same level as the DetailPanel and EARLIER in DOM
+          order, so its scrim dimmed them and swallowed their clicks. A
+          notice you can't read and a Back you can't press are worse than
+          none. 60 clears the panel (40) and the modals (50) both — status
+          and navigation are not content chrome. */}
+      <div className="fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-2 max-w-sm">
         <AnimatePresence initial={false}>
         {state.flashNotice && (
           <motion.div key="flash" layout custom={{ x: 0, y: 12 }} variants={surfaceVariants} initial="hidden" animate="visible" exit="exit" className="rounded border border-line bg-panel shadow-cardHover px-3.5 py-2.5 font-mono text-[12px] text-ink/80">

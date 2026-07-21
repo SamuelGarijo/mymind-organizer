@@ -28,6 +28,49 @@
  * exists).
  */
 
+/**
+ * Turns Google's error envelope into one sentence a person can act on.
+ *
+ * The old code pasted 200 characters of raw upstream JSON into the message
+ * and that message went straight to the UI. What Samuel actually saw on a
+ * spent free tier (2026-07-21) was:
+ *
+ *   Gemini refused the request (429). { "error": { "code": 429, "message":
+ *   "You exceeded your current quota, please check your plan and billing
+ *   details. For more information on this error, head to: https://ai.goo…
+ *
+ * — truncated mid-URL, and it read as a bug in the app rather than as a
+ * bill. The status codes that can realistically happen here each have a
+ * different remedy, so each gets its own sentence; anything unforeseen
+ * still falls through to Google's own `message`, which is at least prose.
+ */
+function humanGeminiError(status, body) {
+  let detail = "";
+  try {
+    detail = JSON.parse(body)?.error?.message ?? "";
+  } catch {
+    detail = "";
+  }
+
+  if (status === 429) {
+    // The most likely one by far, and the only one that isn't a bug: the
+    // free tier is small and resets on Google's clock, not ours.
+    return "Gemini's quota is used up — the free tier resets daily, or add billing to your Google AI Studio key.";
+  }
+  if (status === 400 && /API key not valid/i.test(detail)) {
+    return "That Gemini key isn't valid. Paste a fresh one in Preferences → Classifier.";
+  }
+  if (status === 401 || status === 403) {
+    return "Gemini rejected the key. Check it's enabled for the Generative Language API.";
+  }
+  if (status >= 500) {
+    return "Gemini is having trouble on its end — worth trying again in a minute.";
+  }
+  return detail
+    ? `Gemini refused the request: ${detail}`
+    : `Gemini refused the request (${status}).`;
+}
+
 const MODEL = "gemini-2.0-flash";
 const ENDPOINT = (model, key) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
@@ -132,7 +175,7 @@ export async function proposeTaxonomy({
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new GeminiError(
-      `Gemini refused the request (${res.status}). ${detail.slice(0, 200)}`,
+      humanGeminiError(res.status, detail),
       res.status
     );
   }
@@ -254,7 +297,7 @@ export async function classifyObjects({ property, options, allowMultiple = false
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new GeminiError(
-      `Gemini refused the request (${res.status}). ${detail.slice(0, 200)}`,
+      humanGeminiError(res.status, detail),
       res.status
     );
   }

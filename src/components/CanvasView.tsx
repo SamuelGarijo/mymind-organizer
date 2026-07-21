@@ -451,7 +451,21 @@ export function CanvasView({ canvasId }: { canvasId: string }) {
   if (!doc) return null;
 
   return (
-    <div className="h-full w-full relative">
+    // `isolate` is load-bearing (issue #140). The semantic panel and the
+    // canvas header below are z-[300], and nothing in this subtree used to
+    // create a stacking context — tldraw's own container is `position:
+    // relative` with no z-index, and the membrane animates width only — so
+    // both resolved in the ROOT context and painted OVER the DetailPanel
+    // scrim (z-40) and every modal (z-50). Opening a card from the canvas
+    // dimmed the viewport while the canvas header stayed bright and
+    // clickable on top of it.
+    //
+    // `isolation: isolate` rather than a z-index: it creates the context
+    // without giving this element a stacking order of its own, so the
+    // canvas keeps its natural paint position among its flex siblings. It
+    // also contains tldraw's internal 300/400/650 layers, which have the
+    // same escape problem.
+    <div className="h-full w-full relative isolate">
       <Tldraw
         shapeUtils={[OrganizerShapeUtil]}
         onMount={handleMount}
