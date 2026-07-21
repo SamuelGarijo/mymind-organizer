@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { allObjectsOf, useStore } from "../store";
 import { getKnownFields } from "../lib/fieldCatalog";
 import { proposeTypology, type TypologyProperty } from "../lib/collectionTypology";
+import { ClassifierUnavailable, suggestTaxonomy, toFacetFields } from "../lib/classifier";
 import type { DesignObject, FacetField } from "../types";
 
 /**
@@ -35,6 +36,39 @@ export function TypologyPanel({
   const [enabled, setEnabled] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [chosen, setChosen] = useState<Set<string> | null>(null);
+  // The classifier tier: extra properties nothing deterministic can name.
+  const [aiFields, setAiFields] = useState<FacetField[]>([]);
+  const [asking, setAsking] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function askClassifier(current: string[]) {
+    setAsking(true);
+    setAiError(null);
+    try {
+      const suggestion = await suggestTaxonomy({
+        typeName: typeName,
+        members,
+        existingProperties: current,
+      });
+      const fields = toFacetFields(suggestion, members);
+      if (fields.length === 0) {
+        setAiError("Nothing it could defend from these words — nothing added.");
+      }
+      setAiFields(fields);
+      const next = new Set(selected);
+      for (const f of fields) next.add(f.name);
+      setChosen(next);
+      republish(typeName, next, fields);
+    } catch (err) {
+      setAiError(
+        err instanceof ClassifierUnavailable
+          ? err.message
+          : (err as Error).message || "The classifier failed."
+      );
+    } finally {
+      setAsking(false);
+    }
+  }
 
   const proposal = useMemo(() => {
     if (members.length === 0) return null;
@@ -53,13 +87,6 @@ export function TypologyPanel({
     chosen ?? new Set((proposal?.properties ?? []).map((p) => p.field.name));
   const typeName = (nameDraft || proposal?.name || collectionName).trim();
 
-  function toggle(fieldName: string) {
-    const next = new Set(selected);
-    if (next.has(fieldName)) next.delete(fieldName);
-    else next.add(fieldName);
-    setChosen(next);
-  }
-
   function commit(on: boolean) {
     setEnabled(on);
     if (!on || !proposal) {
@@ -74,13 +101,18 @@ export function TypologyPanel({
 
   // Re-publish on every change so the modal's Save always has the current
   // choice without a second confirmation step.
-  function republish(nextName = typeName, nextSelected = selected) {
+  function republish(nextName = typeName, nextSelected = selected, nextAi = aiFields) {
     if (!enabled || !proposal) return;
+    const fromProposal = proposal.properties
+      .filter((p) => nextSelected.has(p.field.name))
+      .map((p) => p.field);
+    const have = new Set(fromProposal.map((f) => f.name.toLowerCase()));
     onApply({
       name: nextName.trim(),
-      fields: proposal.properties
-        .filter((p) => nextSelected.has(p.field.name))
-        .map((p) => p.field),
+      fields: [
+        ...fromProposal,
+        ...nextAi.filter((f) => nextSelected.has(f.name) && !have.has(f.name.toLowerCase())),
+      ],
     });
   }
 
@@ -133,12 +165,32 @@ export function TypologyPanel({
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted mb-1.5">
               What's worth knowing about them
             </div>
-            {proposal.properties.length === 0 ? (
+            {proposal.properties.length === 0 && aiFields.length === 0 ? (
               <p className="font-mono text-[11px] text-muted/80">
-                Nothing to suggest yet — add properties later with + Property.
+                Nothing counting can defend here — ask below, or add properties later with
+                + Property.
               </p>
             ) : (
               <div className="space-y-0.5">
+                {aiFields.map((f) => (
+                  <PropertyRow
+                    key={f.name}
+                    property={{
+                      field: f,
+                      source: "derived",
+                      sampleValues: (f.options ?? []).slice(0, 6),
+                      wouldFill: 0,
+                    }}
+                    checked={selected.has(f.name)}
+                    onToggle={() => {
+                      const next = new Set(selected);
+                      if (next.has(f.name)) next.delete(f.name);
+                      else next.add(f.name);
+                      setChosen(next);
+                      republish(typeName, next);
+                    }}
+                  />
+                ))}
                 {proposal.properties.map((p) => (
                   <PropertyRow
                     key={p.field.name}
@@ -154,6 +206,23 @@ export function TypologyPanel({
                   />
                 ))}
               </div>
+            )}
+          </div>
+
+          {/* The classifier tier, summoned rather than resident: naming
+              what else is worth knowing is the one judgement counting
+              can't make, so it's offered here and costs one call. */}
+          <div className="pt-1 border-t border-line/60">
+            <button
+              onClick={() => askClassifier(proposal.properties.map((p) => p.field.name))}
+              disabled={asking}
+              className="font-mono text-[11px] text-accent/85 hover:text-accent hover:underline decoration-dotted underline-offset-2 disabled:opacity-50"
+              title="Reads only these items' words — one request, no images, no ids"
+            >
+              {asking ? "reading your words…" : "ask what else is worth knowing"}
+            </button>
+            {aiError && (
+              <p className="mt-1 font-mono text-[10px] text-muted leading-relaxed">{aiError}</p>
             )}
           </div>
         </div>

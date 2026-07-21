@@ -369,6 +369,10 @@ export default function App() {
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const autoSyncedOnMount = useRef(false);
   const [arenaConfigured, setArenaConfigured] = useState(false);
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [geminiKeyDraft, setGeminiKeyDraft] = useState("");
+  const [geminiSaving, setGeminiSaving] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
   const [arenaAccount, setArenaAccount] = useState<ArenaAccount | null>(null);
   const [arenaTokenDraft, setArenaTokenDraft] = useState("");
   const [arenaSaving, setArenaSaving] = useState(false);
@@ -382,7 +386,8 @@ export default function App() {
   useEffect(() => {
     fetch("/api/health")
       .then((r) => r.json())
-      .then((data: { credentialsConfigured: boolean; arenaConfigured: boolean }) => {
+      .then((data: { credentialsConfigured: boolean; arenaConfigured: boolean; geminiConfigured?: boolean }) => {
+        setGeminiConfigured(Boolean(data.geminiConfigured));
         if (!data.credentialsConfigured) setCredentialsModal({ dismissible: false });
         setArenaConfigured(data.arenaConfigured);
         if (data.arenaConfigured) fetchArenaAccount().then(setArenaAccount);
@@ -1020,6 +1025,68 @@ export default function App() {
             </button>
           </div>
           {arenaError && <p className="text-[11px] text-red-700 mt-1">{arenaError}</p>}
+
+          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
+            Classifier
+          </div>
+          {geminiConfigured ? (
+            <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5 mb-1.5 flex items-center justify-between gap-2">
+              <span className="truncate">Gemini key saved</span>
+              <button
+                onClick={async () => {
+                  await fetch("/api/setup/gemini-disconnect", { method: "POST" });
+                  setGeminiConfigured(false);
+                }}
+                className="shrink-0 text-emerald-800/70 hover:text-emerald-900 underline decoration-dotted"
+                title="Remove the Gemini key from this machine"
+              >
+                disconnect
+              </button>
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted mb-1.5">
+              Your own Gemini key, for the one judgement counting can't make: which of your
+              recurring words are properties, and which word belongs to which. Used when you ask,
+              once per typology — never per object. Only tag words and titles are sent; no images,
+              no ids. Separate from mymind entirely.
+            </p>
+          )}
+          <div className="flex gap-1">
+            <input
+              value={geminiKeyDraft}
+              onChange={(e) => setGeminiKeyDraft(e.target.value)}
+              placeholder="Gemini API key"
+              type="password"
+              className="flex-1 min-w-0 rounded border border-line px-2.5 py-1.5 text-[12px] outline-none focus:border-accent"
+            />
+            <button
+              onClick={async () => {
+                const key = geminiKeyDraft.trim();
+                if (!key) return;
+                setGeminiSaving(true);
+                setGeminiError(null);
+                try {
+                  const res = await fetch("/api/setup/gemini-key", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ key }),
+                  });
+                  if (!res.ok) throw new Error("Could not save the key.");
+                  setGeminiConfigured(true);
+                  setGeminiKeyDraft("");
+                } catch (err) {
+                  setGeminiError((err as Error).message);
+                } finally {
+                  setGeminiSaving(false);
+                }
+              }}
+              disabled={!geminiKeyDraft.trim() || geminiSaving}
+              className="shrink-0 px-2.5 py-1.5 rounded border border-line hover:bg-line/40 disabled:opacity-40"
+            >
+              {geminiSaving ? "…" : "Save"}
+            </button>
+          </div>
+          {geminiError && <p className="text-[11px] text-red-700 mt-1">{geminiError}</p>}
     </div>
   );
 

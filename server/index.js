@@ -2,7 +2,14 @@ import "dotenv/config";
 import express from "express";
 import { router } from "./routes.js";
 import { arenaRouter } from "./arenaRoutes.js";
-import { clearArenaToken, writeArenaToken, writeCredentials } from "./setup.js";
+import { geminiRouter } from "./geminiRoutes.js";
+import {
+  clearArenaToken,
+  clearGeminiKey,
+  writeArenaToken,
+  writeCredentials,
+  writeGeminiKey,
+} from "./setup.js";
 
 const app = express();
 // Only needed for the one write route (POST tags) — every other route is a
@@ -10,6 +17,7 @@ const app = express();
 app.use(express.json());
 app.use("/api/mymind", router);
 app.use("/api/arena", arenaRouter);
+app.use("/api/gemini", geminiRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -23,6 +31,9 @@ app.get("/api/health", (_req, res) => {
     // Are.na's token has no analogous public half to echo back — this is
     // just a connected/not-connected boolean, same spirit as mymind's flag.
     arenaConfigured: Boolean(process.env.ARENA_TOKEN),
+    // Same connected/not-connected boolean for the classifier tier — the
+    // key itself is never sent back once saved.
+    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
   });
 });
 
@@ -77,6 +88,33 @@ app.post("/api/setup/arena-disconnect", (_req, res) => {
     res.status(204).end();
   } catch (err) {
     console.error("[are.na proxy] failed to clear token", err);
+    res.status(500).json({ type: "InternalError", status: 500, detail: String(err) });
+  }
+});
+
+// POST /api/setup/gemini-key  { key: string }
+app.post("/api/setup/gemini-key", (req, res) => {
+  const { key } = req.body ?? {};
+  if (typeof key !== "string" || key.trim().length === 0) {
+    res.status(400).json({ type: "BadRequest", status: 400, detail: "key is required" });
+    return;
+  }
+  try {
+    writeGeminiKey(key.trim());
+    res.status(204).end();
+  } catch (err) {
+    console.error("[gemini] failed to write key", err);
+    res.status(500).json({ type: "InternalError", status: 500, detail: String(err) });
+  }
+});
+
+// POST /api/setup/gemini-disconnect — removes GEMINI_API_KEY locally.
+app.post("/api/setup/gemini-disconnect", (_req, res) => {
+  try {
+    clearGeminiKey();
+    res.status(204).end();
+  } catch (err) {
+    console.error("[gemini] failed to clear key", err);
     res.status(500).json({ type: "InternalError", status: 500, detail: String(err) });
   }
 });

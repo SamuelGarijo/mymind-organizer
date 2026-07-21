@@ -46,6 +46,25 @@ export function writeArenaToken(token) {
   process.env.ARENA_TOKEN = token;
 }
 
+/** Gemini's API key — the classifier tier (2026-07-21). Same treatment
+ * again, and a third separate project scope: it never touches mymind's
+ * credentials or endpoints, and mymind's own plan buys none of it (its
+ * credits meter requests, and it exposes no inference endpoint at all —
+ * verified against live rate-limit headers). */
+export function writeGeminiKey(key) {
+  const lines = readEnvLines();
+  setEnvKey(lines, "GEMINI_API_KEY", key);
+  fs.writeFileSync(ENV_PATH, lines.join("\n") + "\n", { mode: 0o600 });
+  process.env.GEMINI_API_KEY = key;
+}
+
+/** Removes GEMINI_API_KEY from .env and process.env. */
+export function clearGeminiKey() {
+  const lines = readEnvLines().filter((l) => !l.startsWith("GEMINI_API_KEY="));
+  fs.writeFileSync(ENV_PATH, lines.join("\n") + "\n", { mode: 0o600 });
+  delete process.env.GEMINI_API_KEY;
+}
+
 /** Removes ARENA_TOKEN from .env and process.env (the "Disconnect Are.na"
  * action) — local-only, never touches Are.na or mymind. */
 export function clearArenaToken() {
