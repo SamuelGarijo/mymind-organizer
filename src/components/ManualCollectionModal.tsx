@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { HeroImagePicker } from "./HeroImagePicker";
+import { TypologyPanel } from "./TypologyPanel";
+import type { FacetField } from "../types";
 import { useStore } from "../store";
 
 /** Collections are just named folders now — classification fields belong
@@ -27,6 +29,9 @@ export function ManualCollectionModal({
   const [heroImageObjectId, setHeroImageObjectId] = useState<string | null>(
     existing?.heroImageObjectId ?? null
   );
+  // Creating a collection is an act of typology (2026-07-21) — the panel
+  // proposes it, this holds the answer until Save.
+  const [typology, setTypology] = useState<{ name: string; fields: FacetField[] } | null>(null);
   const [autoTagsDraft, setAutoTagsDraft] = useState(
     existing?.type === "manual" ? (existing.autoTags ?? []).join(", ") : ""
   );
@@ -60,6 +65,11 @@ export function ManualCollectionModal({
       if (autoTags.length > 0) state.updateManualCollection(id, { autoTags });
     }
     state.updateCollectionMeta(id, { description, heroImageObjectId });
+    if (typology) {
+      useStore
+        .getState()
+        .applyTypology(typology.name, memberObjects.map((o) => o.id), typology.fields);
+    }
     onClose();
   }
 
@@ -100,6 +110,12 @@ export function ManualCollectionModal({
           onChange={(e) => setAutoTagsDraft(e.target.value)}
           placeholder="Auto-tags (optional, comma-separated) — added to any item dropped in here"
           className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+        />
+
+        <TypologyPanel
+          collectionName={name}
+          members={memberObjects}
+          onApply={setTypology}
         />
 
         {existing && (

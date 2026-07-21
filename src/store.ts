@@ -287,6 +287,16 @@ type State = {
    * been semantically wrong (palette colours written into Tone, 2026-07-21
    * §8), its work can be surgically undone. Returns how many were cleared. */
   revertProviderFills: (fieldName: string, providerId: string) => number;
+  /** Turns a collection into a typology (Samuel, 2026-07-21): its members
+   * become a kind of their own, carrying the properties chosen when the
+   * collection was made. Creates or extends the entity type, assigns it to
+   * every member, and pins the first few properties so the world it
+   * describes is legible immediately. One undo step. */
+  applyTypology: (
+    typeName: string,
+    memberIds: string[],
+    fields: FacetField[]
+  ) => void;
   /** Renames an entity type everywhere: its definition, every object
    * carrying it, and any tag promoted into one of its fields. */
   renameRole: (from: string, to: string) => void;
@@ -1301,6 +1311,48 @@ export const useStore = create<State>()(
         );
         if (ids.length > 0) s.clearFieldValues(ids, fieldName);
         return ids.length;
+      },
+
+      applyTypology: (typeName, memberIds, fields) => {
+        const trimmed = typeName.trim();
+        if (!trimmed || memberIds.length === 0) return;
+        get().pushUndo(
+          `make ${trimmed} a kind (${memberIds.length.toLocaleString()} items)`
+        );
+        set((s) => {
+          const key = norm(trimmed);
+          const existing = s.roles[key];
+          // Extending, never replacing: a type this collection shares with
+          // another keeps whatever that one taught it.
+          const have = new Set((existing?.fields ?? []).map((f) => norm(f.name)));
+          const merged = [
+            ...(existing?.fields ?? []),
+            ...fields.filter((f) => !have.has(norm(f.name))),
+          ];
+          const roles: Record<string, RoleDefinition> = {
+            ...s.roles,
+            [key]: {
+              name: existing?.name ?? trimmed,
+              fields: merged,
+              primaryFacets:
+                existing?.primaryFacets?.length
+                  ? existing.primaryFacets
+                  : merged.slice(0, 3).map((f) => f.name),
+            },
+          };
+
+          const objects = { ...s.objects };
+          const now = new Date().toISOString();
+          for (const id of memberIds) {
+            const o = objects[id];
+            if (!o) continue;
+            objects[id] = { ...o, role: roles[key].name, updatedAt: now };
+          }
+          return { roles, objects };
+        });
+        get().setFlashNotice(
+          `${memberIds.length.toLocaleString()} items are now ${trimmed}. Editable on any item.`
+        );
       },
 
       renameRole: (from, to) => {

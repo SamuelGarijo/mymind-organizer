@@ -11,7 +11,8 @@ import {
 } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
 import { HeroImagePicker } from "./HeroImagePicker";
-import type { DesignObject, FilterCondition, FilterOperator, FilterSimilarity, TagGroups } from "../types";
+import { TypologyPanel } from "./TypologyPanel";
+import type { DesignObject, FacetField, FilterCondition, FilterOperator, FilterSimilarity, TagGroups } from "../types";
 
 type Row = FilterCondition | FilterSimilarity;
 
@@ -90,6 +91,7 @@ export function SmartCollectionModal({
   const [heroImageObjectId, setHeroImageObjectId] = useState<string | null>(
     existing?.heroImageObjectId ?? null
   );
+  const [typology, setTypology] = useState<{ name: string; fields: FacetField[] } | null>(null);
   const [combinator, setCombinator] = useState<"AND" | "OR">(
     existing?.type === "smart" ? existing.rule.combinator : "AND"
   );
@@ -195,6 +197,11 @@ export function SmartCollectionModal({
       }
     }
     state.updateCollectionMeta(id, { description, heroImageObjectId });
+    if (typology) {
+      useStore
+        .getState()
+        .applyTypology(typology.name, matchingObjects.map((o) => o.id), typology.fields);
+    }
     onClose();
   }
 
@@ -226,6 +233,12 @@ export function SmartCollectionModal({
           placeholder="Description (optional) — shown at the top of this collection, like an Are.na channel"
           rows={2}
           className="mt-2 w-full rounded-lg border border-line px-2.5 py-1.5 text-sm outline-none focus:border-accent resize-y"
+        />
+
+        <TypologyPanel
+          collectionName={name}
+          members={matchingObjects}
+          onApply={setTypology}
         />
 
         <HeroImagePicker
