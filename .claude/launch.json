@@ -4,20 +4,20 @@
     {
       "name": "organizer-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5773
     },
     {
       "name": "organizer-api",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "server:watch"],
+      "runtimeArgs": [
+        "run",
+        "server:watch"
+      ],
       "port": 8787
-    },
-    {
-      "name": "organizer-dev-verify",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--port", "5774", "--strictPort"],
-      "port": 5774
     }
   ]
 }

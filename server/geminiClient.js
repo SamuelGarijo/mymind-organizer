@@ -146,3 +146,124 @@ export async function proposeTaxonomy({
     throw new GeminiError("Gemini returned malformed JSON.", 502);
   }
 }
+
+/** Per-object classification against a taxonomy the user already declared.
+ * Batched, because one request per object would be absurd at archive
+ * scale; capped because a batch that's too big degrades attention. */
+const CLASSIFY_BATCH_SCHEMA = {
+  type: "object",
+  properties: {
+    results: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          value: { type: "string" },
+          confidence: { type: "number" },
+          evidence: { type: "string" },
+        },
+        required: ["id", "value", "confidence"],
+      },
+    },
+  },
+  required: ["results"],
+};
+
+/**
+ * Classify individual objects against a PREDEFINED taxonomy — the second
+ * step Samuel asked for: "specialized enrichment rounds that analyse
+ * individual objects and images using a predefined taxonomy, for example
+ * classifying a Typography collection as Serif, Grotesque, Didone,
+ * Bauhaus-influenced".
+ *
+ * Deliberately different in kind from proposeTaxonomy above. That one
+ * decides WHAT to know, once, per group. This one decides WHICH VALUE for
+ * each thing, and so it costs per object — which is why it is only ever
+ * user-triggered, batched, scoped to a chosen property, and returns
+ * confidence and evidence so the result can be reviewed rather than
+ * trusted.
+ *
+ * Images are opt-in (`withImages`) and passed as inline bytes the caller
+ * has already fetched, because mymind's own image URLs are not publicly
+ * reachable. Without them this reads titles, tags and summaries — which
+ * is enough for many properties and a great deal cheaper.
+ *
+ * @param {{ property: string, options: string[], allowMultiple?: boolean,
+ *           items: {id: string, title?: string, tags?: string[],
+ *                   summary?: string, image?: {mimeType: string, data: string}}[] }} input
+ */
+export async function classifyObjects({ property, options, allowMultiple = false, items }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw new GeminiError("No Gemini API key configured. Add one in Preferences.", 401);
+  }
+  if (!Array.isArray(options) || options.length === 0) {
+    throw new GeminiError("A taxonomy is required — classify against declared options.", 400);
+  }
+
+  const instructions = [
+    `Classify each item below by "${property}".`,
+    ``,
+    `Allowed values, and NOTHING else: ${options.join(", ")}.`,
+    ``,
+    `Rules:`,
+    `- Answer for every item, using its exact id.`,
+    `- Use only the allowed values. Never invent one.`,
+    allowMultiple
+      ? `- If several apply, join them with " | ".`
+      : `- Choose the single best value.`,
+    `- confidence is 0 to 1: how sure you are for THIS item, not in general.`,
+    `- If nothing fits, answer with an empty value and low confidence. A gap is better than a guess.`,
+    `- evidence: the few words that decided it.`,
+  ].join("\n");
+
+  // Text goes in one part; each image (when opted into) rides alongside
+  // its own id so the model can tie them together.
+  const parts = [{ text: instructions }];
+  for (const item of items) {
+    parts.push({
+      text: [
+        ``,
+        `id: ${item.id}`,
+        item.title ? `title: ${item.title}` : "",
+        item.tags?.length ? `tags: ${item.tags.slice(0, 25).join(", ")}` : "",
+        item.summary ? `summary: ${item.summary.slice(0, 300)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+    if (item.image?.data) {
+      parts.push({ inlineData: { mimeType: item.image.mimeType, data: item.image.data } });
+    }
+  }
+
+  const res = await fetch(ENDPOINT(MODEL, key), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: CLASSIFY_BATCH_SCHEMA,
+        temperature: 0.1,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new GeminiError(
+      `Gemini refused the request (${res.status}). ${detail.slice(0, 200)}`,
+      res.status
+    );
+  }
+  const body = await res.json();
+  const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new GeminiError("Gemini returned no content.", 502);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new GeminiError("Gemini returned malformed JSON.", 502);
+  }
+}

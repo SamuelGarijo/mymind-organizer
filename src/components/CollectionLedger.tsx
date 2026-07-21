@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { allObjectsOf, useStore } from "../store";
 import { computeFieldValueFrequency, type TagFrequency } from "../lib/quickFilter";
@@ -13,6 +13,9 @@ import { addMymindTag } from "../lib/mymindWrite";
 import { norm } from "../lib/textNorm";
 import { DRAG_MIME } from "../lib/objectDrag";
 import {
+  AUTO_APPLY_CONFIDENCE,
+  ClassifierUnavailable,
+  classifierProvider,
   previewProviders,
   proposeOptionsFromMembers,
   proposeWithProvider,
@@ -20,6 +23,10 @@ import {
 import type { Collection, DesignObject, FacetField, RoleDefinition } from "../types";
 
 const VISIBLE_VALUES = 6;
+
+/** Ceiling on one classifier round. Four batches, so a mistaken taxonomy
+ * costs a little and is caught early rather than billed across an archive. */
+const CLASSIFY_LIMIT = 100;
 
 /** The composition of a collection read as plain words (Samuel,
  * 2026-07-21: "Entity type" was internal vocabulary leaking into the UI;
@@ -367,6 +374,59 @@ function FillRow({
     );
   }
 
+  /** What no amount of counting will reach: still empty after the best free
+   * provider has had its turn. Capped, because this is the one offer with a
+   * bill attached and "ask about 4,000" is not a thing anyone should be able
+   * to click by accident. */
+  const unreachable = useMemo(() => {
+    if ((field.options ?? []).length < 2) return [];
+    const derivable = new Set(
+      best ? proposeWithProvider(best.provider, missing, field.name, field).map((p) => p.objectId) : []
+    );
+    return missing.filter((o) => !derivable.has(o.id)).slice(0, CLASSIFY_LIMIT);
+  }, [missing, best, field]);
+
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function askClassifier() {
+    const st = useStore.getState();
+    st.requestConfirm({
+      title: `Have ${field.name} read?`,
+      // Said plainly because it is the one place the app spends money and
+      // sends anything anywhere. The user should know both before clicking.
+      body: `${unreachable.length} item${unreachable.length > 1 ? "s" : ""} nothing here can work out for itself. Their titles, tags and summaries go to Gemini, which answers with one of ${field.name}'s own categories — it can't invent new ones. Confident answers are applied, the rest are left for you. One ⌘Z undoes all of it.`,
+      action: "Read them",
+      onConfirm: async () => {
+        setAsking(true);
+        setError(null);
+        try {
+          const proposals =
+            (await classifierProvider.proposeAsync?.(unreachable, field.name, { field })) ?? [];
+          if (proposals.length === 0) {
+            setError("nothing it could defend");
+            return;
+          }
+          // No pushUndo here: applyProposals pushes its own, and a second
+          // one would silently make this the only action in the app that
+          // needs ⌘Z twice.
+          const state = useStore.getState();
+          state.applyProposals(proposals);
+          const sure = proposals.filter((p) => p.confidence >= AUTO_APPLY_CONFIDENCE).length;
+          state.setFlashNotice(
+            `${field.name}: ${proposals.length} read, ${sure} confidently. Values it wasn't sure of stay marked as not yet yours.`
+          );
+        } catch (err) {
+          setError(
+            err instanceof ClassifierUnavailable ? "no key yet" : (err as Error).message || "failed"
+          );
+        } finally {
+          setAsking(false);
+        }
+      },
+    });
+  }
+
   return (
     // Hover-summoned, never resident: a standing "412 empty · fill" on every
     // column multiplied into exactly the kind of chrome wall the design
@@ -405,6 +465,23 @@ function FillRow({
           </button>
         </>
       )}
+      {/* Last, and only after everything free has been offered: the ones
+          nothing can derive. This is the serif-vs-sans case exactly — the
+          measured 3.3% — and the only honest answer to it is to look. */}
+      {unreachable.length > 0 && (
+        <>
+          {" · "}
+          <button
+            onClick={askClassifier}
+            disabled={asking}
+            className="text-accent/80 hover:text-accent hover:underline decoration-dotted underline-offset-2 disabled:opacity-50"
+            title={`Look at ${unreachable.length} item${unreachable.length > 1 ? "s" : ""} one by one and choose from ${field.name}'s own categories. Costs a request per batch of 25 — nothing else here does.`}
+          >
+            {asking ? "reading…" : `ask about ${unreachable.length}`}
+          </button>
+        </>
+      )}
+      {error && <span className="ml-1 text-muted/80">{error}</span>}
     </div>
   );
 }

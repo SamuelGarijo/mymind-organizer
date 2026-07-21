@@ -80,6 +80,10 @@ export type ProviderContext = {
    * declared options to constrain themselves. Absent while proposing a
    * brand-new field, which is exactly when `proposeVocabulary` matters. */
   field?: FacetField;
+  /** Send thumbnails along with the words. Only the classifier reads this,
+   * and only ever because the user ticked it: images leaving the machine is
+   * a real escalation over words, so it is never a default. */
+  withImages?: boolean;
 };
 
 export type EnrichmentProvider = {
@@ -517,6 +521,126 @@ const tagVocabularyProvider: EnrichmentProvider = {
 /** Order matters: the first provider that serves a field name is the one the
  * popover offers first. `tag-vocabulary` serves everything, so it sits last
  * as the general fallback. */
+/* ------------------------------------------------------------------ *
+ * The classifier provider — the async seam, now actually implemented.
+ * ------------------------------------------------------------------ */
+
+/** How many objects go in one request. Matches the proxy's own cap. */
+const CLASSIFY_BATCH = 25;
+
+export class ClassifierUnavailable extends Error {}
+
+/**
+ * Looks at objects one at a time — and, when asked, at their images —
+ * and answers with a value from a taxonomy that ALREADY EXISTS (Samuel,
+ * 2026-07-21: "user-triggered, specialized enrichment rounds that analyse
+ * individual objects and images using a predefined taxonomy, for example
+ * classifying a Typography collection as Serif, Grotesque, Didone,
+ * Bauhaus-influenced").
+ *
+ * This is the only provider that can answer a SEMANTIC question, and the
+ * only one that costs money, and those two facts are the same fact. The
+ * measured boundary says so exactly: in the Typography slice, colour fills
+ * 85% of objects for free and serif-vs-sans fills 3.3%, because whether a
+ * face is a Didone was never written down anywhere. Statistics cannot
+ * reach it; nothing else here can either.
+ *
+ * Three constraints keep it honest, and they are what let it share every
+ * downstream mechanism rather than needing its own:
+ *
+ *   It cannot invent a vocabulary. `serves` refuses any field without
+ *   declared options, so a round can only ever choose among words the user
+ *   already committed to. The failure mode that produced "Font Style: New
+ *   Topographics" is structurally unavailable to it.
+ *
+ *   It answers in `Proposal[]`, identical in shape to what the palette
+ *   provider returns. So confidence gating, evidence display,
+ *   fieldProvenance, the review step, applyProposals' never-overwrite-a-
+ *   hand-set-value rule and one-step undo all work already, unchanged.
+ *   Adding AI meant registering a provider, not touching a consumer.
+ *
+ *   It never runs by itself. `propose` is deliberately absent, so the sync
+ *   pass, the popover preview and the ledger's "fill" affordance — every
+ *   automatic path — skip it silently. Only a user gesture reaches
+ *   `proposeAsync`.
+ *
+ * Confidence comes back per item from the model and is used as given: a
+ * round typically lands some values above AUTO_APPLY_CONFIDENCE and leaves
+ * the rest as offers, which is the correct shape for a judgement call.
+ */
+export const classifierProvider: EnrichmentProvider = {
+  id: "gemini-classifier",
+  kind: "classifier",
+  label: "read one by one",
+  // Options are the taxonomy. No options, nothing to classify against.
+  serves: () => true,
+
+  proposeAsync: async (objects, fieldName, ctx) => {
+    const options = ctx.field?.options ?? [];
+    if (options.length < 2 || objects.length === 0) return [];
+    const multi = ctx.field?.type === "multi-select";
+
+    const proposals: Proposal[] = [];
+    for (let i = 0; i < objects.length; i += CLASSIFY_BATCH) {
+      const batch = objects.slice(i, i + CLASSIFY_BATCH);
+      const res = await fetch("/api/gemini/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          property: fieldName,
+          options,
+          allowMultiple: multi,
+          withImages: ctx.withImages ?? false,
+          items: batch.map((o) => ({
+            id: o.id,
+            title: o.title,
+            tags: o.tags,
+            // mymind's own AI wrote this at ingest; it is already synced,
+            // so reading it costs nothing extra and is often the single
+            // most informative thing about a saved page.
+            summary: asFieldString(o.fields.summary),
+          })),
+        }),
+      });
+      if (res.status === 401) {
+        throw new ClassifierUnavailable(
+          "No Gemini key yet — add one in Preferences to let it read these."
+        );
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `The classifier failed (${res.status}).`);
+      }
+      const body = (await res.json()) as {
+        results?: { id: string; value: string; confidence: number; evidence?: string }[];
+      };
+
+      const allowed = new Map(options.map((o) => [norm(o), o]));
+      const known = new Set(batch.map((o) => o.id));
+      for (const result of body.results ?? []) {
+        // A model told to answer with an id from the batch can still answer
+        // with something else; the same for values it was told to choose
+        // from. Both are dropped rather than trusted — a gap is recoverable,
+        // an invented value written into the archive is not.
+        if (!known.has(result.id)) continue;
+        const values = (multi ? String(result.value ?? "").split("|") : [result.value ?? ""])
+          .map((v) => allowed.get(norm(v.trim())))
+          .filter((v): v is string => Boolean(v));
+        if (values.length === 0) continue;
+        proposals.push({
+          objectId: result.id,
+          field: fieldName,
+          value: multi ? values : values[0],
+          confidence: Math.max(0, Math.min(1, Number(result.confidence) || 0)),
+          evidence: result.evidence?.trim() || "read by the classifier",
+          providerId: "gemini-classifier",
+        });
+      }
+    }
+    return proposals;
+  },
+};
+
 export const PROVIDERS: EnrichmentProvider[] = [
   paletteColorProvider,
   orientationProvider,
@@ -525,6 +649,7 @@ export const PROVIDERS: EnrichmentProvider[] = [
   creatorProvider,
   publishedProvider,
   tagVocabularyProvider,
+  classifierProvider,
 ];
 
 export function providersFor(fieldName: string): EnrichmentProvider[] {
