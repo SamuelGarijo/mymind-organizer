@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore } from "../store";
+import { allObjectsOf, useStore } from "../store";
 import { computeFieldValueFrequency, type TagFrequency } from "../lib/quickFilter";
 import {
   classifyFacetEmphasis,
@@ -12,21 +12,27 @@ import {
 import { addMymindTag } from "../lib/mymindWrite";
 import { norm } from "../lib/textNorm";
 import { DRAG_MIME } from "../lib/objectDrag";
-import { previewProviders, proposeWithProvider } from "../lib/fieldExtraction";
+import {
+  previewProviders,
+  proposeOptionsFromMembers,
+  proposeWithProvider,
+} from "../lib/fieldExtraction";
 import type { Collection, DesignObject, FacetField, RoleDefinition } from "../types";
 
 const VISIBLE_VALUES = 6;
 
-/** "typographies, articles, pictures" — the composition of a collection
- * read as plain words (Samuel, 2026-07-21: "Entity type" was internal
- * vocabulary leaking into the UI; the user-facing question is "what can I
- * find here?"). Naive pluralization is fine for display: it never touches
- * the stored role name. */
-export function pluralizeRole(name: string): string {
-  const lower = name.toLowerCase();
-  if (/s$/.test(lower)) return lower;
-  if (/[^aeiou]y$/.test(lower)) return lower.slice(0, -1) + "ies";
-  return lower + "s";
+/** The composition of a collection read as plain words (Samuel,
+ * 2026-07-21: "Entity type" was internal vocabulary leaking into the UI;
+ * the user-facing question is "what can I find here?").
+ *
+ * Lowercased only. Naive pluralization used to be applied here and it made
+ * the reading WORSE, not better: "European" became "europeans" — which
+ * reads as people from Europe rather than European-something — and
+ * "photographies" is not a word anyone writes. English plurals of an
+ * open-ended, user-invented vocabulary cannot be guessed; the name the
+ * user chose is the honest thing to show. */
+export function roleWord(name: string): string {
+  return name.toLowerCase();
 }
 
 function ColumnLabel({ children }: { children: React.ReactNode }) {
@@ -188,11 +194,11 @@ export function CollectionLedger({
                   title={
                     active
                       ? "Showing only these — click to see everything again"
-                      : `Show only the ${pluralizeRole(role.name)}`
+                      : `Show only the ${roleWord(role.name)}`
                   }
                 >
                   {active ? "● " : ""}
-                  {pluralizeRole(role.name)}{" "}
+                  {roleWord(role.name)}{" "}
                   <span className="text-muted/60">{roleCounts.get(norm(role.name)) ?? 0}</span>
                 </button>
               );
@@ -331,6 +337,36 @@ function FillRow({
     .filter((p) => p.filled > 0)
     .sort((a, b) => b.filled - a.filled)[0];
 
+  // A property with no declared options can never be filled by tag
+  // matching — so offer it the vocabulary its own members already carry
+  // (Samuel, 2026-07-21: Photographer sat empty while #Todd Hido and
+  // #Bernd and Hilla Becher were right there on the objects).
+  const suggested =
+    !best && !(field.options ?? []).length
+      ? proposeOptionsFromMembers(objects, allObjectsOf(useStore.getState().objects), field.name)
+      : [];
+
+  function seedFromTags() {
+    const st = useStore.getState();
+    st.pushUndo(`give ${field.name} its categories`);
+    for (const { value } of suggested) st.addFieldOption(field.name, value);
+    // The options now exist, so the ordinary tag→value extractor can do
+    // the rest — one shared path, no special case.
+    const withOptions: FacetField = {
+      ...field,
+      options: suggested.map((s) => s.value),
+    };
+    const provider = previewProviders(objects, field.name, withOptions).find(
+      (p) => p.provider.id === "tag-vocabulary"
+    );
+    if (provider) {
+      st.applyProposals(proposeWithProvider(provider.provider, objects, field.name, withOptions));
+    }
+    st.setFlashNotice(
+      `"${field.name}" now has ${suggested.length} categories, taken from these items' own tags.`
+    );
+  }
+
   return (
     // Hover-summoned, never resident: a standing "412 empty · fill" on every
     // column multiplied into exactly the kind of chrome wall the design
@@ -338,6 +374,21 @@ function FillRow({
     // column and recedes with it.
     <div className="font-mono text-[10px] text-muted/60 mt-0.5 opacity-0 group-hover/facet:opacity-100 transition-opacity">
       {empty} empty
+      {suggested.length > 0 && (
+        <>
+          {" · "}
+          <button
+            onClick={seedFromTags}
+            className="text-accent/80 hover:text-accent hover:underline decoration-dotted underline-offset-2"
+            title={`Take its categories from these items' own tags: ${suggested
+              .slice(0, 6)
+              .map((s) => s.value)
+              .join(", ")}`}
+          >
+            suggest {suggested.length} categories
+          </button>
+        </>
+      )}
       {best && (
         <>
           {" · "}

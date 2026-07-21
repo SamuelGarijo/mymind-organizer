@@ -25,9 +25,14 @@ import { norm } from "./textNorm";
  */
 
 /** A tag needs at least this many objects before it reads as a kind of
- * thing rather than an idiosyncrasy. Low enough to surface real pockets
- * (a few dozen), high enough that one-off vocabulary stays out. */
-const MIN_MEMBERS = 25;
+ * thing rather than an idiosyncrasy.
+ *
+ * Raised from 25 after the first run (Samuel, 2026-07-21): 24 proposals
+ * turned a 47-photograph collection into eleven "kinds" — residentials,
+ * urbans, europeans, germans — none of which are species, all of which are
+ * properties of a photograph. Better to propose few and good and let more
+ * be added later than to hand back a taxonomy that needs pruning. */
+const MIN_MEMBERS = 120;
 
 /** Words that are unmistakably about a thing's *substance* rather than its
  * kind — an object isn't a "vintage", it IS vintage. Beyond these, the
@@ -133,7 +138,7 @@ function titleCase(tag: string): string {
 export function discoverEntityTypes(
   objects: DesignObject[],
   existingRoles: Record<string, RoleDefinition>,
-  limit = 24
+  limit = 8
 ): EntityTypeProposal[] {
   if (objects.length === 0) return [];
 

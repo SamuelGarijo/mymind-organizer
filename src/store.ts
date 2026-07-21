@@ -287,6 +287,21 @@ type State = {
    * been semantically wrong (palette colours written into Tone, 2026-07-21
    * §8), its work can be surgically undone. Returns how many were cleared. */
   revertProviderFills: (fieldName: string, providerId: string) => number;
+  /** Renames an entity type everywhere: its definition, every object
+   * carrying it, and any tag promoted into one of its fields. */
+  renameRole: (from: string, to: string) => void;
+  /** Folds one entity type into another (Samuel, 2026-07-21: "photos" and
+   * "author photographies" were the same kind twice). Objects move to the
+   * survivor, whose field package absorbs any property the absorbed type
+   * had and it didn't — nothing that was already described stops being
+   * described. The absorbed definition is then dropped. */
+  mergeRoles: (from: string, into: string) => void;
+  /** Demotes an entity type to a VALUE of a property — the fix for the
+   * commonest discovery mistake, where an attribute ("Residential",
+   * "German") became a species. Every object typed `roleName` gets
+   * `fieldName = roleName` instead, and is either re-typed to `newRole` or
+   * left untyped. The definition is removed. */
+  demoteRoleToValue: (roleName: string, fieldName: string, newRole: string | null) => void;
   /** Renames a field on one role AND migrates every carrier: object values
    * re-keyed, provenance re-keyed, tag promotions re-pointed, primaryFacets
    * updated. Values are shared vocabulary, so the rename is scoped to
@@ -1286,6 +1301,112 @@ export const useStore = create<State>()(
         );
         if (ids.length > 0) s.clearFieldValues(ids, fieldName);
         return ids.length;
+      },
+
+      renameRole: (from, to) => {
+        const trimmed = to.trim();
+        if (!trimmed || norm(from) === norm(trimmed)) return;
+        get().pushUndo(`rename ${from} to ${trimmed}`);
+        set((s) => {
+          const fromKey = norm(from);
+          const def = s.roles[fromKey];
+          if (!def) return {};
+          const { [fromKey]: _gone, ...rest } = s.roles;
+          const roles = { ...rest, [norm(trimmed)]: { ...def, name: trimmed } };
+          const objects = { ...s.objects };
+          for (const [id, o] of Object.entries(objects)) {
+            if (o.role && norm(o.role) === fromKey) objects[id] = { ...o, role: trimmed };
+          }
+          return { roles, objects };
+        });
+      },
+
+      mergeRoles: (from, into) => {
+        if (norm(from) === norm(into)) return;
+        get().pushUndo(`merge ${from} into ${into}`);
+        set((s) => {
+          const fromKey = norm(from);
+          const intoKey = norm(into);
+          const fromDef = s.roles[fromKey];
+          const intoDef = s.roles[intoKey];
+          if (!fromDef || !intoDef) return {};
+
+          // The survivor keeps its own fields and gains anything only the
+          // absorbed type described — a merge must not lose a property.
+          const have = new Set(intoDef.fields.map((f) => norm(f.name)));
+          const fields = [...intoDef.fields, ...fromDef.fields.filter((f) => !have.has(norm(f.name)))];
+          const { [fromKey]: _gone, ...rest } = s.roles;
+          const roles = { ...rest, [intoKey]: { ...intoDef, fields } };
+
+          const objects = { ...s.objects };
+          for (const [id, o] of Object.entries(objects)) {
+            if (o.role && norm(o.role) === fromKey) objects[id] = { ...o, role: intoDef.name };
+          }
+          return { roles, objects };
+        });
+      },
+
+      demoteRoleToValue: (roleName, fieldName, newRole) => {
+        get().pushUndo(`turn ${roleName} into a ${fieldName}`);
+        set((s) => {
+          const key = norm(roleName);
+          const def = s.roles[key];
+          if (!def) return {};
+          const { [key]: _gone, ...roles } = s.roles;
+
+          const objects = { ...s.objects };
+          const now = new Date().toISOString();
+          for (const [id, o] of Object.entries(objects)) {
+            if (!o.role || norm(o.role) !== key) continue;
+            const current = o.fields[fieldName];
+            const arr = Array.isArray(current) ? current : current ? [current] : [];
+            const next = arr.includes(def.name) ? arr : [...arr, def.name];
+            objects[id] = {
+              ...o,
+              role: newRole ?? undefined,
+              fields: { ...o.fields, [fieldName]: next.length === 1 ? next[0] : next },
+              updatedAt: now,
+            };
+          }
+
+          const nextRoles: Record<string, RoleDefinition> = { ...roles };
+
+          // The type these objects move to must actually exist, or they'd
+          // claim a role with no definition and render no properties at all.
+          if (newRole) {
+            const newKey = norm(newRole);
+            if (!nextRoles[newKey]) {
+              nextRoles[newKey] = {
+                name: newRole.trim(),
+                fields: CURATED_ROLE_FIELDS[newKey] ?? [],
+              };
+            }
+            // And it must declare the property we just moved the value into.
+            const host = nextRoles[newKey];
+            if (!host.fields.some((f) => norm(f.name) === norm(fieldName))) {
+              nextRoles[newKey] = {
+                ...host,
+                fields: [...host.fields, { name: fieldName, type: "select", options: [] }],
+                primaryFacets: [...(host.primaryFacets ?? []), fieldName].slice(0, 5),
+              };
+            }
+          }
+
+          // The value needs to exist as an option wherever that property is
+          // declared, or it can't be filtered or dropped onto.
+          for (const [k, d] of Object.entries(nextRoles)) {
+            if (!d.fields.some((f) => norm(f.name) === norm(fieldName))) continue;
+            nextRoles[k] = {
+              ...d,
+              fields: d.fields.map((f) =>
+                norm(f.name) === norm(fieldName) && !(f.options ?? []).includes(def.name)
+                  ? { ...f, options: [...(f.options ?? []), def.name] }
+                  : f
+              ),
+            };
+          }
+          return { roles: nextRoles, objects };
+        });
       },
 
       renameRoleField: (roleName, oldName, newName) =>

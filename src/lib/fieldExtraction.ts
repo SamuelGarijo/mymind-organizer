@@ -8,6 +8,7 @@ import {
   asFieldString,
 } from "./mymindSync";
 import { domainOf } from "./objectKind";
+import { isFormWord } from "./formVocabulary";
 import { norm } from "./textNorm";
 
 /**
@@ -589,6 +590,68 @@ function tally(proposals: Proposal[]): VocabularyEntry[] {
   return Array.from(counts.entries())
     .map(([value, count]) => ({ value, count }))
     .sort((a, b) => b.count - a.count);
+}
+
+/**
+ * What a property with NO declared options could be filled from — the
+ * distinctive vocabulary already sitting in its own members' tags.
+ *
+ * This closes a chicken-and-egg that made empty properties permanently
+ * empty (Samuel, 2026-07-21): `tag-vocabulary` matches tags against a
+ * field's DECLARED options, so a Photographer field with no options
+ * matched nothing — while `#Todd Hido`, `#Henry Wessel Jr.` and
+ * `#Bernd and Hilla Becher` sat right there on the objects. The property
+ * stayed empty because it had no vocabulary, and had no vocabulary
+ * because nothing proposed one.
+ *
+ * "Distinctive" means lift against the whole archive, not raw frequency:
+ * a tag on every object in the library says nothing about these ones. The
+ * shared FORM vocabulary decides which side to look at — a Style field
+ * wants look-words, a Photographer field wants everything else.
+ */
+export function proposeOptionsFromMembers(
+  members: DesignObject[],
+  archive: DesignObject[],
+  fieldName: string,
+  limit = 12
+): VocabularyEntry[] {
+  if (members.length === 0 || archive.length === 0) return [];
+  const wantsFormWords = /^(style|tone|mood|look|aesthetic|era|period)$/i.test(fieldName.trim());
+
+  const inGroup = new Map<string, { display: string; count: number }>();
+  for (const object of members) {
+    for (const tag of new Set(object.tags.map((t) => t))) {
+      if (isFormWord(tag) !== wantsFormWords) continue;
+      const key = norm(tag);
+      const entry = inGroup.get(key);
+      if (entry) entry.count++;
+      else inGroup.set(key, { display: tag, count: 1 });
+    }
+  }
+  if (inGroup.size === 0) return [];
+
+  const archiveCounts = new Map<string, number>();
+  for (const object of archive) {
+    for (const key of new Set(object.tags.map(norm))) {
+      archiveCounts.set(key, (archiveCounts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const scored: { value: string; count: number; lift: number }[] = [];
+  for (const [key, { display, count }] of inGroup) {
+    // A value carried by one member of twenty is anecdote, not vocabulary
+    // — but in a small group two is already a pattern.
+    if (count < Math.max(2, Math.round(members.length * 0.04))) continue;
+    const groupRate = count / members.length;
+    const archiveRate = (archiveCounts.get(key) ?? count) / archive.length;
+    const lift = archiveRate > 0 ? groupRate / archiveRate : 0;
+    if (lift < 2) continue;
+    scored.push({ value: display, count, lift });
+  }
+  return scored
+    .sort((a, b) => b.lift - a.lift || b.count - a.count)
+    .slice(0, limit)
+    .map(({ value, count }) => ({ value, count }));
 }
 
 /** Colour vocabulary in a stable, readable order rather than by frequency —

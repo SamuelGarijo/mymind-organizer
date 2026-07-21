@@ -16,7 +16,7 @@ import { colorForGroup } from "../lib/tagGroupColor";
 import { TOLERANCE_MAX, TOLERANCE_MIN, type ColorFilter } from "../lib/colorSearch";
 import { ITEM_TYPE_GROUP, rankableFacetColumns } from "../lib/grouping";
 import { makeId } from "../lib/id";
-import { pluralizeRole } from "./CollectionLedger";
+import { roleWord } from "./CollectionLedger";
 import type { DesignObject, FacetField, FilterCondition } from "../types";
 
 type Category = "tag" | "type" | "role" | "field" | "color" | "group";
@@ -187,7 +187,7 @@ export function TopBar({
       key: "role",
       // Plain words, matching the ledger's "Here you can find" (2026-07-21)
       // — the chip reads "only typographies", never a schema noun.
-      label: `only ${pluralizeRole(roleFilter)}`,
+      label: `only ${roleWord(roleFilter)}`,
       tone: "include",
       onRemove: () => setRoleFilter(""),
     });
