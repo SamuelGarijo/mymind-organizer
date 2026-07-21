@@ -147,6 +147,21 @@ type State = {
   detailViewMode: DetailViewMode;
 
   importObjects: (objs: DesignObject[], tagGroupHints?: TagGroups) => void;
+  /** Re-keys locally imported objects to the ids mymind gave them after a
+   * push (lib/pushToMymind).
+   *
+   * This is the whole of "sin duplicar el objeto" on our side. The store is
+   * keyed by `id` and `syncMymindObjects` upserts by mymind's id, so an
+   * object left under `local_xxx` while its twin exists upstream comes back
+   * down on the next sync as a SECOND card — permanently, because we can
+   * never delete the mymind side. Re-keying makes the next sync an update
+   * of this exact object instead, which is also how mymind's autotags land
+   * on it rather than on a stranger.
+   *
+   * Everything local rides along: tags, collection membership, field values
+   * and the local_asset pointer, so the imported image keeps rendering
+   * until mymind has its own thumbnail. */
+  adoptMymindObjects: (pairs: { localId: string; mymindId: string }[]) => void;
   /** Upserts objects synced from mymind. Unlike importObjects (JSON import,
    * a full replace), this preserves manualCollectionIds and createdAt across
    * re-syncs — local curation and first-seen time are ours. Tags are merged
@@ -852,6 +867,47 @@ export const useStore = create<State>()(
       selectedObjectIds: new Set(),
       selectionAnchorId: null,
       setSelection: (ids, anchorId) => set({ selectedObjectIds: ids, selectionAnchorId: anchorId }),
+
+      adoptMymindObjects: (pairs) =>
+        set((s) => {
+          const objects = { ...s.objects };
+          const fieldProvenance = { ...s.fieldProvenance };
+          const tagPromotions = { ...s.tagPromotions };
+          const localUserTags = { ...s.localUserTags };
+          let changed = false;
+
+          for (const { localId, mymindId } of pairs) {
+            const object = objects[localId];
+            if (!object || !mymindId || localId === mymindId) continue;
+            // If a sync already brought this id down, keep that copy and
+            // just drop the local twin — the whole point is one card.
+            const existing = objects[mymindId];
+            delete objects[localId];
+            objects[mymindId] = {
+              ...(existing ?? {}),
+              ...object,
+              id: mymindId,
+              source: "mymind",
+              fields: { ...object.fields, mymind_id: mymindId },
+            };
+            // These three are keyed by object id too; a fresh import rarely
+            // has any, but moving the object without them would strand
+            // provenance on an id nothing points at any more.
+            for (const [map, src] of [
+              [fieldProvenance, s.fieldProvenance],
+              [tagPromotions, s.tagPromotions],
+              [localUserTags, s.localUserTags],
+            ] as const) {
+              const carried = (src as Record<string, unknown>)[localId];
+              if (carried === undefined) continue;
+              (map as Record<string, unknown>)[mymindId] = carried;
+              delete (map as Record<string, unknown>)[localId];
+            }
+            changed = true;
+          }
+
+          return changed ? { objects, fieldProvenance, tagPromotions, localUserTags } : {};
+        }),
 
       importObjects: (objs, tagGroupHints) =>
         set((s) => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useStore } from "../store";
+import { allObjectsOf, useStore } from "../store";
 import { arenaChannelSlug, importFiles, importUrl, type ImportResult } from "../lib/importSomething";
+import { describePush, PUSH_LIMIT, pushImported } from "../lib/pushToMymind";
 
 /**
  * "+ ADD Something" — one door for everything that didn't come from mymind
@@ -47,6 +48,21 @@ export function AddSomethingModal({
       }. They have no kind yet — Classify is where they get one.`
     );
     onClose();
+
+    // Then, and only then, mymind — so the import is never held hostage to
+    // a network call. Everything is already in the archive and usable by
+    // the time this starts; when the ids come back the objects are re-keyed
+    // underneath, which is invisible except that they stop being local.
+    //
+    // Capped at PUSH_LIMIT (Samuel's call): nothing sent here can be undone
+    // by this app — only he can remove it, from mymind — so a wrong board
+    // costs 20 objects to clear, not 500.
+    void pushImported(result.objects, allObjectsOf(useStore.getState().objects)).then((outcome) => {
+      if (outcome.adopted.length === 0 && outcome.skipped.length === 0) return;
+      const after = useStore.getState();
+      after.adoptMymindObjects(outcome.adopted);
+      after.setFlashNotice(describePush(outcome));
+    });
   }
 
   async function takeFiles(files: File[]) {
@@ -94,8 +110,8 @@ export function AddSomethingModal({
       <div className="relative w-full max-w-md rounded-2xl border border-line bg-panel p-4 shadow-cardHover">
         <div className="text-sm text-ink">Add something</div>
         <p className="mt-0.5 font-mono text-[11px] text-muted">
-          Files from your machine, a link, or an Are.na board. Stays local — never sent to
-          mymind.
+          Files from your machine, a link, or an Are.na board. The first {PUSH_LIMIT} go to
+          mymind too, for its tagging — the rest stay local.
         </p>
 
         <div

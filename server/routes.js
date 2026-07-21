@@ -2,6 +2,7 @@ import express from "express";
 import { Readable } from "node:stream";
 import {
   addTag,
+  createObject,
   createNote,
   fetchObjects,
   getMymindResource,
@@ -42,6 +43,68 @@ router.get("/objects", async (req, res) => {
     sendError(res, err);
   }
 });
+
+/**
+ * POST /api/mymind/objects        { url, title?, tags? }
+ * POST /api/mymind/objects/upload  raw bytes  ?filename=&type=&title=
+ *
+ * Creates an object in mymind, so things added from the desktop or from an
+ * Are.na board get mymind's own autotagging and analysis instead of sitting
+ * in a local island (Samuel, 2026-07-21 — the explicit grant that widened
+ * this proxy's write scope beyond tags/notes/content for the first time).
+ *
+ * Still never DELETE. That asymmetry is the whole reason the caller caps a
+ * push at 20 objects: everything created here is permanent from our side
+ * and can only be removed by Samuel, from mymind itself.
+ *
+ * De-duplication is mymind's, not ours: an identical URL or byte-identical
+ * upload returns the EXISTING object with 200 instead of 201. The response
+ * says which happened so the UI can tell "added" from "already there".
+ */
+router.post("/objects", async (req, res) => {
+  const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+  if (!url) {
+    res.status(400).json({ type: "BadRequest", status: 400, detail: "`url` is required" });
+    return;
+  }
+  try {
+    const { object, created } = await createObject({
+      url,
+      title: typeof req.body?.title === "string" ? req.body.title : undefined,
+      tags: Array.isArray(req.body?.tags) ? req.body.tags.filter((t) => typeof t === "string") : [],
+    });
+    res.status(created ? 201 : 200).json({ id: object?.id, created, object });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Raw bytes rather than multipart or base64: multipart would mean a new
+// dependency to parse it, and base64 inflates a 40MB image to ~54MB of JSON
+// for no gain. The metadata that would have travelled in the form ride
+// along as query parameters instead.
+router.post(
+  "/objects/upload",
+  express.raw({ type: () => true, limit: "64mb" }),
+  async (req, res) => {
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ type: "BadRequest", status: 400, detail: "empty body" });
+      return;
+    }
+    try {
+      const { object, created } = await createObject({
+        blob: body,
+        filename: typeof req.query.filename === "string" ? req.query.filename : "upload",
+        mimeType: typeof req.query.type === "string" ? req.query.type : undefined,
+        title: typeof req.query.title === "string" ? req.query.title : undefined,
+      });
+      res.status(created ? 201 : 200).json({ id: object?.id, created, object });
+    } catch (err) {
+      sendError(res, err);
+    }
+  }
+);
 
 // POST /api/mymind/objects/:id/tags  { name: string }
 // Adds a single manual tag — never DELETE, never PATCH.

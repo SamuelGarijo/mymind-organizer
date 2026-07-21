@@ -949,7 +949,7 @@ export function Sidebar({
         <button
           onClick={onAddSomething}
           className="w-full mb-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-line text-muted hover:text-ink hover:border-accent/50 hover:bg-line/25 font-mono text-[12px] transition-colors"
-          title="Files from your machine, a link, or an Are.na board. Stays local — never sent to mymind."
+          title="Files from your machine, a link, or an Are.na board. The first 20 also go to mymind, for its tagging."
         >
           <span aria-hidden>+</span> Add something
         </button>

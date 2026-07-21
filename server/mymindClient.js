@@ -274,3 +274,82 @@ export async function updateContent(objectId, body) {
   const url = buildUrl(`/objects/${objectId}/content`);
   await rawBodyRequest("PUT", url, body, "text/markdown");
 }
+
+/**
+ * Creates an object in mymind from a URL or from uploaded bytes.
+ *
+ * NEW WRITE SCOPE, granted explicitly by Samuel on 2026-07-21: "estaría
+ * bien que lo que añadimos desde arena o desde nuestro pc se mande a mymind
+ * para un mínimo de autotagging y análisis, pero sin duplicar el objeto."
+ * Until that message this proxy could add a tag, write a note and replace a
+ * Note's content, and nothing else. It can now also create — and still
+ * never delete, which is the asymmetry that shapes everything below.
+ *
+ * Two things make this safe enough to do automatically:
+ *
+ * 1. mymind de-duplicates upstream. Per the spec: "If the body resolves to
+ *    an existing object (same URL, content, or byte-identical upload), the
+ *    API returns the existing object with a refreshed `bumped` timestamp
+ *    and 200 OK instead of 201 Created." So pushing the same thing twice
+ *    cannot produce two objects — re-importing a board is idempotent on
+ *    mymind's side, not just ours.
+ * 2. The caller caps how many go per import, because we cannot undo a
+ *    single one of them.
+ *
+ * Returns `{ object, created }` — `created` distinguishes 201 from the
+ * de-duplicated 200, which is worth saying out loud in the UI: "3 added, 14
+ * already there" is a different sentence from "17 added".
+ */
+export async function createObject({ url: sourceUrl, blob, filename, mimeType, title, tags }) {
+  const endpoint = buildUrl("/objects");
+
+  if (blob) {
+    // multipart/form-data with a `metadata` JSON part and a `blob` binary
+    // part, per the spec. FormData sets its own boundary, so the
+    // Content-Type must NOT be pinned here.
+    const form = new FormData();
+    const metadata = {};
+    if (title) metadata.title = title;
+    if (Array.isArray(tags) && tags.length > 0) metadata.tags = tags;
+    form.append("metadata", JSON.stringify(metadata));
+    form.append("blob", new Blob([blob], { type: mimeType || "application/octet-stream" }), filename || "upload");
+
+    let attempt = 0;
+    while (true) {
+      const jwt = signMymindRequest("POST", endpoint.pathname);
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          "User-Agent": USER_AGENT,
+          Accept: "application/json",
+        },
+        body: form,
+      });
+      if (res.status === 429 && attempt < 4) {
+        await sleep(backoffDelayMs(res.headers, attempt));
+        attempt += 1;
+        continue;
+      }
+      if (!res.ok) {
+        let problem = null;
+        try {
+          problem = await res.json();
+        } catch {
+          /* status carries the failure */
+        }
+        throw new MymindApiError(res.status, problem);
+      }
+      return { object: await res.json(), created: res.status === 201 };
+    }
+  }
+
+  if (!sourceUrl) {
+    throw new MymindApiError(400, { detail: "createObject needs a url or a blob" });
+  }
+  const body = { url: sourceUrl };
+  if (title) body.title = title;
+  if (Array.isArray(tags) && tags.length > 0) body.tags = tags;
+  const res = await postUrl(endpoint, body);
+  return { object: await res.json(), created: res.status === 201 };
+}

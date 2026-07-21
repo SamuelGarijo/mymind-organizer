@@ -56,6 +56,23 @@ the mount-time auto-sync bug below for what that costs in practice.
   - `PUT /objects/:id/content` — a Note's real body (`NOTE_CONTENT_KEY`),
     editable in DetailPanel as of 2026-07-08; 422s server-side for any
     non-Note object, only ever shown in the UI for `entity_type: "Note"`.
+  - `POST /objects` — create from a URL or from uploaded bytes. **New scope,
+    granted explicitly by Samuel 2026-07-21** so things added via "+ ADD
+    Something" get mymind's autotagging instead of staying a local island.
+    Capped at 20 per import (his call) because nothing created can ever be
+    removed from this side.
+    - **The spec's URL de-duplication does not hold.** It claims an
+      identical URL returns the existing object with 200; measured against
+      the real account it returned 201 and a new object. Over there a URL is
+      *provenance*, not identity — many photos saved from one article all
+      carry that article as their source. So a pre-push guard on our side
+      (`alreadyInMymind` in `src/lib/pushToMymind.ts`) is what actually
+      prevents duplicates; don't remove it trusting the spec.
+    - After a push the local object is **re-keyed** to mymind's id
+      (`adoptMymindObjects`), never just annotated with it: the store is
+      keyed by `id` and `syncMymindObjects` upserts by mymind's id, so an
+      object left under `local_*` comes back down as a second card on the
+      next sync — permanently, since we can never delete.
 - **Never call any `DELETE` endpoint against mymind**, full stop — even
   though the API documents idempotent soft-deletes for objects, notes,
   tags, spaces, pins, and links. This is deliberate, explicit project
