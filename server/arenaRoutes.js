@@ -4,6 +4,7 @@ import {
   createBlock,
   createBlockFromBytes,
   createChannel,
+  getChannelContents,
   getMe,
   listMyChannels,
   searchArena,
@@ -190,6 +191,58 @@ arenaRouter.post("/channels/:id/blocks", async (req, res) => {
       originalSourceUrl,
     });
     res.status(201).json(block);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** Are.na returns block text as a string on some types and as
+ * {markdown|text} on others. One shape out. */
+function asText(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    if (typeof value.markdown === "string") return value.markdown;
+    if (typeof value.text === "string") return value.text;
+  }
+  return "";
+}
+
+// GET /api/arena/channel/:slug — a board's blocks, for "+ ADD Something".
+// Same compact DTO shape the search route returns, plus the block's own
+// text content: an Are.na channel is as often notes as it is images, and
+// dropping a board in should bring the words too.
+arenaRouter.get("/channel/:slug", async (req, res) => {
+  const slug = String(req.params.slug || "").trim();
+  if (!slug) {
+    res.status(400).json({ type: "BadRequest", status: 400, detail: "`slug` is required" });
+    return;
+  }
+  try {
+    const { channel, blocks, truncated } = await getChannelContents(slug);
+    const mapped = blocks
+      .map((b) => ({
+        id: b.id,
+        title: b.title || b.generated_title || "",
+        // v3 image shape — `image.medium.src`, NOT the `image.large.url`
+        // the /search route above uses. They are genuinely different
+        // payloads and copying the search mapping here produced an image
+        // URL of "" for every single block (caught before shipping,
+        // 2026-07-21). medium first: large enough for a card, a fraction
+        // of the original's bytes.
+        imageUrl: b.image?.medium?.src || b.image?.small?.src || b.image?.src || "",
+        sourceUrl: b.source?.url || "",
+        // Text arrives either as a plain string or as {markdown|text}
+        // depending on block type, so normalise rather than let an object
+        // reach the client and stringify into "[object Object]".
+        content: asText(b.content) || asText(b.description),
+        className: b.class || b.type || "",
+      }))
+      .filter((b) => b.id);
+    res.json({
+      title: channel?.title || slug,
+      blocks: mapped,
+      truncated,
+    });
   } catch (err) {
     sendError(res, err);
   }

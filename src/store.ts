@@ -22,6 +22,7 @@ import { matchesSmartCollection, norm } from "./lib/ruleEngine";
 import type { FacetMode } from "./lib/quickFilter";
 import type { ColorFilter } from "./lib/colorSearch";
 import { createIdbStorage } from "./lib/idbStorage";
+import { LOCAL_ASSET_KEY, loadLocalAssetUrls } from "./lib/localAssets";
 import { loadEmbeddings, saveEmbeddings } from "./lib/embeddingsStorage";
 import { applyCuratedCollectionsSeed } from "./lib/curatedCollectionsSeed";
 import { rankByHybridSimilarity, rankBySimilarityMode } from "./lib/hybridSimilarity";
@@ -2369,6 +2370,28 @@ export const useStore = create<State>()(
       // writes (see its stripEmbeddings replacer) — merge them back in from
       // their own separate store once this rehydration finishes.
       onRehydrateStorage: () => () => {
+        // Object URLs die with the session, so every locally imported
+        // asset gets a fresh one here from the bytes in IndexedDB. The
+        // imageUrl that was persisted alongside the object is a dead
+        // blob: URL by definition — this is the only thing that makes an
+        // imported image survive a relaunch.
+        loadLocalAssetUrls().then((urls) => {
+          if (Object.keys(urls).length === 0 || !storeApi) return;
+          storeApi.setState((s) => {
+            const objects = { ...s.objects };
+            let touched = false;
+            for (const [id, o] of Object.entries(objects)) {
+              const assetId = o.fields[LOCAL_ASSET_KEY];
+              if (typeof assetId !== "string") continue;
+              const url = urls[assetId];
+              if (!url || o.imageUrl === url) continue;
+              objects[id] = { ...o, imageUrl: url };
+              touched = true;
+            }
+            return touched ? { objects } : {};
+          });
+        });
+
         loadEmbeddings().then((map) => {
           if (Object.keys(map).length === 0 || !storeApi) return;
           storeApi.setState((s) => {

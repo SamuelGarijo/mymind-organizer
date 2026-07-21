@@ -624,6 +624,7 @@ export function Sidebar({
   onEditSmart,
   onEditManual,
   onExportArena,
+  onAddSomething,
   prefsOpen,
   onTogglePrefs,
   prefsBody,
@@ -635,6 +636,10 @@ export function Sidebar({
   onEditSmart: (collectionId: string) => void;
   onEditManual: (collectionId: string) => void;
   onExportArena: (collectionId: string) => void;
+  /** "+ ADD Something" — the one door for things that didn't come from
+   * mymind. Top of the bar, above the collections, because it's the verb
+   * that starts everything else in here. */
+  onAddSomething: () => void;
   /** Preferences (issue #128, reworked): App owns the state/handlers and
    * hands the CONTENT here; Sidebar expands it inline inside its own body
    * — settings unfold within the bar itself, never a floating popover. */
@@ -937,6 +942,17 @@ export function Sidebar({
       </div>
 
       <div className="px-3.5 pb-2">
+        {/* Resident, and deliberately so: this is the only affordance in the
+            app whose absence can't be worked around by looking harder. You
+            cannot summon a door you don't know exists. Everything else here
+            stays summoned-on-intent. */}
+        <button
+          onClick={onAddSomething}
+          className="w-full mb-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-line text-muted hover:text-ink hover:border-accent/50 hover:bg-line/25 font-mono text-[12px] transition-colors"
+          title="Files from your machine, a link, or an Are.na board. Stays local — never sent to mymind."
+        >
+          <span aria-hidden>+</span> Add something
+        </button>
         <CondensedControls
           viewMode={state.viewMode}
           setViewMode={state.setViewMode}

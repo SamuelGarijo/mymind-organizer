@@ -25,11 +25,15 @@ export type DesignObject = {
    * tagGroups. */
   tagFlags?: Record<string, number>;
   /** Where this object came from: locally imported test data ("sample"),
-   * a real mymind sync ("mymind"), or an external discovery import
-   * ("arena" — via the Are.na search API; "external" — a pasted URL).
-   * Optional because objects created before this field existed lack it —
-   * treat fields.mymind_id as the tiebreaker. */
-  source?: "sample" | "mymind" | "arena" | "external";
+   * a real mymind sync ("mymind"), an external discovery import ("arena" —
+   * via the Are.na API; "external" — a pasted URL), or something Samuel
+   * added himself from his own machine ("local" — "+ ADD Something", bytes
+   * in lib/localAssets). Optional because objects created before this field
+   * existed lack it — treat fields.mymind_id as the tiebreaker.
+   *
+   * Anything that isn't "mymind" is invisible to reconcileMymindDeletions,
+   * which is what keeps a resync from ever deleting Samuel's own imports. */
+  source?: "sample" | "mymind" | "arena" | "external" | "local";
   /** Discovery provenance (bottom membrane, external discovery): HOW this
    * object was found, not just where it points. Organizer remembers the
    * query and the context objects the discovery grew from. */

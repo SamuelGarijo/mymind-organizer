@@ -222,3 +222,35 @@ export async function createBlockFromBytes({
     originalSourceUrl,
   });
 }
+
+/**
+ * GET /v3/channels/{slug}/contents — a channel's blocks, for the "+ ADD
+ * Something" importer (Samuel, 2026-07-21: "desde un board de Are.na").
+ *
+ * Reads only, like every other GET here. Paginated and bounded at 5 pages
+ * (≤500 blocks): a channel bigger than that is a library, not a board, and
+ * importing it silently over a dozen requests is not what "drop a board in"
+ * means. The caller is told what it capped at.
+ *
+ * Nested channels inside a channel are skipped rather than recursed — one
+ * paste should import one board, not a tree whose size can't be seen.
+ */
+export async function getChannelContents(slug) {
+  const channel = await arenaFetch(`/channels/${encodeURIComponent(slug)}`, { method: "GET" });
+  const blocks = [];
+  let truncated = false;
+  for (let page = 1; page <= 5; page++) {
+    const res = await arenaFetch(
+      `/channels/${encodeURIComponent(slug)}/contents?per=100&page=${page}`,
+      { method: "GET" }
+    );
+    const items = Array.isArray(res?.data) ? res.data : [];
+    for (const it of items) {
+      if (!it || it.type === "Channel") continue;
+      blocks.push(it);
+    }
+    if (!res?.meta?.has_more_pages) break;
+    if (page === 5) truncated = true;
+  }
+  return { channel, blocks, truncated };
+}

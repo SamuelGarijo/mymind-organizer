@@ -8,6 +8,7 @@ import { Grid } from "./components/Grid";
 import { Table } from "./components/Table";
 import { DetailPanel } from "./components/DetailPanel";
 import { DetailCarousel } from "./components/DetailCarousel";
+import { AddSomethingModal } from "./components/AddSomethingModal";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { TopBar } from "./components/TopBar";
@@ -328,6 +329,9 @@ export default function App() {
   const confirm = useStore((s) => s.pendingConfirm);
   const setConfirm = useStore((s) => s.requestConfirm);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  /** "+ ADD Something". `null` = closed; an array (possibly empty) = open,
+   * holding whatever was dropped on the window. */
+  const [addFiles, setAddFiles] = useState<File[] | null>(null);
   // Which of the active role's primary facets the classify panel is folding
   // by — lives here (not in the panel) because the main grid's reservoir
   // ("things with no value for THIS facet yet") depends on it too.
@@ -440,6 +444,35 @@ export default function App() {
       sessionStorage.removeItem(RESTORE_NOTICE_KEY);
       setRestoreNotice(true);
     }
+  }, []);
+
+  // Dropping files from the desktop anywhere in the window opens the door
+  // holding them (Samuel, 2026-07-21). Guarded on the "Files" dataTransfer
+  // type so it never fires for the app's OWN drags — cards onto folders,
+  // values, piles and channels all carry DRAG_MIME and no files, and
+  // hijacking those would break every existing gesture at once.
+  useEffect(() => {
+    function carriesFiles(e: DragEvent) {
+      return Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    }
+    function onDragOver(e: DragEvent) {
+      if (!carriesFiles(e)) return;
+      // Without this the browser navigates away to the dropped file, which
+      // is a spectacular way to lose an unsaved session.
+      e.preventDefault();
+    }
+    function onDrop(e: DragEvent) {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length > 0) setAddFiles(files);
+    }
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
   }, []);
 
   // ⌘J toggles the Workbench — the bench and the classify panel share the
@@ -1105,6 +1138,7 @@ export default function App() {
         onEditSmart={(collectionId) => setModal({ kind: "smart", collectionId })}
         onEditManual={(collectionId) => setModal({ kind: "manual", collectionId })}
         onExportArena={(collectionId) => setArenaExportId(collectionId)}
+        onAddSomething={() => setAddFiles([])}
         prefsOpen={prefsOpen}
         onTogglePrefs={() => setPrefsOpen((v) => !v)}
         prefsBody={prefsBody}
@@ -1619,6 +1653,9 @@ export default function App() {
           currentId={state.carouselObjectId}
           onClose={state.closeCarousel}
         />
+      )}
+      {addFiles !== null && (
+        <AddSomethingModal initialFiles={addFiles} onClose={() => setAddFiles(null)} />
       )}
       {modal?.kind === "smart" && (
         <SmartCollectionModal

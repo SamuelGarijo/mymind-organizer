@@ -70,7 +70,15 @@ export const Card = memo(function Card({
   // Content…). An Image whose thumbnail merely failed to load must NOT
   // masquerade as a note — that made "Type: Image" look broken (real
   // confusion, 2026-07-19); it gets an honest muted placeholder instead.
-  const isTextOnly = !object.imageUrl && !!textPreview;
+  //
+  // The placeholder belongs to that FAILURE case alone. An object with no
+  // imageUrl at all never claimed to have a picture — it's a link or a
+  // note — and giving it an empty 4:3 frame reads as broken rather than as
+  // text (57 Are.na blocks imported as a wall of grey boxes, 2026-07-21).
+  // With no text either, the paper block is skipped too and the card is
+  // just its title, domain and tags: quiet, and true.
+  const hasNoImage = !object.imageUrl;
+  const isTextOnly = hasNoImage;
   // What this thing IS (issue #92) — a Book and an Image both arrive as a
   // cover picture, so the type's own fact (author·year, brand·price,
   // domain, @handle) is what tells them apart. One line, mono, quiet.
@@ -107,18 +115,20 @@ export const Card = memo(function Card({
       data-object-id={object.id}
     >
       {isTextOnly ? (
-        <div
-          className={[
-            "w-full bg-panel rounded-card shadow-card group-hover:shadow-cardHover transition-shadow p-3.5",
-            // A document is a file that happens to have text — it gets a
-            // paper edge (left rule) so it doesn't read as your own note.
-            kind.kind === "document" ? "border-l-2 border-line" : "",
-          ].join(" ")}
-        >
-          <p className="text-[14px] leading-snug text-ink/75 line-clamp-[10] whitespace-pre-line">
-            {textPreview}
-          </p>
-        </div>
+        textPreview ? (
+          <div
+            className={[
+              "w-full bg-panel rounded-card shadow-card group-hover:shadow-cardHover transition-shadow p-3.5",
+              // A document is a file that happens to have text — it gets a
+              // paper edge (left rule) so it doesn't read as your own note.
+              kind.kind === "document" ? "border-l-2 border-line" : "",
+            ].join(" ")}
+          >
+            <p className="text-[14px] leading-snug text-ink/75 line-clamp-[10] whitespace-pre-line">
+              {textPreview}
+            </p>
+          </div>
+        ) : null
       ) : (
         // Floating, near-borderless (design-philosophy: things breathe as
         // pieces on the canvas, not boxed sections) — soft shadow instead
