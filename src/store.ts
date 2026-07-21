@@ -282,6 +282,20 @@ type State = {
    * change — a lens you pick up, not a stored mode. */
   organizeBy: string | null;
   setOrganizeBy: (field: string | null) => void;
+  /** Editorial blurbs for the chapters of an "Organize by" page —
+   * `${norm(role)}::${norm(field)}::${norm(value)}` → prose. The organized
+   * page is meant to read as something publishable (Samuel, 2026-07-21),
+   * and a chapter opener without a sentence under it is a heading, not an
+   * essay. Local-only and persisted, keyed by MEANING rather than by
+   * collection, so the same "Serif" chapter carries its text into every
+   * collection where Serif typographies appear. */
+  sectionDescriptions: Record<string, string>;
+  setSectionDescription: (
+    roleName: string,
+    fieldName: string,
+    value: string,
+    text: string
+  ) => void;
   /** The app-voiced replacement for window.confirm (banned — Samuel,
    * 2026-07-20): any component can request one; App renders the single
    * ConfirmDialog. Transient, never persisted. Reserved for genuinely
@@ -598,6 +612,7 @@ type PersistedState = Pick<
   | "localUserTags"
   | "fieldProvenance"
   | "tagPromotions"
+  | "sectionDescriptions"
   | "sidebarCollapsed"
 >;
 
@@ -1018,6 +1033,18 @@ export const useStore = create<State>()(
       justCreatedFieldName: null,
       organizeBy: null,
       setOrganizeBy: (field) => set({ organizeBy: field }),
+
+      sectionDescriptions: {},
+      setSectionDescription: (roleName, fieldName, value, text) =>
+        set((s) => {
+          const key = `${norm(roleName)}::${norm(fieldName)}::${norm(value)}`;
+          const trimmed = text.trim();
+          if (!trimmed) {
+            const { [key]: _cleared, ...rest } = s.sectionDescriptions;
+            return { sectionDescriptions: rest };
+          }
+          return { sectionDescriptions: { ...s.sectionDescriptions, [key]: trimmed } };
+        }),
       pendingConfirm: null,
       requestConfirm: (confirm) => set({ pendingConfirm: confirm }),
       clearConfirm: () => set({ pendingConfirm: null }),
@@ -1845,6 +1872,7 @@ export const useStore = create<State>()(
         localUserTags: state.localUserTags,
         fieldProvenance: state.fieldProvenance,
         tagPromotions: state.tagPromotions,
+        sectionDescriptions: state.sectionDescriptions,
         sidebarCollapsed: state.sidebarCollapsed,
       }),
       // Embeddings are deliberately excluded from what idbStorage actually

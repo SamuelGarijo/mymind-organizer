@@ -5,6 +5,7 @@ import { orderedFacetBuckets } from "../lib/primaryFacets";
 import { UNGROUPED_LABEL } from "../lib/grouping";
 import { assignMasonryColumns, columnsForWidth, GRID_GAP } from "../lib/masonry";
 import { norm } from "../lib/textNorm";
+import { useStore } from "../store";
 
 /**
  * "Organize by" (§9, 2026-07-21) — the collection rebuilt as a long
@@ -51,6 +52,7 @@ type Section = {
 export function OrganizeView({
   objects,
   field,
+  roleName,
   tagFrequency,
   onOpen,
   zoom = 0,
@@ -59,6 +61,8 @@ export function OrganizeView({
    * entity type's objects). */
   objects: DesignObject[];
   field: FacetField;
+  /** Scopes the per-chapter notes — see store.sectionDescriptions. */
+  roleName: string;
   tagFrequency: Map<string, number>;
   onOpen: (id: string) => void;
   zoom?: number;
@@ -68,6 +72,9 @@ export function OrganizeView({
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [current, setCurrent] = useState<string | null>(null);
+  const [editingDescription, setEditingDescription] = useState<string | null>(null);
+  const sectionDescriptions = useStore((s) => s.sectionDescriptions);
+  const setSectionDescription = useStore((s) => s.setSectionDescription);
 
   const sections: Section[] = useMemo(() => {
     const buckets = orderedFacetBuckets(objects, field).map((b) => ({
@@ -101,8 +108,6 @@ export function OrganizeView({
     }
     return ordered;
   }, [objects, field]);
-
-  const classified = objects.length - (sections.find((s) => s.label === LABEL_NOT_CLASSIFIED)?.objects.length ?? 0);
 
   const columnCount = Math.max(1, Math.min(8, columnsForWidth(containerWidth) + zoom));
   const columnWidth = (containerWidth - (columnCount - 1) * GRID_GAP) / columnCount;
@@ -191,20 +196,21 @@ export function OrganizeView({
       </nav>
 
       <div ref={containerRef} className="flex-1 min-w-0">
-        {/* §11: coverage as a fact, stated once at the top. */}
-        <div className="mb-5 font-mono text-[11px] text-muted">
-          {objects.length.toLocaleString()} {field.name.toLowerCase()}-organized ·{" "}
-          {classified.toLocaleString()} classified (
-          {objects.length ? Math.round((classified / objects.length) * 100) : 0}%) ·{" "}
-          {(objects.length - classified).toLocaleString()} not yet
-        </div>
-
-        <div className="space-y-10">
+        {/* No coverage statistics here: "1,199 font-style-organized · 101
+            classified (8%)" was dashboard noise on a page meant to read as
+            a publication (Samuel, 2026-07-21). The same fact is already
+            legible in context — the "Not yet classified" chapter carries
+            its own count, in its own place, at the end. */}
+        <div className="space-y-24">
           {sections.map((section) => {
             const isOpen = expanded.has(section.label);
             const shown = isOpen ? section.objects : section.objects.slice(0, initialCap);
             const columns = assignMasonryColumns(shown, columnCount, columnWidth);
             const hidden = section.objects.length - shown.length;
+            const unclassified = section.label === LABEL_NOT_CLASSIFIED;
+            const descriptionKey = `${norm(roleName)}::${norm(field.name)}::${norm(section.label)}`;
+            const description = sectionDescriptions[descriptionKey] ?? "";
+            const editing = editingDescription === section.label;
             return (
               <section
                 key={section.label}
@@ -213,26 +219,63 @@ export function OrganizeView({
                   if (el) sectionRefs.current.set(section.label, el);
                   else sectionRefs.current.delete(section.label);
                 }}
-                className="scroll-mt-16"
+                className={["scroll-mt-20", section.parent ? "pl-6" : ""].join(" ")}
               >
-                <h2
-                  className={[
-                    "mb-3 flex items-baseline gap-2",
-                    section.parent ? "pl-4" : "",
-                  ].join(" ")}
-                >
-                  <span
-                    className={[
-                      "text-[17px] font-medium tracking-tight",
-                      section.label === LABEL_NOT_CLASSIFIED ? "text-muted italic" : "text-ink",
-                    ].join(" ")}
-                  >
-                    {section.label}
-                  </span>
-                  <span className="font-mono text-[11px] text-muted">
-                    {section.objects.length}
-                  </span>
-                </h2>
+                {/* The chapter opener: a real headline with air above it and
+                    a hairline under, the way a printed section reads. */}
+                <header className="mb-6 pb-3 border-b border-line/70">
+                  <h2 className="flex items-baseline gap-3">
+                    <span
+                      className={[
+                        section.parent ? "text-[22px]" : "text-[30px]",
+                        "font-medium tracking-[-0.02em] leading-tight",
+                        unclassified ? "text-muted/70" : "text-ink",
+                      ].join(" ")}
+                    >
+                      {section.label}
+                    </span>
+                    <span className="font-mono text-[12px] text-muted/70 shrink-0">
+                      {section.objects.length.toLocaleString()}
+                    </span>
+                  </h2>
+
+                  {/* An optional editorial blurb — the thing that turns a
+                      grouped grid into an edited page. Click to write. */}
+                  {editing ? (
+                    <textarea
+                      autoFocus
+                      defaultValue={description}
+                      onBlur={(e) => {
+                        setSectionDescription(roleName, field.name, section.label, e.target.value);
+                        setEditingDescription(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setEditingDescription(null);
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.blur();
+                      }}
+                      rows={2}
+                      placeholder={`What makes ${section.label} worth its own chapter?`}
+                      className="mt-2.5 w-full max-w-2xl resize-none rounded-lg border border-line/70 bg-panel px-3 py-2 text-[14px] leading-relaxed outline-none focus:border-accent/50"
+                    />
+                  ) : description ? (
+                    <button
+                      onClick={() => setEditingDescription(section.label)}
+                      className="mt-2.5 block max-w-2xl text-left text-[14px] leading-relaxed text-ink/70 hover:text-ink"
+                      title="Click to edit this chapter's note"
+                    >
+                      {description}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setEditingDescription(section.label)}
+                      className="mt-2 block font-mono text-[11px] text-muted/50 hover:text-ink transition-colors"
+                      title="Add a note to this chapter"
+                    >
+                      + note
+                    </button>
+                  )}
+                </header>
+
                 <div className="flex items-start" style={{ gap: GRID_GAP }}>
                   {columns.map((column, i) => (
                     <div key={i} className="flex-1 min-w-0 flex flex-col" style={{ gap: GRID_GAP }}>
@@ -248,13 +291,16 @@ export function OrganizeView({
                     </div>
                   ))}
                 </div>
+
                 {hidden > 0 && (
-                  <button
-                    onClick={() => setExpanded((cur) => new Set(cur).add(section.label))}
-                    className="mt-3 font-mono text-[11px] text-muted hover:text-ink hover:underline decoration-dotted underline-offset-2"
-                  >
-                    show all {section.objects.length.toLocaleString()}
-                  </button>
+                  <div className="mt-6 flex justify-center">
+                    <button
+                      onClick={() => setExpanded((cur) => new Set(cur).add(section.label))}
+                      className="font-mono text-[12px] px-5 py-2 rounded-full border border-line hover:border-ink/40 hover:bg-line/25 text-ink/80 hover:text-ink transition-colors"
+                    >
+                      Show all {section.objects.length.toLocaleString()}
+                    </button>
+                  </div>
                 )}
               </section>
             );

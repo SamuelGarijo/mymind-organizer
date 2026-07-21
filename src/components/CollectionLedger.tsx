@@ -55,6 +55,7 @@ export function CollectionLedger({
   roleFilter,
   localUserTags,
   suppressField,
+  showProperties = true,
 }: {
   collection: Collection;
   heroObject?: DesignObject;
@@ -70,6 +71,11 @@ export function CollectionLedger({
    * property in two visual languages is precisely the duplication this
    * refactor set out to remove (Samuel, 2026-07-21). */
   suppressField?: string | null;
+  /** False on the "Organize by" page: that page IS one property, rendered
+   * as chapters, so repeating the property columns here would state the
+   * same thing twice. The entity-type list ("Here you can find") still
+   * renders — it's navigation the published page needs. */
+  showProperties?: boolean;
 }) {
   const state = useStore(
     useShallow((s) => ({
@@ -115,7 +121,8 @@ export function CollectionLedger({
   const orderedPinned: FacetField[] = (activeRole?.primaryFacets ?? [])
     .map((name) => pinnedByName.get(name))
     .filter((f): f is FacetField => Boolean(f))
-    .filter((f) => !suppressField || norm(f.name) !== norm(suppressField));
+    .filter((f) => !suppressField || norm(f.name) !== norm(suppressField))
+    .filter(() => showProperties);
 
   const description = collection.description;
 

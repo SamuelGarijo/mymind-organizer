@@ -1123,12 +1123,21 @@ export default function App() {
                   ))}
                   <span className="flex-1" />
                   <div className="relative">
+                    {/* A real (minimal) button, not a whisper: adding a
+                        property is the gesture that grows this world, and
+                        it sits at the strip's right edge beside the
+                        properties it joins (Samuel, 2026-07-21). */}
                     <button
                       onClick={() => setAddingProperty((v) => !v)}
-                      className="text-muted/60 hover:text-ink transition-colors uppercase tracking-[0.12em] text-[10px]"
+                      className={[
+                        "px-2.5 py-1 rounded-lg border transition-colors",
+                        addingProperty
+                          ? "border-ink/40 bg-line/30 text-ink"
+                          : "border-line text-muted hover:border-ink/30 hover:text-ink hover:bg-line/25",
+                      ].join(" ")}
                       title={`Organize ${activeRole.name} by another property`}
                     >
-                      + property
+                      + Property
                     </button>
                     {addingProperty && (
                       // z-[60] clears the command bar's own dropdowns (z-40)
@@ -1146,13 +1155,33 @@ export default function App() {
                 </div>
               )}
               {organizeField && activeRole ? (
-                <OrganizeView
-                  objects={organizeObjects}
-                  field={organizeField}
-                  tagFrequency={tagFrequency}
-                  onOpen={state.openDetail}
-                  zoom={state.gridZoom}
-                />
+                <>
+                  {/* The organized page carries its own navigation — the
+                      property strip above plus "Here you can find" here —
+                      so the editorial read is self-contained and stays
+                      legible as something publishable, not a view that
+                      only makes sense inside the app's chrome. Property
+                      columns are suppressed: this page IS one property. */}
+                  {view.kind === "collection" && currentCollection && (
+                    <CollectionLedger
+                      collection={currentCollection}
+                      heroObject={heroObject}
+                      objects={baseObjects}
+                      roles={state.roles}
+                      roleFilter={state.roleFilter}
+                      localUserTags={state.localUserTags}
+                      showProperties={false}
+                    />
+                  )}
+                  <OrganizeView
+                    objects={organizeObjects}
+                    field={organizeField}
+                    roleName={activeRole.name}
+                    tagFrequency={tagFrequency}
+                    onOpen={state.openDetail}
+                    zoom={state.gridZoom}
+                  />
+                </>
               ) : (
                 <>
                   {/* The collection's workspace header is CONTENT, not
