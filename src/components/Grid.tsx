@@ -4,21 +4,10 @@ import { Card } from "./Card";
 import { useStore } from "../store";
 import { assignMasonryColumns, columnsForWidth, GRID_GAP } from "../lib/masonry";
 import { groupObjects, ITEM_TYPE_GROUP } from "../lib/grouping";
+import { MarqueeOverlay, useObjectSelection } from "../lib/useObjectSelection";
 
 const INITIAL_COUNT = 80;
 const BATCH_SIZE = 120;
-
-/** Below this many pixels of movement, a mousedown→mouseup on empty
- * background reads as a plain click (clears selection) rather than a
- * marquee (issue #103) — keeps a single-pixel jitter from flashing a
- * selection rectangle. */
-const MARQUEE_THRESHOLD = 4;
-
-type Rect = { x0: number; y0: number; x1: number; y1: number };
-
-function rectsIntersect(a: Rect, b: DOMRect): boolean {
-  return b.left < a.x1 && b.right > a.x0 && b.top < a.y1 && b.bottom > a.y0;
-}
 
 /** Tracks the grid container's real pixel width via ResizeObserver — reacts
  * to both window resizes and sidebar collapse/expand (issue #70), neither of
@@ -87,39 +76,11 @@ export function Grid({
   const sentinelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(containerRef);
-  const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
   const groupByField = groupBy;
 
   useEffect(() => {
     setRenderCount(INITIAL_COUNT);
   }, [viewKey]);
-
-  // A range/marquee selection is only meaningful against the objects
-  // currently on screen — switching views, or regrouping (which reshuffles
-  // visual order into sections), drops any leftover selection rather than
-  // carrying it somewhere it no longer visually corresponds to (same
-  // reasoning as Table's identical effect, issue #98).
-  useEffect(() => {
-    useStore.getState().setSelection(new Set(), null);
-  }, [viewKey, groupByField]);
-
-  // Cmd/Ctrl+A selects every object in the current filtered view (issue
-  // #117), not just what's mounted so far — the whole point is reaching
-  // items that haven't scrolled into range yet, where a marquee can't help.
-  // Selecting doesn't force those cards to render (progressive reveal stays
-  // as-is for perf); they just show selected once they do scroll in.
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a") return;
-      const target = e.target as HTMLElement;
-      if (target.closest("input, textarea, [contenteditable='true']")) return;
-      if (useStore.getState().detailObjectId) return;
-      e.preventDefault();
-      useStore.getState().setSelection(new Set(objects.map((o) => o.id)), null);
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [objects]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -193,83 +154,14 @@ export function Grid({
     [sections, visible]
   );
 
-  // Finder-style click handling (issue #103): plain click opens the object
-  // and drops any selection; Shift ranges from the last plain/Cmd-clicked
-  // anchor to this card in `orderedIds`; Cmd/Ctrl toggles just this card
-  // in/out without touching the rest. Card itself stays modifier-agnostic
-  // and just forwards the event.
-  const handleCardClick = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      const { selectedObjectIds, selectionAnchorId, setSelection } = useStore.getState();
-      if (e.shiftKey) {
-        const anchor = selectionAnchorId ?? id;
-        const anchorIdx = orderedIds.indexOf(anchor);
-        const targetIdx = orderedIds.indexOf(id);
-        if (anchorIdx === -1 || targetIdx === -1) {
-          setSelection(new Set([id]), id);
-          return;
-        }
-        const [start, end] =
-          anchorIdx <= targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx];
-        setSelection(new Set(orderedIds.slice(start, end + 1)), anchor);
-        return;
-      }
-      if (e.metaKey || e.ctrlKey) {
-        const next = new Set(selectedObjectIds);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        setSelection(next, id);
-        return;
-      }
-      setSelection(new Set(), null);
-      onOpen(id);
-    },
-    [orderedIds, onOpen]
-  );
-
-  // Rectangle multi-select over empty grid background (issue #103). Global
-  // mousemove/mouseup listeners (not React handlers) so the drag keeps
-  // tracking even once the cursor leaves the grid's own bounds — very
-  // common with a fast marquee gesture. Scoped to card hit-testing via each
-  // card's own `data-object-id` + getBoundingClientRect, since only
-  // currently-mounted cards (see the batched-render comment above) can be
-  // selected this way — matches how any virtualized grid's selection works.
-  const handleMarqueeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("[data-object-id]")) return;
-    const start = { x: e.clientX, y: e.clientY };
-    let didDrag = false;
-    const onMove = (ev: MouseEvent) => {
-      const rect: Rect = {
-        x0: Math.min(start.x, ev.clientX),
-        y0: Math.min(start.y, ev.clientY),
-        x1: Math.max(start.x, ev.clientX),
-        y1: Math.max(start.y, ev.clientY),
-      };
-      if (!didDrag && rect.x1 - rect.x0 < MARQUEE_THRESHOLD && rect.y1 - rect.y0 < MARQUEE_THRESHOLD) {
-        return;
-      }
-      didDrag = true;
-      setMarqueeRect(rect);
-      const ids = new Set<string>();
-      containerRef.current?.querySelectorAll("[data-object-id]").forEach((el) => {
-        if (rectsIntersect(rect, el.getBoundingClientRect())) {
-          ids.add((el as HTMLElement).dataset.objectId!);
-        }
-      });
-      useStore.getState().setSelection(ids, null);
-    };
-    const onUp = () => {
-      // Never crossed the movement threshold — a plain click on empty
-      // background, not a drag. Finder clears the selection for that too.
-      if (!didDrag) useStore.getState().setSelection(new Set(), null);
-      setMarqueeRect(null);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, []);
+  // Finder-style selection (shift-range / cmd-toggle / marquee / ⌘A) —
+  // one shared implementation, see lib/useObjectSelection.
+  const { handleCardClick, handleMarqueeMouseDown, marqueeRect } = useObjectSelection({
+    orderedIds,
+    onOpen,
+    containerRef,
+    resetKey: `${viewKey}::${groupByField ?? ""}`,
+  });
 
   if (objects.length === 0) {
     return (
@@ -340,17 +232,7 @@ export function Grid({
           for more
         </div>
       )}
-      {marqueeRect && (
-        <div
-          className="fixed border border-accent bg-accent/10 pointer-events-none z-50"
-          style={{
-            left: marqueeRect.x0,
-            top: marqueeRect.y0,
-            width: marqueeRect.x1 - marqueeRect.x0,
-            height: marqueeRect.y1 - marqueeRect.y0,
-          }}
-        />
-      )}
+      <MarqueeOverlay rect={marqueeRect} />
     </>
   );
 }

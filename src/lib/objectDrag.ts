@@ -56,15 +56,60 @@ export function applyDragGhost(e: React.DragEvent, count: number) {
   setTimeout(() => ghost.remove(), 0);
 }
 
+/** Pointer must come within this many pixels of the left edge before a
+ * drag reveals the collapsed sidebar — the reveal answers an intent
+ * ("I'm heading for a collection"), it isn't a side effect of picking
+ * anything up (Samuel, 2026-07-21). */
+const REVEAL_AT_PX = 90;
+/** ...and it only retracts once you're clearly back over the work. The
+ * gap is deliberate hysteresis: the revealed sidebar is ~256px wide, so a
+ * single threshold would snap it shut the moment you moved onto the very
+ * targets it just offered. */
+const HIDE_BEYOND_PX = 320;
+
+/**
+ * Watches an in-flight drag and reveals the collapsed sidebar only while
+ * the pointer is near the left edge, then guarantees the reveal is undone.
+ *
+ * Both halves are why this lives on `document` rather than on the dragged
+ * element. The reveal needs pointer coordinates, which `dragstart` alone
+ * can't give over time; and the teardown must survive the source node
+ * disappearing mid-drag — dropping a card into a classify drawer gives it
+ * a value, which removes it from the reservoir, unmounting the very
+ * element whose `dragend` was supposed to close the sidebar. That left it
+ * pinned open over the objects. `drop` on document (capture) always fires.
+ */
+function trackDragTowardSidebar() {
+  if (!useStore.getState().sidebarCollapsed) return;
+
+  const onDragOver = (e: DragEvent) => {
+    const st = useStore.getState();
+    const reveal = st.dragRevealSidebar ? e.clientX <= HIDE_BEYOND_PX : e.clientX <= REVEAL_AT_PX;
+    if (reveal !== st.dragRevealSidebar) st.setDragRevealSidebar(reveal);
+  };
+  const end = () => {
+    useStore.getState().setDragRevealSidebar(false);
+    document.removeEventListener("dragover", onDragOver);
+    document.removeEventListener("dragend", end, true);
+    document.removeEventListener("drop", end, true);
+    window.removeEventListener("blur", end);
+  };
+
+  document.addEventListener("dragover", onDragOver);
+  document.addEventListener("dragend", end, true);
+  document.addEventListener("drop", end, true);
+  // Dragging out of the window and releasing there fires neither.
+  window.addEventListener("blur", end);
+}
+
 export function objectDragProps(ids: string[]) {
   return {
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
-      const { sidebarCollapsed, setDragRevealSidebar } = useStore.getState();
       e.dataTransfer.setData(DRAG_MIME, JSON.stringify(ids));
       e.dataTransfer.effectAllowed = "copyMove";
       applyDragGhost(e, ids.length);
-      if (sidebarCollapsed) setDragRevealSidebar(true);
+      trackDragTowardSidebar();
     },
     onDragEnd: () => useStore.getState().setDragRevealSidebar(false),
   };

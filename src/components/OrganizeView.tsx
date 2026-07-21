@@ -6,6 +6,7 @@ import { UNGROUPED_LABEL } from "../lib/grouping";
 import { assignMasonryColumns, columnsForWidth, GRID_GAP } from "../lib/masonry";
 import { norm } from "../lib/textNorm";
 import { useStore } from "../store";
+import { MarqueeOverlay, useObjectSelection } from "../lib/useObjectSelection";
 
 /**
  * "Organize by" (§9, 2026-07-21) — the collection rebuilt as a long
@@ -131,6 +132,25 @@ export function OrganizeView({
     return () => observer.disconnect();
   }, [sections]);
 
+  // Selection works identically here and in the plain grid: the chapters
+  // flatten back-to-back so shift-range walks the page in reading order.
+  const orderedIds = useMemo(
+    () =>
+      sections.flatMap((section) =>
+        (expanded.has(section.label)
+          ? section.objects
+          : section.objects.slice(0, initialCap)
+        ).map((o) => o.id)
+      ),
+    [sections, expanded, initialCap]
+  );
+  const { handleCardClick, handleMarqueeMouseDown, marqueeRect } = useObjectSelection({
+    orderedIds,
+    onOpen,
+    containerRef,
+    resetKey: `organize::${roleName}::${field.name}`,
+  });
+
   function jumpTo(label: string) {
     sectionRefs.current.get(label)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -195,7 +215,7 @@ export function OrganizeView({
         </div>
       </nav>
 
-      <div ref={containerRef} className="flex-1 min-w-0">
+      <div ref={containerRef} className="flex-1 min-w-0" onMouseDown={handleMarqueeMouseDown}>
         {/* No coverage statistics here: "1,199 font-style-organized · 101
             classified (8%)" was dashboard noise on a page meant to read as
             a publication (Samuel, 2026-07-21). The same fact is already
@@ -285,7 +305,7 @@ export function OrganizeView({
                           object={obj}
                           tagFrequency={tagFrequency}
                           onOpen={onOpen}
-                          onCardClick={(id) => onOpen(id)}
+                          onCardClick={handleCardClick}
                         />
                       ))}
                     </div>
@@ -307,6 +327,7 @@ export function OrganizeView({
           })}
         </div>
       </div>
+      <MarqueeOverlay rect={marqueeRect} />
     </div>
   );
 }
