@@ -18,6 +18,37 @@ import type { FacetField } from "../types";
  * "1970s-80s") — these match real tags in the library verbatim, which is
  * what lets the tag-to-field auto-fill (store.ts) actually catch them.
  */
+/**
+ * The palette of kinds the collection wizard offers as a starting point
+ * (Samuel, 2026-07-22). Deliberately CURATED, not derived from whatever
+ * strings ever landed in an object's `.role`: the old "discover kinds"
+ * feature (deleted) turned frequent tags — sign, facade, hungary, 1970s —
+ * into empty roles, and dumping those as choosable "kinds of thing" is
+ * exactly the auto-invented-species problem this whole redesign exists to
+ * end.
+ *
+ * Display names. The ones that match a CURATED_ROLE_FIELDS key arrive with
+ * a real property package; the rest are common kinds worth offering that
+ * start empty and get their properties in step 2. "Photo" (not
+ * "Photograph") so it reuses the curated `photo` package and never forks a
+ * second near-identical role.
+ */
+export const STARTER_KINDS = [
+  "Photo",
+  "Typography",
+  "Graphic design",
+  "Branding",
+  "Book",
+  "Article",
+  "Poster",
+  "Album",
+  "Magazine",
+  "Architecture",
+  "Music",
+  "Film",
+  "Email layout pattern",
+] as const;
+
 export const CURATED_ROLE_FIELDS: Record<string, FacetField[]> = {
   typography: [
     {

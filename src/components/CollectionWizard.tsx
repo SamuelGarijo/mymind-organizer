@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { norm } from "../lib/textNorm";
 import { resolveCollectionFields } from "../lib/fieldCatalog";
+import { CURATED_ROLE_FIELDS, STARTER_KINDS } from "../lib/curatedRoleFields";
 import { evaluateGroup } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
 import { HeroImagePicker } from "./HeroImagePicker";
@@ -43,6 +44,7 @@ export function CollectionWizard({
   const store = useStore();
   const roles = store.roles;
   const objects = store.objects;
+  const collections = store.collections;
 
   const existing =
     collectionId && store.collections[collectionId]?.type === mode
@@ -106,29 +108,51 @@ export function CollectionWizard({
     return allObjects.filter((o) => o.manualCollectionIds.includes(existing.id));
   }, [mode, existing, allObjects, rows, combinator, store.tagGroups, objects]);
 
-  // How many current members carry each declared kind — the "Photographs
-  // 130" counts. A declared kind with no members yet simply shows 0.
-  const memberCountByKey = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const o of members) if (o.role) m.set(norm(o.role), (m.get(norm(o.role)) ?? 0) + 1);
-    return m;
-  }, [members]);
-
   const selectedKeys = entityNames.map((n) => norm(n));
 
-  /** Kinds to offer as chips: everything that already exists, plus the
-   * curated starters, minus what's already picked. */
+  /** Kinds to OFFER as chips — a curated palette, never the raw `.role`
+   * dump (Samuel, 2026-07-22: the wizard was listing sign / facade /
+   * hungary / 1970s — tags the deleted "discover kinds" turned into empty
+   * roles — and couldn't offer Typography). Two honest sources:
+   *
+   *   1. STARTER_KINDS — the curated palette, always offered (Photo,
+   *      Typography, Book…), so a legitimate kind is pickable whether or
+   *      not it already exists as a role.
+   *   2. Existing roles that are REAL kinds — ones with a property package,
+   *      pinned facets, or already declared on some collection. A role
+   *      that's only ever been a tag-derived species (no fields, declared
+   *      nowhere) is not a kind and isn't offered.
+   *
+   * No counts here on purpose: a per-rule tally during creation is noise
+   * ("graphic design 4 — but only 4?") and belongs in the collection's own
+   * entity nav, not this palette. */
+  const declaredElsewhere = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of Object.values(collections)) {
+      for (const k of c.entityTypes ?? []) set.add(norm(k));
+    }
+    return set;
+  }, [collections]);
+
   const offered = useMemo(() => {
+    const isRealKind = (key: string, fieldsLen: number, pinned: number) =>
+      key in CURATED_ROLE_FIELDS || fieldsLen > 0 || pinned > 0 || declaredElsewhere.has(key);
+
     const seen = new Set(selectedKeys);
     const out: string[] = [];
+    const push = (displayName: string) => {
+      const key = norm(displayName);
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(displayName);
+    };
+
+    for (const name of STARTER_KINDS) push(name);
     for (const r of Object.values(roles)) {
-      if (!seen.has(norm(r.name))) {
-        out.push(r.name);
-        seen.add(norm(r.name));
-      }
+      if (isRealKind(norm(r.name), r.fields.length, r.primaryFacets?.length ?? 0)) push(r.name);
     }
-    return out.sort((a, b) => (memberCountByKey.get(norm(b)) ?? 0) - (memberCountByKey.get(norm(a)) ?? 0));
-  }, [roles, selectedKeys, memberCountByKey]);
+    return out;
+  }, [roles, selectedKeys, declaredElsewhere]);
 
   function toggleKind(displayName: string) {
     const key = norm(displayName);
@@ -316,9 +340,6 @@ export function CollectionWizard({
                     title="Selected — click to remove"
                   >
                     {n.toLowerCase()}
-                    {memberCountByKey.get(norm(n)) ? (
-                      <span className="opacity-60">{memberCountByKey.get(norm(n))}</span>
-                    ) : null}
                     <span aria-hidden className="opacity-70">
                       ×
                     </span>
@@ -331,9 +352,6 @@ export function CollectionWizard({
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-line text-muted hover:text-ink hover:border-ink/30 text-[12px]"
                   >
                     {n.toLowerCase()}
-                    {memberCountByKey.get(norm(n)) ? (
-                      <span className="opacity-50">{memberCountByKey.get(norm(n))}</span>
-                    ) : null}
                   </button>
                 ))}
               </div>
