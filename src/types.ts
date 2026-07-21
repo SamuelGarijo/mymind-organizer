@@ -220,6 +220,18 @@ export type SmartCollection = {
   /** An existing object's id (never a new upload) used as the header's
    * hero image (issue #87). */
   heroImageObjectId?: string;
+  /** The kinds of thing this collection declares it contains (the "what's
+   * in your mind" redesign, 2026-07-22) — role keys (normalized). A
+   * collection is multi-entity: it can be Photographs AND Posts AND Books.
+   * Drives the entity nav ("All objects · Photographs 130 · Posts 32") and,
+   * with `fieldViews`, which properties each shows. Absent on collections
+   * made before this existed — they simply have no declared kinds yet. */
+  entityTypes?: string[];
+  /** Per-role view over that role's fields — which this collection shows,
+   * and in what order. Keyed by role key (normalized). See
+   * CollectionFieldView: adding a field writes through to the role
+   * globally, hiding one is local to this view. */
+  fieldViews?: Record<string, CollectionFieldView>;
   /** Nests this collection under a manual collection (issue #126) — purely
    * organizational (sidebar tree placement), never limited in depth and
    * never used for matching: a smart collection's rule still scans the
@@ -262,6 +274,26 @@ export type FacetField = {
  * Classification fields only — select/multi-select/date, never free text
  * (that's what the description is for). Keyed in the store's `roles` map
  * by norm(name); `name` keeps display casing. */
+/** Per-collection VIEW over a role's fields (the "what's in your mind"
+ * redesign, 2026-07-22). A role keeps its full field set globally; a
+ * collection stores, per role it contains, which of those fields it shows
+ * and in what order. Asymmetric by Samuel's decision:
+ *
+ *   ADD a field in a collection  → writes through to the role's `fields`
+ *     (a new perspective on a topic, available everywhere) AND appends its
+ *     name here.
+ *   HIDE a field in a collection → removed from this list only. The role
+ *     keeps it; other collections keep it.
+ *
+ * `shown` is the ordered list of field names to display for that role in
+ * this collection. A role key ABSENT from a collection's `fieldViews` means
+ * "not customised" — fall back to the role's own defaults (primaryFacets,
+ * then fields). An empty `shown` is explicit: show none. */
+export type CollectionFieldView = {
+  /** Ordered field names, a subset of the role's `fields[].name`. */
+  shown: string[];
+};
+
 export type RoleDefinition = {
   name: string;
   fields: FacetField[];
@@ -287,6 +319,18 @@ export type ManualCollection = {
   /** An existing object's id (never a new upload) used as the header's
    * hero image (issue #87). */
   heroImageObjectId?: string;
+  /** The kinds of thing this collection declares it contains (the "what's
+   * in your mind" redesign, 2026-07-22) — role keys (normalized). A
+   * collection is multi-entity: it can be Photographs AND Posts AND Books.
+   * Drives the entity nav ("All objects · Photographs 130 · Posts 32") and,
+   * with `fieldViews`, which properties each shows. Absent on collections
+   * made before this existed — they simply have no declared kinds yet. */
+  entityTypes?: string[];
+  /** Per-role view over that role's fields — which this collection shows,
+   * and in what order. Keyed by role key (normalized). See
+   * CollectionFieldView: adding a field writes through to the role
+   * globally, hiding one is local to this view. */
+  fieldViews?: Record<string, CollectionFieldView>;
   /** Facet schema for this collection: a fixed, ordered set of typed fields
    * (e.g. [{name:"fact-check",type:"select",
    * options:["unverified","verified","false"]}]) defined once per

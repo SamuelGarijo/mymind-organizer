@@ -60,3 +60,45 @@ export function getKnownValuesForField(
   }
   return Array.from(values).sort();
 }
+
+import { norm } from "./textNorm";
+
+/**
+ * The fields a collection SHOWS for a given role — the read side of the
+ * per-collection field view (the "what's in your mind" redesign,
+ * 2026-07-22).
+ *
+ * One rule, applied everywhere the collection view and Classify need to
+ * know which properties to render, so there is a single definition of
+ * "what does this collection show for this kind":
+ *
+ *   - A `fieldViews[roleKey]` entry → its `shown` list, in that exact
+ *     order, resolved back to the role's real FacetField objects (a name
+ *     with no matching field drops out). An empty `shown` is honoured:
+ *     the collection chose to show none.
+ *   - No entry → the role's own default: its pinned primaryFacets first,
+ *     then any remaining fields. Uncustomised collections behave exactly
+ *     as they did before this feature existed.
+ */
+export function resolveCollectionFields(
+  collection: Collection | undefined,
+  role: RoleDefinition | undefined
+): FacetField[] {
+  if (!role) return [];
+  const byName = new Map(role.fields.map((f) => [norm(f.name), f]));
+  const view = collection?.fieldViews?.[norm(role.name)];
+
+  if (view) {
+    return view.shown
+      .map((name) => byName.get(norm(name)))
+      .filter((f): f is FacetField => Boolean(f));
+  }
+
+  // Default: pinned facets first (in their pin order), then the rest.
+  const pinned = (role.primaryFacets ?? [])
+    .map((name) => byName.get(norm(name)))
+    .filter((f): f is FacetField => Boolean(f));
+  const pinnedKeys = new Set(pinned.map((f) => norm(f.name)));
+  const rest = role.fields.filter((f) => !pinnedKeys.has(norm(f.name)));
+  return [...pinned, ...rest];
+}

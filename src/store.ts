@@ -2,6 +2,7 @@ import { create, type StoreApi } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
   Collection,
+  CollectionFieldView,
   DesignObject,
   FacetField,
   FilterGroup,
@@ -441,6 +442,19 @@ type State = {
     id: string,
     meta: { description: string; heroImageObjectId: string | null }
   ) => void;
+  /** Declares which kinds a collection contains (the "what's in your mind"
+   * redesign) — role keys, replacing the whole set. A collection is
+   * multi-entity. Missing roles are left seeded from CURATED_ROLE_FIELDS so
+   * a brand-new "thing" arrives with sensible predefined properties. */
+  setCollectionEntityTypes: (id: string, roleNames: string[]) => void;
+  /** Sets the ordered list of fields a collection SHOWS for one role — the
+   * reorder-and-hide half of the asymmetry. View-only: never touches the
+   * role's own `fields`. */
+  setCollectionFieldView: (id: string, roleName: string, shownFieldNames: string[]) => void;
+  /** Adds a property to a collection — the ADD half. Writes the field to
+   * the role GLOBALLY (a perspective now available everywhere) and appends
+   * it to this collection's view. */
+  addCollectionField: (id: string, roleName: string, field: FacetField) => void;
   deleteCollection: (id: string) => void;
 
   /** Timestamp of the last successful auto-backup write, shown in the
@@ -1735,6 +1749,89 @@ export const useStore = create<State>()(
             },
           };
         }),
+
+      setCollectionEntityTypes: (id, roleNames) =>
+        set((s) => {
+          const existing = s.collections[id];
+          if (!existing) return {};
+          const keys = Array.from(new Set(roleNames.map((r) => norm(r)).filter(Boolean)));
+
+          // A declared kind must have a definition, or its properties can't
+          // render. Seed any new one from the curated set (Photo → Subject/
+          // Era…, etc.), exactly as demoteRoleToValue and bulkAssignRoles do.
+          const roles = { ...s.roles };
+          for (const key of keys) {
+            if (roles[key]) continue;
+            const display = roleNames.find((r) => norm(r) === key)?.trim() || key;
+            roles[key] = { name: display, fields: CURATED_ROLE_FIELDS[key] ?? [] };
+          }
+
+          // Drop field views for kinds no longer declared — dead view state
+          // for a role this collection no longer contains is just clutter
+          // that would resurface if the kind were re-added.
+          const fieldViews: Record<string, CollectionFieldView> = {};
+          for (const [k, v] of Object.entries(existing.fieldViews ?? {})) {
+            if (keys.includes(k)) fieldViews[k] = v;
+          }
+
+          return {
+            roles,
+            collections: {
+              ...s.collections,
+              [id]: { ...existing, entityTypes: keys, fieldViews },
+            },
+          };
+        }),
+
+      setCollectionFieldView: (id, roleName, shownFieldNames) =>
+        set((s) => {
+          const existing = s.collections[id];
+          if (!existing) return {};
+          const key = norm(roleName);
+          // Constrain to fields the role actually declares — a view can only
+          // ever show properties that exist, so a stale name (a field
+          // renamed elsewhere) drops out here rather than rendering an empty
+          // column.
+          const roleFields = new Set((s.roles[key]?.fields ?? []).map((f) => norm(f.name)));
+          const shown = shownFieldNames.filter((n) => roleFields.has(norm(n)));
+          return {
+            collections: {
+              ...s.collections,
+              [id]: {
+                ...existing,
+                fieldViews: { ...(existing.fieldViews ?? {}), [key]: { shown } },
+              },
+            },
+          };
+        }),
+
+      addCollectionField: (id, roleName, field) => {
+        // The write-through to the role is global and shared with every
+        // other add path, so it goes through the same action rather than a
+        // second copy of the seed-and-append logic. pin:false — a
+        // collection-scoped add shouldn't silently claim one of the role's
+        // five primary-facet slots for everyone.
+        get().addRoleField(roleName, field, false);
+        set((s) => {
+          const existing = s.collections[id];
+          if (!existing) return {};
+          const key = norm(roleName);
+          const current = existing.fieldViews?.[key]?.shown ?? [];
+          if (current.some((n) => norm(n) === norm(field.name))) return {};
+          return {
+            collections: {
+              ...s.collections,
+              [id]: {
+                ...existing,
+                fieldViews: {
+                  ...(existing.fieldViews ?? {}),
+                  [key]: { shown: [...current, field.name] },
+                },
+              },
+            },
+          };
+        });
+      },
 
       deleteCollection: (id) =>
         set((s) => {
