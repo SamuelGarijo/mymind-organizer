@@ -272,6 +272,19 @@ export function CollectionWizard({
       st.setCollectionFieldView(id, displayName, list);
     }
 
+    // Finally: type the members from the kinds this collection just
+    // declared. Declaring "this is about photographs" and then being told
+    // nothing here is a photograph was the gap (Samuel, 2026-07-22) — this
+    // honours the declaration, and can never apply a kind he didn't pick.
+    const typed = st.applyDeclaredKinds(id);
+    if (typed > 0) {
+      st.setFlashNotice(
+        `${typed.toLocaleString()} item${typed === 1 ? "" : "s"} recognised as ${entityNames
+          .map((n) => n.toLowerCase())
+          .join(" / ")}. ⌘Z undoes it.`
+      );
+    }
+
     st.setSelectedView({ kind: "collection", collectionId: id });
     onClose();
   }

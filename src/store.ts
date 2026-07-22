@@ -38,6 +38,7 @@ import {
 } from "./lib/tagPromotion";
 import { parseBackup } from "./lib/backupValidation";
 import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
+import { suggestRole } from "./lib/roleSuggestion";
 import { addMymindTag } from "./lib/mymindWrite";
 
 export type ViewMode = "grid" | "table";
@@ -447,6 +448,29 @@ type State = {
    * multi-entity. Missing roles are left seeded from CURATED_ROLE_FIELDS so
    * a brand-new "thing" arrives with sensible predefined properties. */
   setCollectionEntityTypes: (id: string, roleNames: string[]) => void;
+  /** Types a collection's untyped members from the kinds it DECLARES
+   * (Samuel, 2026-07-22: "I create a collection about photos, with photos
+   * inside, and the organizer says these are not recognised as photos?").
+   *
+   * This is NOT the auto-typing we deleted. That one INVENTED kinds from
+   * tag frequency and turned sign/facade/hungary into species. This one can
+   * only ever apply a kind the user already declared on this collection —
+   * the semantic work is his, and honouring it is not a guess.
+   *
+   * Two rules, in order, per untyped member:
+   *   1. A deterministic match (suggestRole) that lands on a DECLARED kind
+   *      wins — that's a real signal agreeing with the declaration.
+   *   2. Otherwise, if the collection declares exactly ONE kind, the member
+   *      becomes that kind. A collection about photographs contains
+   *      photographs; that's what declaring it meant. (suggestRole would
+   *      never catch these on its own — real photographs are tagged
+   *      "#handrail #staircase", not "#photography".)
+   * With several declared kinds and no deterministic match, it leaves the
+   * object alone: ambiguous is for Classify to resolve, not a coin flip.
+   *
+   * Never touches an object that already has a role. Returns how many it
+   * typed. */
+  applyDeclaredKinds: (collectionId: string, objectIds?: string[]) => number;
   /** Sets the ordered list of fields a collection SHOWS for one role — the
    * reorder-and-hide half of the asymmetry. View-only: never touches the
    * role's own `fields`. */
@@ -1783,6 +1807,47 @@ export const useStore = create<State>()(
           };
         }),
 
+      applyDeclaredKinds: (collectionId, objectIds) => {
+        const s = get();
+        const collection = s.collections[collectionId];
+        const declared = (collection?.entityTypes ?? []).map((k) => norm(k)).filter(Boolean);
+        if (declared.length === 0) return 0;
+
+        const members = objectIds
+          ? objectIds.map((id) => s.objects[id]).filter((o): o is DesignObject => Boolean(o))
+          : Object.values(s.objects).filter((o) =>
+              collection?.type === "manual"
+                ? o.manualCollectionIds.includes(collectionId)
+                : collection?.type === "smart" &&
+                  matchesSmartCollection(collection, o, s.tagGroups, s.objects)
+            );
+
+        // Display names for the declared keys, so a freshly-typed object
+        // carries the kind's real casing rather than the normalized key.
+        const displayFor = (key: string) =>
+          s.roles[key]?.name ??
+          (collection?.entityTypes ?? []).find((k) => norm(k) === key) ??
+          key;
+
+        const assignments: { objectId: string; role: string }[] = [];
+        for (const object of members) {
+          if (object.role) continue; // never re-type something already typed
+          const suggested = suggestRole(object);
+          const suggestedKey = suggested ? norm(suggested) : null;
+          if (suggestedKey && declared.includes(suggestedKey)) {
+            assignments.push({ objectId: object.id, role: displayFor(suggestedKey) });
+          } else if (declared.length === 1) {
+            assignments.push({ objectId: object.id, role: displayFor(declared[0]) });
+          }
+        }
+
+        if (assignments.length === 0) return 0;
+        // bulkAssignRoles seeds any missing role definition and auto-fills
+        // declared fields from matching tags — one path, already undoable.
+        get().bulkAssignRoles(assignments);
+        return assignments.length;
+      },
+
       setCollectionFieldView: (id, roleName, shownFieldNames) =>
         set((s) => {
           const existing = s.collections[id];
@@ -2222,6 +2287,12 @@ export const useStore = create<State>()(
         if (existing.source === "mymind") {
           for (const tag of newTags) void addMymindTag(objectId, tag);
         }
+        // Something dropped into a collection that declares what it's about
+        // gets that kind on arrival — the same rule the wizard applies on
+        // save, so a photos collection keeps recognising photos as you feed
+        // it (Samuel, 2026-07-22). Scoped to this one object, and only ever
+        // a kind the collection already declares.
+        if (!existing.role) get().applyDeclaredKinds(collectionId, [objectId]);
       },
 
       removeFromManualCollection: (objectId, collectionId) =>
