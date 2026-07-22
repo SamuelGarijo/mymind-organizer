@@ -27,6 +27,7 @@ import { fetchArenaAccount, type ArenaAccount } from "./lib/arenaExport";
 import { DRAG_MIME, readDraggedIds } from "./lib/objectDrag";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
 import { realKindKeys } from "./lib/kinds";
+import { resolveCollectionFields } from "./lib/fieldCatalog";
 import {
   applyExcludedTags,
   applyFacetFieldFilter,
@@ -543,6 +544,27 @@ export default function App() {
     ? state.objects[currentCollection.heroImageObjectId]
     : undefined;
 
+  // The entity nav (§3, 2026-07-22): the kinds this collection holds, real
+  // ones only (junk tag-roles filtered via realKinds), plus any the
+  // collection DECLARES but hasn't classified into yet (shown at 0, so a
+  // fresh collection announces what it's about). Counts scoped to members.
+  const entityKinds = useMemo(() => {
+    const counts = new Map<string, { name: string; count: number }>();
+    for (const key of currentCollection?.entityTypes ?? []) {
+      const k = norm(key);
+      if (!counts.has(k)) counts.set(k, { name: state.roles[k]?.name ?? key, count: 0 });
+    }
+    for (const o of baseObjects) {
+      if (!o.role) continue;
+      const k = norm(o.role);
+      if (!realKinds.has(k)) continue;
+      const e = counts.get(k) ?? { name: state.roles[k]?.name ?? o.role, count: 0 };
+      e.count++;
+      counts.set(k, e);
+    }
+    return Array.from(counts.values()).sort((a, b) => b.count - a.count);
+  }, [baseObjects, realKinds, state.roles, currentCollection]);
+
   // --- Classify derivations -----------------------------------------------
   // ONE space, not two (Samuel, 2026-07-21): Classify is a drawer that
   // opens beside whatever you are already looking at — never a different
@@ -588,13 +610,16 @@ export default function App() {
   // read by (the active entity type's select/multi-select fields), and
   // which one is currently chosen. Search/filters still compose: the
   // editorial page organizes whatever the query has narrowed to.
-  const organizeFields = useMemo(
-    () =>
-      activeRole
-        ? activeRole.fields.filter((f) => f.type === "select" || f.type === "multi-select")
-        : [],
-    [activeRole]
-  );
+  // The By-X lenses respect the collection's own field VIEW, not the role's
+  // full set — hiding a property in a collection hides its lens too
+  // (resolveCollectionFields, §3). Outside a collection, all role fields.
+  const organizeFields = useMemo(() => {
+    if (!activeRole) return [];
+    const shown = currentCollection
+      ? resolveCollectionFields(currentCollection, activeRole)
+      : activeRole.fields;
+    return shown.filter((f) => f.type === "select" || f.type === "multi-select");
+  }, [activeRole, currentCollection]);
   const organizeField = organizeBy
     ? organizeFields.find((f) => norm(f.name) === norm(organizeBy)) ?? null
     : null;
@@ -1272,68 +1297,88 @@ export default function App() {
                   and "+ property" sits at the strip's far right, Notion-
                   fashion but in this app's quiet register. Content, not
                   chrome — it scrolls away with the page. */}
-              {view.kind === "collection" && activeRole && (
-                <div className="pb-4 flex items-center gap-3 font-mono text-[11px]">
-                  <button
-                    onClick={() => state.setOrganizeBy(null)}
-                    className={
-                      !organizeField
-                        ? "text-ink underline decoration-dotted underline-offset-4"
-                        : "text-muted hover:text-ink"
-                    }
-                  >
-                    All objects
-                  </button>
-                  {organizeFields.map((f) => (
+              {view.kind === "collection" && (
+                <div className="pb-4 font-mono text-[11px]">
+                  {/* Entity nav — the kinds this collection is about, real
+                      ones only. "All objects" is a first-class answer, not a
+                      forced entity. Clicking a kind narrows to it and reveals
+                      its field sub-row below (§3, 2026-07-22). */}
+                  <div className="flex items-center gap-3 flex-wrap">
                     <button
-                      key={f.name}
-                      onClick={() =>
-                        // Switching the lens never closes the drawer — if
-                        // it's open it simply re-stocks with this
-                        // property's categories (see effectiveClassifyField).
-                        state.setOrganizeBy(organizeField?.name === f.name ? null : f.name)
-                      }
+                      onClick={() => setRoleFilter("")}
                       className={
-                        organizeField?.name === f.name
+                        state.roleFilter === ""
                           ? "text-ink underline decoration-dotted underline-offset-4"
                           : "text-muted hover:text-ink"
                       }
-                      title={`Read this collection by ${f.name} — one chapter per value`}
                     >
-                      By {f.name}
+                      All objects <span className="opacity-50">{baseObjects.length}</span>
                     </button>
-                  ))}
-                  <span className="flex-1" />
-                  <div className="relative">
-                    {/* A real (minimal) button, not a whisper: adding a
-                        property is the gesture that grows this world, and
-                        it sits at the strip's right edge beside the
-                        properties it joins (Samuel, 2026-07-21). */}
-                    <button
-                      onClick={() => setAddingProperty((v) => !v)}
-                      className={[
-                        "px-2.5 py-1 rounded-lg border transition-colors",
-                        addingProperty
-                          ? "border-ink/40 bg-line/30 text-ink"
-                          : "border-line text-muted hover:border-ink/30 hover:text-ink hover:bg-line/25",
-                      ].join(" ")}
-                      title={`Organize ${activeRole.name} by another property`}
-                    >
-                      + Property
-                    </button>
-                    {addingProperty && (
-                      // z-[60] clears the command bar's own dropdowns (z-40)
-                      // and the DetailPanel scrim (z-40) — a popover the
-                      // user just summoned must never open underneath.
-                      <div className="absolute right-0 top-6 z-[60] w-[340px]">
-                        <AddPropertyPopover
-                          roleName={activeRole.name}
-                          objects={roleObjects}
-                          onClose={() => setAddingProperty(false)}
-                        />
-                      </div>
-                    )}
+                    {entityKinds.map((k) => {
+                      const active =
+                        state.roleFilter !== "" && norm(state.roleFilter) === norm(k.name);
+                      return (
+                        <button
+                          key={k.name}
+                          onClick={() => setRoleFilter(active ? "" : k.name)}
+                          className={
+                            active
+                              ? "text-ink underline decoration-dotted underline-offset-4"
+                              : "text-muted hover:text-ink"
+                          }
+                        >
+                          {k.name.toLowerCase()} <span className="opacity-50">{k.count}</span>
+                        </button>
+                      );
+                    })}
                   </div>
+
+                  {/* Field sub-row — ONLY with a single entity active. The
+                      By-X lenses, then "+ Property" after a separator
+                      (Samuel, 2026-07-22: it moves out of the top-right into
+                      this row). Never shown across a multi-object "All
+                      objects" — that's the no-forced-grouping rule. */}
+                  {activeRole && (
+                    <div className="mt-2 flex items-center gap-3">
+                      {organizeFields.map((f) => (
+                        <button
+                          key={f.name}
+                          onClick={() =>
+                            state.setOrganizeBy(organizeField?.name === f.name ? null : f.name)
+                          }
+                          className={
+                            organizeField?.name === f.name
+                              ? "text-ink underline decoration-dotted underline-offset-4"
+                              : "text-muted hover:text-ink"
+                          }
+                          title={`Read ${activeRole.name} by ${f.name} — one chapter per value`}
+                        >
+                          By {f.name}
+                        </button>
+                      ))}
+                      {organizeFields.length > 0 && <span className="text-line/70">|</span>}
+                      <div className="relative">
+                        <button
+                          onClick={() => setAddingProperty((v) => !v)}
+                          className={
+                            addingProperty ? "text-ink" : "text-accent/85 hover:text-accent"
+                          }
+                          title={`Add a property to ${activeRole.name}`}
+                        >
+                          + Property
+                        </button>
+                        {addingProperty && (
+                          <div className="absolute left-0 top-6 z-[60] w-[340px]">
+                            <AddPropertyPopover
+                              roleName={activeRole.name}
+                              objects={roleObjects}
+                              onClose={() => setAddingProperty(false)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {organizeField && activeRole ? (

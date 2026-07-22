@@ -148,15 +148,11 @@ export function CollectionLedger({
   const description = collection.description;
 
   const hasInfo = Boolean(description || heroObject?.imageUrl);
-  const hasAnything = hasInfo || roleKeys.size > 0;
-  if (!hasAnything) {
-    return (
-      <div className="pb-5 font-mono text-[12px] text-muted/80">
-        Nothing here has a kind yet — open Classify (right panel) and this world sets itself
-        up.
-      </div>
-    );
-  }
+  // "Here you can find" moved up into the top entity nav (§3, 2026-07-22) —
+  // one place answers "what's in here", not two. The ledger now carries the
+  // Info column and the property columns only.
+  const hasAnything = hasInfo || orderedPinned.length > 0;
+  if (!hasAnything) return null;
 
   return (
     <div className="pb-6 flex flex-wrap items-start gap-x-12 gap-y-5">
@@ -174,38 +170,6 @@ export function CollectionLedger({
             {description && (
               <p className="text-[12px] text-ink/75 leading-relaxed">{description}</p>
             )}
-          </div>
-        </div>
-      )}
-
-      {roleKeys.size >= 2 && (
-        <div>
-          {/* Plain words, not schema vocabulary (2026-07-21): the question
-           * this column answers is "what's in here?" — with "everything"
-           * as a real, first-class answer, never only the narrowed lens. */}
-          <ColumnLabel>Here you can find</ColumnLabel>
-          <div className="flex flex-col gap-0.5">
-            <button
-              onClick={() => state.setRoleFilter("")}
-              className={[
-                "text-left font-mono text-[12px] leading-5 hover:underline decoration-dotted underline-offset-2",
-                roleFilter === "" ? "text-ink" : "text-muted hover:text-ink",
-              ].join(" ")}
-              title="Show everything in this collection, all kinds together"
-            >
-              {roleFilter === "" ? "● " : ""}everything{" "}
-              <span className="text-muted/60">{objects.length}</span>
-            </button>
-            {roleOptions.map((role) => (
-              <RoleRow
-                key={role.name}
-                role={role}
-                count={roleCounts.get(norm(role.name)) ?? 0}
-                active={roleFilter !== "" && norm(role.name) === norm(roleFilter)}
-                siblings={roleOptions}
-                onToggle={() => state.setRoleFilter(roleFilter === role.name ? "" : role.name)}
-              />
-            ))}
           </div>
         </div>
       )}
