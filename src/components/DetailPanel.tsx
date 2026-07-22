@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { allObjectsOf, useStore } from "../store";
 import { matchesSmartCollection, norm } from "../lib/ruleEngine";
 import { colorForGroup } from "../lib/tagGroupColor";
-import { suggestRole } from "../lib/roleSuggestion";
+import { classifyKind, kindDisplayName } from "../lib/designerKinds";
 import {
   BLOB_TYPE_KEY,
   DESCRIPTION_KEY,
@@ -1429,12 +1429,12 @@ export function DetailPanel({
                   )}
                   {!object.role &&
                     (() => {
-                      const suggested = suggestRole(object);
+                      const suggested = kindDisplayName(classifyKind(object));
                       return suggested ? (
                         <button
                           onClick={() => state.setObjectRole(object.id, suggested)}
                           className="tag-chip border-accent/50 text-accent hover:bg-accent/5"
-                          title="Suggested from mymind's own type and this item's tags — click to accept, or pick anything else"
+                          title="What the taxonomy reads this as, from mymind's own type and this item's tags — click to accept, or pick anything else"
                         >
                           ✦ {suggested}?
                         </button>

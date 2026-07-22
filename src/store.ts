@@ -37,8 +37,6 @@ import {
   type TagPromotions,
 } from "./lib/tagPromotion";
 import { parseBackup } from "./lib/backupValidation";
-import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
-import { suggestRole } from "./lib/roleSuggestion";
 import { realKindKeys } from "./lib/kinds";
 import { classifyKind, DESIGNER_KINDS, kindDisplayName } from "./lib/designerKinds";
 import { addMymindTag } from "./lib/mymindWrite";
@@ -278,7 +276,7 @@ type State = {
   reclassifyEverything: () => number;
   /** Sets (or clears, with null) an object's role. Local-only — never
    * calls mymind. A brand-new role name is seeded from
-   * lib/curatedRoleFields.ts when it matches the starter catalog, else an
+   * lib/designerKinds.ts when it matches the taxonomy, else an
    * empty field package; the stored `object.role` always uses the
    * definition's display casing. Also auto-fills any of the role's select
    * fields whose options exactly match one of the object's own tags (see
@@ -448,13 +446,6 @@ type State = {
   } | null;
   requestConfirm: (confirm: NonNullable<State["pendingConfirm"]>) => void;
   clearConfirm: () => void;
-  /** Workspace setup as a DEFAULT, not a dialog (Samuel, 2026-07-20:
-   * native confirm popups are unacceptable, and a collection should set
-   * itself up). Pins a starter facet set for any present kind that has
-   * fields but no pins — surfacing structure that already exists, which
-   * needs no permission. It no longer TYPES anything: deciding what things
-   * are is the user's call, asked out loud by the collection panel. */
-  setupWorkspaceFor: (ids: string[]) => void;
   renameCollection: (id: string, name: string) => void;
   /** Updates a collection's optional channel-style metadata (issue #87) —
    * shared by both collection types, since description/hero image aren't
@@ -859,7 +850,7 @@ function applyRoleToObject(
   const existingDef = roles[key];
   const nextRoles = existingDef
     ? roles
-    : { ...roles, [key]: { name: trimmed, fields: CURATED_ROLE_FIELDS[key] ?? [] } };
+    : { ...roles, [key]: { name: trimmed, fields: DESIGNER_KINDS[key] ?? [] } };
   const def = nextRoles[key];
 
   const fields = { ...obj.fields };
@@ -1360,39 +1351,6 @@ export const useStore = create<State>()(
           };
         }),
 
-      setupWorkspaceFor: (ids) => {
-        // Deliberately no longer types anything (Samuel, 2026-07-21: "deja
-        // que yo añada las roles o tipologías"). This used to run suggestRole
-        // over every untyped member the moment a collection was saved, which
-        // meant making a collection silently decided what forty-seven things
-        // WERE — and the collection panel now asks that question out loud,
-        // with the archive's existing kinds offered for reuse. Two answers to
-        // one question, one of them unasked, is worse than either alone.
-        //
-        // The pinning below stays: it surfaces structure that already exists
-        // rather than inventing any, so it needs no permission.
-
-        // Starter pins for any present role with fields but nothing pinned
-        // yet, so the workspace has facets to show without a second gesture.
-        const fresh = get();
-        const roleKeys = new Set(
-          ids
-            .map((id) => fresh.objects[id]?.role)
-            .filter((r): r is string => Boolean(r))
-            .map((r) => norm(r))
-        );
-        for (const key of roleKeys) {
-          const def = fresh.roles[key];
-          if (!def || def.fields.length === 0) continue;
-          if (def.primaryFacets && def.primaryFacets.length > 0) continue;
-          fresh.updateRoleFields(
-            def.name,
-            def.fields,
-            def.fields.slice(0, 3).map((f) => f.name)
-          );
-        }
-      },
-
       applyProposals: (proposals) => {
         const field = proposals[0]?.field;
         get().pushUndo(
@@ -1664,7 +1622,7 @@ export const useStore = create<State>()(
             if (!nextRoles[newKey]) {
               nextRoles[newKey] = {
                 name: newRole.trim(),
-                fields: CURATED_ROLE_FIELDS[newKey] ?? [],
+                fields: DESIGNER_KINDS[newKey] ?? [],
               };
             }
             // And it must declare the property we just moved the value into.
@@ -1811,7 +1769,7 @@ export const useStore = create<State>()(
           for (const key of keys) {
             if (roles[key]) continue;
             const display = roleNames.find((r) => norm(r) === key)?.trim() || key;
-            roles[key] = { name: display, fields: CURATED_ROLE_FIELDS[key] ?? [] };
+            roles[key] = { name: display, fields: DESIGNER_KINDS[key] ?? [] };
           }
 
           // Drop field views for kinds no longer declared — dead view state
@@ -1969,7 +1927,7 @@ export const useStore = create<State>()(
         const assignments: { objectId: string; role: string }[] = [];
         for (const object of members) {
           if (object.role && real.has(norm(object.role))) continue;
-          const suggested = suggestRole(object);
+          const suggested = classifyKind(object);
           const suggestedKey = suggested ? norm(suggested) : null;
           if (suggestedKey && declared.includes(suggestedKey)) {
             assignments.push({ objectId: object.id, role: displayFor(suggestedKey) });

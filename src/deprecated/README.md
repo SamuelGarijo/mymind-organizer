@@ -15,6 +15,13 @@ out properly instead.
 
 ## Archived here
 
+- **`roleSuggestion.ts`** + **`curatedRoleFields.ts`** (2026-07-23) — the
+  old 8-kind starter catalog and the tag/entity_type rule table that guessed
+  a type per object. Both superseded by `src/lib/designerKinds.ts`, which
+  holds the designed 22-kind taxonomy and classifies 100% of the archive.
+  Kept because the rule table is a readable record of which signals were
+  tried; nothing imports either.
+
 - **`TypologyPanel.tsx`** + **`collectionTypology.ts`** (2026-07-22) — the
   old single "what does this collection mean?" chooser (selection / quality
   / kind) and its proposal engine. Replaced by the multi-entity

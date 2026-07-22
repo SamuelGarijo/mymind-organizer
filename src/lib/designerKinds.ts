@@ -202,6 +202,33 @@ export function classifyKind(object: DesignObject): string {
   return "found image";
 }
 
+/** The kinds offered as chips in the collection wizard — the whole
+ * taxonomy, in a designer's reading order rather than by frequency. */
+export const KIND_PALETTE: string[] = [
+  "Typeface & lettering",
+  "Poster",
+  "Book",
+  "Magazine & editorial",
+  "Album cover",
+  "Signage & wayfinding",
+  "Branding & identity",
+  "Advertisement",
+  "Packaging",
+  "Illustration",
+  "Artwork",
+  "Architecture",
+  "Street photography",
+  "Photograph",
+  "Product & object",
+  "Ephemera",
+  "UI & screen",
+  "Article",
+  "Note",
+  "Video",
+  "Social post",
+  "Found image",
+];
+
 export function kindDisplayName(key: string): string {
   return DESIGNER_KIND_NAMES[norm(key)] ?? key;
 }

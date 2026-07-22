@@ -52,7 +52,6 @@ import { CredentialsModal } from "./components/CredentialsModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { OrganizeView } from "./components/OrganizeView";
 import { AddPropertyPopover } from "./components/AddPropertyPopover";
-import { suggestRole } from "./lib/roleSuggestion";
 import type { DesignObject, FacetField, RoleDefinition } from "./types";
 
 // Set right before a restore-triggered reload, read once on the next
@@ -827,39 +826,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Issue #104: computes a suggestion for every object without a role,
-  // shows the impact grouped by role (never applies blind — thousands of
-  // objects could be affected), then writes them all in one atomic update
-  // via bulkAssignRoles. Objects that already have a role, or that match
-  // no rule at all, are left untouched either way.
-  function handleAutoAssignRoles() {
-    const assignments: { objectId: string; role: string }[] = [];
-    const counts = new Map<string, number>();
-    for (const obj of Object.values(state.objects)) {
-      if (obj.role) continue;
-      const suggestion = suggestRole(obj);
-      if (!suggestion) continue;
-      assignments.push({ objectId: obj.id, role: suggestion });
-      counts.set(suggestion, (counts.get(suggestion) ?? 0) + 1);
-    }
-    if (assignments.length === 0) {
-      state.setFlashNotice("Nothing to assign — everything has a type or matches no rule.");
-      return;
-    }
-    const summary = Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([role, count]) => `${role}: ${count}`)
-      .join("\n");
-    // The one bulk action big enough to still warrant a pause — but in the
-    // app's own voice, never window.confirm (Samuel, 2026-07-20).
-    setConfirm({
-      title: `Assign an entity type to ${assignments.length.toLocaleString()} objects?`,
-      body: summary,
-      action: "Assign",
-      onConfirm: () => useStore.getState().bulkAssignRoles(assignments),
-    });
-  }
-
   // Single entry point for the top bar's "Classify" button — owns the "is
   // this collection set up yet" decision so PrimaryFacetsBar/Board never
   // have to. Scoped to this collection's own objects (baseObjects), unlike
@@ -880,7 +846,6 @@ export default function App() {
     // any item's detail panel — that reversibility is the real safety, not
     // a confirm popup (Samuel, 2026-07-20).
     const ids = baseObjects.map((o) => o.id);
-    useStore.getState().setupWorkspaceFor(ids);
     if (distinctRoleKeys(
       ids
         .map((id) => useStore.getState().objects[id])
@@ -1022,19 +987,6 @@ export default function App() {
             Restore backup
           </button>
 
-          <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
-            Entity types
-          </div>
-          <button
-            onClick={() => {
-              handleAutoAssignRoles();
-              setPrefsOpen(false);
-            }}
-            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40 mb-1.5"
-            title="Suggests an entity type for every object that doesn't have one yet, from its mymind type and tags — shows the impact before applying anything"
-          >
-            Auto-assign entity types
-          </button>
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
             Appearance

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { norm } from "../lib/textNorm";
 import { resolveCollectionFields } from "../lib/fieldCatalog";
-import { CURATED_ROLE_FIELDS, STARTER_KINDS } from "../lib/curatedRoleFields";
+import { DESIGNER_KINDS, KIND_PALETTE } from "../lib/designerKinds";
 import { realKindKeys } from "../lib/kinds";
 import { evaluateGroup } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
@@ -116,7 +116,7 @@ export function CollectionWizard({
    * hungary / 1970s — tags the deleted "discover kinds" turned into empty
    * roles — and couldn't offer Typography). Two honest sources:
    *
-   *   1. STARTER_KINDS — the curated palette, always offered (Photo,
+   *   1. KIND_PALETTE — the designed taxonomy, always offered (Typeface,
    *      Typography, Book…), so a legitimate kind is pickable whether or
    *      not it already exists as a role.
    *   2. Existing roles that are REAL kinds — ones with a property package,
@@ -151,7 +151,7 @@ export function CollectionWizard({
       out.push(displayName);
     };
 
-    for (const name of STARTER_KINDS) push(name);
+    for (const name of KIND_PALETTE) push(name);
     for (const r of Object.values(roles)) {
       if (realKinds.has(norm(r.name))) push(r.name);
     }
@@ -181,7 +181,7 @@ export function CollectionWizard({
     // exists in the store (Samuel, 2026-07-22: picking Photo should already
     // show Subject / Era, options and all — not "No properties yet"). On
     // save, setCollectionEntityTypes seeds exactly these onto the role.
-    return (CURATED_ROLE_FIELDS[key] ?? []).map((f) => f.name);
+    return (DESIGNER_KINDS[key] ?? []).map((f) => f.name);
   }
 
   /** The field definition (with its predefined options) for a kind's
@@ -190,7 +190,7 @@ export function CollectionWizard({
   function fieldDefFor(key: string, fieldName: string): FacetField | undefined {
     const fromRole = roles[key]?.fields.find((f) => norm(f.name) === norm(fieldName));
     if (fromRole) return fromRole;
-    return (CURATED_ROLE_FIELDS[key] ?? []).find((f) => norm(f.name) === norm(fieldName));
+    return (DESIGNER_KINDS[key] ?? []).find((f) => norm(f.name) === norm(fieldName));
   }
   function setShown(key: string, next: string[]) {
     setViews((v) => ({ ...v, [key]: next }));

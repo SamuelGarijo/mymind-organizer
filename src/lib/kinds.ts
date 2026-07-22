@@ -1,4 +1,4 @@
-import { CURATED_ROLE_FIELDS } from "./curatedRoleFields";
+import { DESIGNER_KINDS } from "./designerKinds";
 import { norm } from "./textNorm";
 import type { Collection, DesignObject, RoleDefinition } from "../types";
 
@@ -18,7 +18,7 @@ import type { Collection, DesignObject, RoleDefinition } from "../types";
  * evidence of intent.
  *
  * The definition is now intent, and only intent. A role is a real kind iff:
- *   - it's in the curated catalog (CURATED_ROLE_FIELDS), or
+ *   - it's part of the designed taxonomy (DESIGNER_KINDS), or
  *   - it's declared on some collection's entityTypes (picked in the wizard), or
  *   - the user explicitly established it (typed it by hand).
  * Nothing a machine created on its own qualifies.
@@ -41,7 +41,7 @@ export function isRealKind(
 ): boolean {
   if (!role) return false;
   const key = norm(role.name);
-  return key in CURATED_ROLE_FIELDS || declared.has(key) || established.has(key);
+  return key in DESIGNER_KINDS || declared.has(key) || established.has(key);
 }
 
 /** The set of role keys that are real kinds — the one filter every surface
