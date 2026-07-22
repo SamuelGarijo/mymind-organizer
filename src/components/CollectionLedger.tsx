@@ -9,6 +9,7 @@ import {
   distinctRoleKeys,
   resolveActiveRole,
 } from "../lib/primaryFacets";
+import { realKindKeys } from "../lib/kinds";
 import { addMymindTag } from "../lib/mymindWrite";
 import { norm } from "../lib/textNorm";
 import { DRAG_MIME } from "../lib/objectDrag";
@@ -111,13 +112,19 @@ export function CollectionLedger({
     useStore.getState().addFieldValue(ids, field.name, value);
   }
 
-  const roleKeys = distinctRoleKeys(objects);
-  const activeRole = resolveActiveRole(objects, roles, roleFilter);
+  // Only real kinds appear here — the junk tag-roles the old "discover
+  // kinds" left behind (sign, facade, hungary, 1970s) are filtered out of
+  // "Here you can find" and out of active-role resolution (Samuel,
+  // 2026-07-22). See lib/kinds.ts.
+  const realKinds = realKindKeys(roles, useStore.getState().collections);
+  const roleKeys = new Set(Array.from(distinctRoleKeys(objects)).filter((k) => realKinds.has(k)));
+  const activeRole = resolveActiveRole(objects, roles, roleFilter, realKinds);
 
   const roleCounts = new Map<string, number>();
   for (const o of objects) {
     if (!o.role) continue;
     const key = norm(o.role);
+    if (!realKinds.has(key)) continue;
     roleCounts.set(key, (roleCounts.get(key) ?? 0) + 1);
   }
   const roleOptions = Array.from(roleKeys)

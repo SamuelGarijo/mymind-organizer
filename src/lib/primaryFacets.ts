@@ -24,15 +24,28 @@ export function distinctRoleKeys(objects: DesignObject[]): Set<string> {
 }
 
 /**
- * Resolves which role is "active" for the workspace UI: the sole role for a
- * homogeneous collection, the explicit `roleFilter` for a heterogeneous one,
- * or — nothing picked yet — the role with the most objects (ties broken
- * alphabetically by display name for determinism).
+ * Resolves which role is "active" for the workspace UI — the entity whose
+ * fields the By-X row and the Classify drawer speak for.
+ *
+ *   - An explicit `roleFilter` (a single entity picked in the nav) → that
+ *     role, always.
+ *   - "All objects" (no filter) in a collection with exactly ONE real kind
+ *     → that kind. A homogeneous collection needs no picking.
+ *   - "All objects" with MORE THAN ONE real kind → undefined. This is
+ *     Samuel's rule (2026-07-22): never group the grid or force one
+ *     entity's classification across everything when the collection is
+ *     multi-object. The whole app already gates on `activeRole &&`, so
+ *     undefined cleanly means "flat grid, no single Classify".
+ *
+ * `realKinds` is the set of role keys that count as kinds at all — junk
+ * tag-derived roles (sign, facade, hungary) are excluded upstream (see
+ * lib/kinds.ts), which is what stops "Classifying SIGN by Style".
  */
 export function resolveActiveRole(
   objects: DesignObject[],
   roles: Record<string, RoleDefinition>,
-  roleFilter: string
+  roleFilter: string,
+  realKinds: Set<string>
 ): RoleDefinition | undefined {
   if (roleFilter) return roles[norm(roleFilter)];
 
@@ -40,8 +53,12 @@ export function resolveActiveRole(
   for (const object of objects) {
     if (!object.role) continue;
     const key = norm(object.role);
+    if (!realKinds.has(key)) continue; // junk roles are never the active kind
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
+
+  // Multi-kind → no single active role (flat grid, per-entity Classify).
+  if (counts.size > 1) return undefined;
 
   const ranked = Array.from(counts.entries())
     .map(([key, count]) => ({ key, count, def: roles[key] }))

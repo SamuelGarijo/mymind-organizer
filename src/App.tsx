@@ -26,6 +26,7 @@ import { ArenaExportModal } from "./components/ArenaExportModal";
 import { fetchArenaAccount, type ArenaAccount } from "./lib/arenaExport";
 import { DRAG_MIME, readDraggedIds } from "./lib/objectDrag";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
+import { realKindKeys } from "./lib/kinds";
 import {
   applyExcludedTags,
   applyFacetFieldFilter,
@@ -294,9 +295,16 @@ export default function App() {
   // visibleObjects — the workspace's own structure shouldn't reshuffle as
   // someone types a search. See lib/primaryFacets.ts for the resolution
   // rules themselves.
+  // Only real kinds are eligible to be the active entity — junk tag-roles
+  // (sign, facade, hungary) never get auto-picked for "All objects", which
+  // is what produced "Classifying SIGN by Style" (Samuel, 2026-07-22).
+  const realKinds = useMemo(
+    () => realKindKeys(state.roles, state.collections),
+    [state.roles, state.collections]
+  );
   const activeRole = useMemo(
-    () => resolveActiveRole(baseObjects, state.roles, state.roleFilter),
-    [baseObjects, state.roles, state.roleFilter]
+    () => resolveActiveRole(baseObjects, state.roles, state.roleFilter, realKinds),
+    [baseObjects, state.roles, state.roleFilter, realKinds]
   );
 
   const [modal, setModal] = useState<Modal>(null);
