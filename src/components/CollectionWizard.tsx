@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { norm } from "../lib/textNorm";
 import { resolveCollectionFields } from "../lib/fieldCatalog";
 import { CURATED_ROLE_FIELDS, STARTER_KINDS } from "../lib/curatedRoleFields";
+import { realKindKeys } from "../lib/kinds";
 import { evaluateGroup } from "../lib/ruleEngine";
 import { makeId } from "../lib/id";
 import { HeroImagePicker } from "./HeroImagePicker";
@@ -134,10 +135,13 @@ export function CollectionWizard({
     return set;
   }, [collections]);
 
-  const offered = useMemo(() => {
-    const isRealKind = (key: string, fieldsLen: number, pinned: number) =>
-      key in CURATED_ROLE_FIELDS || fieldsLen > 0 || pinned > 0 || declaredElsewhere.has(key);
+  const establishedKinds = store.establishedKinds;
+  const realKinds = useMemo(
+    () => realKindKeys(roles, collections, establishedKinds),
+    [roles, collections, establishedKinds]
+  );
 
+  const offered = useMemo(() => {
     const seen = new Set(selectedKeys);
     const out: string[] = [];
     const push = (displayName: string) => {
@@ -149,10 +153,10 @@ export function CollectionWizard({
 
     for (const name of STARTER_KINDS) push(name);
     for (const r of Object.values(roles)) {
-      if (isRealKind(norm(r.name), r.fields.length, r.primaryFacets?.length ?? 0)) push(r.name);
+      if (realKinds.has(norm(r.name))) push(r.name);
     }
     return out;
-  }, [roles, selectedKeys, declaredElsewhere]);
+  }, [roles, selectedKeys, realKinds]);
 
   function toggleKind(displayName: string) {
     const key = norm(displayName);

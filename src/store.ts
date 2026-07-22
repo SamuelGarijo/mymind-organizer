@@ -39,6 +39,7 @@ import {
 import { parseBackup } from "./lib/backupValidation";
 import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
 import { suggestRole } from "./lib/roleSuggestion";
+import { realKindKeys } from "./lib/kinds";
 import { addMymindTag } from "./lib/mymindWrite";
 
 export type ViewMode = "grid" | "table";
@@ -254,6 +255,20 @@ type State = {
    * gets, in every collection. Grows organically — assigning a role that
    * doesn't exist yet auto-creates an empty definition. */
   roles: Record<string, RoleDefinition>;
+  /** Kind keys the user established DELIBERATELY — typed by hand, or picked
+   * in the collection wizard. The registry exists because "has fields" turned
+   * out to prove nothing: the deleted discover-kinds feature and a
+   * misdirected + Property both handed fields to junk roles (see
+   * lib/kinds.ts). Intent is the only signal that can't be manufactured by a
+   * bug. Curated and collection-declared kinds are real without being listed
+   * here. */
+  establishedKinds: string[];
+  establishKind: (name: string) => void;
+  /** Removes kinds that were never established: drops the role definitions
+   * and clears `role` on every object claiming to BE one. Objects keep tags,
+   * fields and collection membership — they only stop claiming to be a
+   * decade or an adjective. One undo step for the whole sweep. */
+  purgeKinds: (keys: string[]) => number;
   /** Sets (or clears, with null) an object's role. Local-only — never
    * calls mymind. A brand-new role name is seeded from
    * lib/curatedRoleFields.ts when it matches the starter catalog, else an
@@ -766,6 +781,7 @@ type PersistedState = Pick<
   | "collectionOrder"
   | "tagGroups"
   | "roles"
+  | "establishedKinds"
   | "lastBackupAt"
   | "theme"
   | "viewMode"
@@ -1205,6 +1221,7 @@ export const useStore = create<State>()(
         }),
 
       roles: {},
+      establishedKinds: [],
 
       setObjectRole: (objectId, roleName) =>
         set((s) => {
@@ -1800,12 +1817,69 @@ export const useStore = create<State>()(
 
           return {
             roles,
+            // Picking a kind in the wizard IS establishing it — that's the
+            // deliberate act lib/kinds.ts trusts.
+            establishedKinds: Array.from(new Set([...s.establishedKinds, ...keys])),
             collections: {
               ...s.collections,
               [id]: { ...existing, entityTypes: keys, fieldViews },
             },
           };
         }),
+
+      establishKind: (name) => {
+        const key = norm(name);
+        if (!key) return;
+        set((s) => (s.establishedKinds.includes(key)
+          ? {}
+          : { establishedKinds: [...s.establishedKinds, key] }));
+      },
+
+      purgeKinds: (keys) => {
+        const wanted = new Set(keys.map((k) => norm(k)).filter(Boolean));
+        if (wanted.size === 0) return 0;
+        const s = get();
+        let affected = 0;
+        for (const o of Object.values(s.objects)) {
+          if (o.role && wanted.has(norm(o.role))) affected++;
+        }
+        get().pushUndo(
+          `remove ${wanted.size} non-kind${wanted.size === 1 ? "" : "s"}`
+        );
+        set((st) => {
+          const roles: Record<string, RoleDefinition> = {};
+          for (const [k, v] of Object.entries(st.roles)) if (!wanted.has(k)) roles[k] = v;
+
+          const objects = { ...st.objects };
+          const now = new Date().toISOString();
+          for (const [id, o] of Object.entries(objects)) {
+            if (!o.role || !wanted.has(norm(o.role))) continue;
+            // Only the claim to BE this is dropped. Tags, field values and
+            // collection membership are untouched.
+            objects[id] = { ...o, role: undefined, updatedAt: now };
+          }
+
+          // A purged kind must not linger as a declaration either, or
+          // realKindKeys would resurrect it on the next read.
+          const collections = { ...st.collections };
+          for (const [id, c] of Object.entries(collections)) {
+            const declared = c.entityTypes;
+            if (!declared?.some((k) => wanted.has(norm(k)))) continue;
+            collections[id] = {
+              ...c,
+              entityTypes: declared.filter((k) => !wanted.has(norm(k))),
+            };
+          }
+
+          return {
+            roles,
+            objects,
+            collections,
+            establishedKinds: st.establishedKinds.filter((k) => !wanted.has(k)),
+          };
+        });
+        return affected;
+      },
 
       applyDeclaredKinds: (collectionId, objectIds) => {
         const s = get();
@@ -1829,9 +1903,15 @@ export const useStore = create<State>()(
           (collection?.entityTypes ?? []).find((k) => norm(k) === key) ??
           key;
 
+        // A REAL kind on an object is respected; a junk one is not allowed to
+        // shield it from the kind the user just declared. This was the "car
+        // design 0 / hungary 1" bug: the Lada already carried the discovered
+        // role `hungary`, so declaring `car design` skipped it entirely.
+        const real = realKindKeys(s.roles, s.collections, s.establishedKinds);
+
         const assignments: { objectId: string; role: string }[] = [];
         for (const object of members) {
-          if (object.role) continue; // never re-type something already typed
+          if (object.role && real.has(norm(object.role))) continue;
           const suggested = suggestRole(object);
           const suggestedKey = suggested ? norm(suggested) : null;
           if (suggestedKey && declared.includes(suggestedKey)) {
@@ -2585,6 +2665,7 @@ export const useStore = create<State>()(
         collectionOrder: state.collectionOrder,
         tagGroups: state.tagGroups,
         roles: state.roles,
+        establishedKinds: state.establishedKinds,
         lastBackupAt: state.lastBackupAt,
         theme: state.theme,
         viewMode: state.viewMode,

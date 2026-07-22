@@ -1456,6 +1456,10 @@ export function DetailPanel({
                     onChange={(e) => setRoleDraft(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && roleDraft.trim()) {
+                        // Typing a type by hand IS establishing a kind —
+                        // the deliberate act lib/kinds.ts trusts, as
+                        // opposed to anything a machine minted from a tag.
+                        useStore.getState().establishKind(roleDraft);
                         state.setObjectRole(object.id, roleDraft);
                         setRoleDraft("");
                       }

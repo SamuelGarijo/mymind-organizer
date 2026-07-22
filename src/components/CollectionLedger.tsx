@@ -116,7 +116,11 @@ export function CollectionLedger({
   // kinds" left behind (sign, facade, hungary, 1970s) are filtered out of
   // "Here you can find" and out of active-role resolution (Samuel,
   // 2026-07-22). See lib/kinds.ts.
-  const realKinds = realKindKeys(roles, useStore.getState().collections);
+  const realKinds = realKindKeys(
+    roles,
+    useStore.getState().collections,
+    useStore.getState().establishedKinds
+  );
   const roleKeys = new Set(Array.from(distinctRoleKeys(objects)).filter((k) => realKinds.has(k)));
   const activeRole = resolveActiveRole(objects, roles, roleFilter, realKinds);
 
