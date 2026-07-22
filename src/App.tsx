@@ -10,6 +10,7 @@ import { DetailPanel } from "./components/DetailPanel";
 import { DetailCarousel } from "./components/DetailCarousel";
 import { applyTheme, THEME_LABELS, watchSystemTheme } from "./lib/theme";
 import { AddSomethingModal } from "./components/AddSomethingModal";
+import { SelectionBar } from "./components/SelectionBar";
 import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { TopBar } from "./components/TopBar";
@@ -459,6 +460,19 @@ export default function App() {
     applyTheme(theme);
     return watchSystemTheme(theme, () => applyTheme(theme));
   }, [theme]);
+
+  // Esc drops a selection. Selecting is the only gesture in the app that
+  // leaves state behind with no visible way out other than clicking empty
+  // space, and clearing it is harmless — nothing to undo.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (useStore.getState().selectedObjectIds.size === 0) return;
+      useStore.getState().setSelection(new Set(), null);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // Dropping files from the desktop anywhere in the window opens the door
   // holding them (Samuel, 2026-07-21). Guarded on the "Files" dataTransfer
@@ -1684,6 +1698,10 @@ export default function App() {
           onClose={() => useStore.getState().clearConfirm()}
         />
       )}
+
+      {/* Only while something is selected — summoned by intent, gone when
+          the selection clears (Samuel, 2026-07-22). */}
+      <SelectionBar collection={currentCollection} />
 
       {/* z-[60], not z-40 (issue #140): the toast stack and the back-stack
           pill sat at the same level as the DetailPanel and EARLIER in DOM
