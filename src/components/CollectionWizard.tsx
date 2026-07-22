@@ -171,9 +171,22 @@ export function CollectionWizard({
    * default when untouched. */
   function shownFor(key: string): string[] {
     if (views[key]) return views[key];
-    const role = roles[key];
-    // The role may not exist yet for a just-typed kind — nothing to show.
-    return resolveCollectionFields(existing, role).map((f) => f.name);
+    const fromRole = resolveCollectionFields(existing, roles[key]).map((f) => f.name);
+    if (fromRole.length > 0) return fromRole;
+    // A curated kind previews its PREDEFINED properties even before its role
+    // exists in the store (Samuel, 2026-07-22: picking Photo should already
+    // show Subject / Era, options and all — not "No properties yet"). On
+    // save, setCollectionEntityTypes seeds exactly these onto the role.
+    return (CURATED_ROLE_FIELDS[key] ?? []).map((f) => f.name);
+  }
+
+  /** The field definition (with its predefined options) for a kind's
+   * property — from the role if it exists, else the curated catalog. Lets
+   * step 2 show the options a property already comes with. */
+  function fieldDefFor(key: string, fieldName: string): FacetField | undefined {
+    const fromRole = roles[key]?.fields.find((f) => norm(f.name) === norm(fieldName));
+    if (fromRole) return fromRole;
+    return (CURATED_ROLE_FIELDS[key] ?? []).find((f) => norm(f.name) === norm(fieldName));
   }
   function setShown(key: string, next: string[]) {
     setViews((v) => ({ ...v, [key]: next }));
@@ -406,40 +419,55 @@ export function CollectionWizard({
                       </p>
                     )}
                     <div className="space-y-1">
-                      {shown.map((fieldName, i) => (
-                        <div
-                          key={fieldName}
-                          className="flex items-center gap-1.5 rounded-lg border border-line px-2 py-1.5"
-                        >
-                          <div className="flex flex-col leading-none text-muted/50">
+                      {shown.map((fieldName, i) => {
+                        const options = fieldDefFor(key, fieldName)?.options ?? [];
+                        return (
+                          <div
+                            key={fieldName}
+                            className="flex items-center gap-1.5 rounded-lg border border-line px-2 py-1.5"
+                          >
+                            <div className="flex flex-col leading-none text-muted/50">
+                              <button
+                                onClick={() => moveField(key, i, i - 1)}
+                                disabled={i === 0}
+                                className="hover:text-ink disabled:opacity-30 text-[9px]"
+                                aria-label="Move up"
+                              >
+                                ▲
+                              </button>
+                              <button
+                                onClick={() => moveField(key, i, i + 1)}
+                                disabled={i === shown.length - 1}
+                                className="hover:text-ink disabled:opacity-30 text-[9px]"
+                                aria-label="Move down"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[13px]">{fieldName}</span>
+                              {/* The predefined options this property comes
+                                  with — so it's clear a curated kind arrives
+                                  ready to classify, not empty (Samuel,
+                                  2026-07-22). */}
+                              {options.length > 0 && (
+                                <span className="block font-mono text-[10px] text-muted/70 truncate">
+                                  {options.slice(0, 8).join(" · ")}
+                                  {options.length > 8 ? " …" : ""}
+                                </span>
+                              )}
+                            </span>
                             <button
-                              onClick={() => moveField(key, i, i - 1)}
-                              disabled={i === 0}
-                              className="hover:text-ink disabled:opacity-30 text-[9px]"
-                              aria-label="Move up"
+                              onClick={() => hideField(key, fieldName)}
+                              className="text-muted hover:text-ink px-1"
+                              title="Hide in this collection (the kind keeps it)"
+                              aria-label="Hide field"
                             >
-                              ▲
-                            </button>
-                            <button
-                              onClick={() => moveField(key, i, i + 1)}
-                              disabled={i === shown.length - 1}
-                              className="hover:text-ink disabled:opacity-30 text-[9px]"
-                              aria-label="Move down"
-                            >
-                              ▼
+                              ×
                             </button>
                           </div>
-                          <span className="flex-1 min-w-0 text-[13px]">{fieldName}</span>
-                          <button
-                            onClick={() => hideField(key, fieldName)}
-                            className="text-muted hover:text-ink px-1"
-                            title="Hide in this collection (the kind keeps it)"
-                            aria-label="Hide field"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <AddFieldInline onAdd={(nm) => addField(key, nm)} />
                   </div>
