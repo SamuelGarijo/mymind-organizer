@@ -40,6 +40,7 @@ import { parseBackup } from "./lib/backupValidation";
 import { CURATED_ROLE_FIELDS } from "./lib/curatedRoleFields";
 import { suggestRole } from "./lib/roleSuggestion";
 import { realKindKeys } from "./lib/kinds";
+import { classifyKind, DESIGNER_KINDS, kindDisplayName } from "./lib/designerKinds";
 import { addMymindTag } from "./lib/mymindWrite";
 
 export type ViewMode = "grid" | "table";
@@ -269,6 +270,12 @@ type State = {
    * fields and collection membership — they only stop claiming to be a
    * decade or an adjective. One undo step for the whole sweep. */
   purgeKinds: (keys: string[]) => number;
+  /** Burns the old kind structure down and rebuilds it: every role
+   * definition and every object's `role` is discarded, the designed
+   * taxonomy (lib/designerKinds) is installed with its predefined
+   * properties and options, and EVERY object is classified into one of its
+   * kinds. One undo step for the whole thing. Returns how many were typed. */
+  reclassifyEverything: () => number;
   /** Sets (or clears, with null) an object's role. Local-only — never
    * calls mymind. A brand-new role name is seeded from
    * lib/curatedRoleFields.ts when it matches the starter catalog, else an
@@ -1835,6 +1842,56 @@ export const useStore = create<State>()(
           : { establishedKinds: [...s.establishedKinds, key] }));
       },
 
+      reclassifyEverything: () => {
+        const s = get();
+        const objects = { ...s.objects };
+        const ids = Object.keys(objects);
+        get().pushUndo(`re-classify ${ids.length.toLocaleString()} items`);
+
+        // Every kind in the designed taxonomy exists up front, with its
+        // properties and options — a kind is never an empty shell here.
+        const roles: Record<string, RoleDefinition> = {};
+        for (const [key, fields] of Object.entries(DESIGNER_KINDS)) {
+          roles[key] = {
+            name: kindDisplayName(key),
+            fields,
+            primaryFacets: fields.slice(0, 3).map((f) => f.name),
+          };
+        }
+
+        const now = new Date().toISOString();
+        let typed = 0;
+        for (const id of ids) {
+          const object = objects[id];
+          const key = classifyKind(object);
+          typed++;
+          objects[id] = {
+            ...object,
+            role: roles[key]?.name ?? kindDisplayName(key),
+            updatedAt: now,
+          };
+        }
+
+        // Old declarations pointed at kinds that no longer exist; drop the
+        // ones that aren't in the new taxonomy so nothing resurrects them.
+        const collections = { ...s.collections };
+        for (const [cid, c] of Object.entries(collections)) {
+          if (!c.entityTypes?.length) continue;
+          const kept = c.entityTypes.filter((k) => norm(k) in DESIGNER_KINDS);
+          if (kept.length !== c.entityTypes.length) {
+            collections[cid] = { ...c, entityTypes: kept, fieldViews: {} };
+          }
+        }
+
+        set({
+          objects,
+          roles,
+          collections,
+          establishedKinds: Object.keys(DESIGNER_KINDS),
+        });
+        return typed;
+      },
+
       purgeKinds: (keys) => {
         const wanted = new Set(keys.map((k) => norm(k)).filter(Boolean));
         if (wanted.size === 0) return 0;
@@ -2731,6 +2788,24 @@ export const useStore = create<State>()(
           });
         });
         if (storeApi) applyCuratedCollectionsSeed(storeApi.getState);
+
+        // The taxonomy reset (Samuel, 2026-07-22: "hazlo de una puta vez y
+        // elimina sin piedad toda estructura vieja"). Runs itself, once —
+        // no Preferences button, no dialog. Everything a machine invented
+        // from tags is discarded and every object is classified into the
+        // designed taxonomy. One-time, guarded like the other migrations;
+        // the future version of this is a pop-up offering the pass, and his
+        // answer to it was already yes.
+        if (storeApi && !localStorage.getItem("organizer-designer-kinds-1")) {
+          const st = storeApi.getState();
+          if (Object.keys(st.objects).length > 0) {
+            const n = st.reclassifyEverything();
+            localStorage.setItem("organizer-designer-kinds-1", "done");
+            st.setFlashNotice(
+              `${n.toLocaleString()} items classified into ${Object.keys(DESIGNER_KINDS).length} kinds. ⌘Z undoes it.`
+            );
+          }
+        }
 
         // One-time taxonomy corrections (Samuel's audit, 2026-07-21) —
         // same localStorage-guard pattern as the collections seed:

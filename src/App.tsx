@@ -27,7 +27,7 @@ import { ArenaExportModal } from "./components/ArenaExportModal";
 import { fetchArenaAccount, type ArenaAccount } from "./lib/arenaExport";
 import { DRAG_MIME, readDraggedIds } from "./lib/objectDrag";
 import { distinctRoleKeys, resolveActiveRole } from "./lib/primaryFacets";
-import { purgeCandidates, realKindKeys } from "./lib/kinds";
+import { realKindKeys } from "./lib/kinds";
 import { resolveCollectionFields } from "./lib/fieldCatalog";
 import {
   applyExcludedTags,
@@ -1034,50 +1034,6 @@ export default function App() {
             title="Suggests an entity type for every object that doesn't have one yet, from its mymind type and tags — shows the impact before applying anything"
           >
             Auto-assign entity types
-          </button>
-          {/* The cleanup for kinds that were never established — the
-              adjectives, decades and places the deleted discover-kinds
-              feature minted (Samuel, 2026-07-22: "quiero poder eliminar
-              eso"). Shows exactly what it will remove before doing it. */}
-          <button
-            onClick={() => {
-              const st = useStore.getState();
-              const junk = purgeCandidates(
-                st.roles,
-                st.collections,
-                st.establishedKinds,
-                st.objects
-              );
-              if (junk.length === 0) {
-                st.setFlashNotice("Every kind here was established on purpose — nothing to clean.");
-                setPrefsOpen(false);
-                return;
-              }
-              const typed = junk.reduce((n, k) => n + k.count, 0);
-              st.requestConfirm({
-                title: `Remove ${junk.length} thing${junk.length === 1 ? "" : "s"} that aren't kinds?`,
-                body:
-                  `${junk.map((k) => `${k.name.toLowerCase()} ${k.count}`).join(" · ")}\n\n` +
-                  `These were never established as kinds — most came from the old ` +
-                  `auto-discovery, which turned frequent tags into species. ` +
-                  `${typed.toLocaleString()} object${typed === 1 ? "" : "s"} stop claiming to BE one. ` +
-                  `Their tags, properties and collections are untouched. One ⌘Z undoes all of it.`,
-                action: "Remove them",
-                onConfirm: () => {
-                  const affected = useStore.getState().purgeKinds(junk.map((k) => k.key));
-                  useStore
-                    .getState()
-                    .setFlashNotice(
-                      `${junk.length} removed · ${affected.toLocaleString()} object${affected === 1 ? "" : "s"} no longer typed. ⌘Z undoes it.`
-                    );
-                },
-              });
-              setPrefsOpen(false);
-            }}
-            className="w-full text-left px-2.5 py-1.5 rounded-lg border border-line hover:bg-line/40 mt-1.5"
-            title="Removes kinds you never established — adjectives, decades and places the old auto-discovery invented. Shows the list first."
-          >
-            Clean up kinds…
           </button>
 
           <div className="text-[11px] uppercase tracking-wide text-muted mt-3 mb-1.5">
