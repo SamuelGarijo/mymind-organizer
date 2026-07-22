@@ -15,5 +15,12 @@ out properly instead.
 
 ## Archived here
 
-_(nothing yet — the collection-meaning flow lands here once the multi-entity
-setup wizard replaces it; see the "what's in your mind" work.)_
+- **`TypologyPanel.tsx`** + **`collectionTypology.ts`** (2026-07-22) — the
+  old single "what does this collection mean?" chooser (selection / quality
+  / kind) and its proposal engine. Replaced by the multi-entity
+  `CollectionWizard` (a collection declares the KINDS it contains and, per
+  kind, which properties it shows). Its relative imports point at the old
+  `src/components` / `src/lib` locations — fix them if you ever wire it
+  back. `src/lib/classifier.ts` (the Gemini "ask what else is worth
+  knowing" client it used) was left in `lib/`, unused, ready to re-attach to
+  the wizard's field step.
