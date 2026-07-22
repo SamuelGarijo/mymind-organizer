@@ -14,7 +14,7 @@ import { SmartCollectionModal } from "./components/SmartCollectionModal";
 import { ManualCollectionModal } from "./components/ManualCollectionModal";
 import { TopBar } from "./components/TopBar";
 import { CollectionLedger } from "./components/CollectionLedger";
-import { ClassifyPanel } from "./components/ClassifyPanel";
+import { ClassifyPanel, StackedClassifyPanel } from "./components/ClassifyPanel";
 import { Workbench } from "./components/Workbench";
 import { Membrane } from "./components/Membrane";
 import { MembraneTabs } from "./components/MembraneTabs";
@@ -52,7 +52,7 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { OrganizeView } from "./components/OrganizeView";
 import { AddPropertyPopover } from "./components/AddPropertyPopover";
 import { suggestRole } from "./lib/roleSuggestion";
-import type { DesignObject, FacetField } from "./types";
+import type { DesignObject, FacetField, RoleDefinition } from "./types";
 
 // Set right before a restore-triggered reload, read once on the next
 // mount — sessionStorage (not state) is the only thing that survives the
@@ -565,6 +565,24 @@ export default function App() {
     return Array.from(counts.values()).sort((a, b) => b.count - a.count);
   }, [baseObjects, realKinds, state.roles, currentCollection]);
 
+  // "All objects" in a MULTI-kind collection: the real kinds actually
+  // present, each classified on its own (StackedClassifyPanel), never one
+  // kind's taxonomy forced across everything (Samuel, 2026-07-22). Only
+  // populated when NO single entity is active (activeRole undefined) — with
+  // one kind resolveActiveRole picks it, so this stays empty.
+  const stackedKinds = useMemo(() => {
+    if (!currentCollection || activeRole) return [] as RoleDefinition[];
+    const present = new Map<string, RoleDefinition>();
+    for (const o of baseObjects) {
+      if (!o.role) continue;
+      const k = norm(o.role);
+      if (!realKinds.has(k)) continue;
+      const def = state.roles[k];
+      if (def && !present.has(k)) present.set(k, def);
+    }
+    return Array.from(present.values());
+  }, [currentCollection, activeRole, baseObjects, realKinds, state.roles]);
+
   // --- Classify derivations -----------------------------------------------
   // ONE space, not two (Samuel, 2026-07-21): Classify is a drawer that
   // opens beside whatever you are already looking at — never a different
@@ -575,16 +593,40 @@ export default function App() {
   // Sans…), ready to receive what you drag out of the pile.
   const organizeBy = useStore((s) => s.organizeBy);
   const primaryFacetNames = activeRole?.primaryFacets ?? [];
+  // §9: the "Organize by" lens — which properties this collection can be
+  // read by (the active entity type's select/multi-select fields). The By-X
+  // sub-row AND the Classify drawer's field tabs derive from this one list,
+  // so they never disagree about what a collection shows. It respects the
+  // collection's own field VIEW, not the role's full set — hiding a property
+  // in a collection hides its lens too (resolveCollectionFields, §3). Outside
+  // a collection, all role fields.
+  const organizeFields = useMemo(() => {
+    if (!activeRole) return [];
+    const shown = currentCollection
+      ? resolveCollectionFields(currentCollection, activeRole)
+      : activeRole.fields;
+    return shown.filter((f) => f.type === "select" || f.type === "multi-select");
+  }, [activeRole, currentCollection]);
+  // Classify tabs = the collection's shown classifiable fields; outside a
+  // collection, the role's pinned facets (unchanged behaviour).
+  const classifiableFieldNames = currentCollection
+    ? organizeFields.map((f) => f.name)
+    : primaryFacetNames;
   const organizeDrivenField =
     organizeBy && activeRole?.fields.some((f) => norm(f.name) === norm(organizeBy))
       ? organizeBy
       : null;
   const effectiveClassifyField =
     organizeDrivenField ??
-    (classifyField && primaryFacetNames.includes(classifyField)
+    (classifyField && classifiableFieldNames.some((n) => norm(n) === norm(classifyField))
       ? classifyField
-      : primaryFacetNames[0] ?? null);
+      : classifiableFieldNames[0] ?? null);
   const classifyOpen = state.classificationPanelOpen && !!activeRole;
+  // The multi-kind "All objects" case: same open flag, but no single role —
+  // the drawer stacks a block per kind instead (StackedClassifyPanel).
+  const stackedClassifyOpen =
+    state.classificationPanelOpen && !activeRole && stackedKinds.length > 1;
+  const anyClassifyOpen = classifyOpen || stackedClassifyOpen;
   // While a category is explicitly selected in the panel (§1, 2026-07-21),
   // the grid shows THAT subset — visibleObjects already carries the
   // facetFieldFilter, so the reservoir's own "no value yet" narrowing must
@@ -606,20 +648,9 @@ export default function App() {
     if (!activeRole) return [];
     return baseObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name));
   }, [baseObjects, activeRole]);
-  // §9: the "Organize by" lens — which properties this collection can be
-  // read by (the active entity type's select/multi-select fields), and
-  // which one is currently chosen. Search/filters still compose: the
-  // editorial page organizes whatever the query has narrowed to.
-  // The By-X lenses respect the collection's own field VIEW, not the role's
-  // full set — hiding a property in a collection hides its lens too
-  // (resolveCollectionFields, §3). Outside a collection, all role fields.
-  const organizeFields = useMemo(() => {
-    if (!activeRole) return [];
-    const shown = currentCollection
-      ? resolveCollectionFields(currentCollection, activeRole)
-      : activeRole.fields;
-    return shown.filter((f) => f.type === "select" || f.type === "multi-select");
-  }, [activeRole, currentCollection]);
+  // Search/filters still compose: the editorial page organizes whatever the
+  // query has narrowed to. (organizeFields is defined up with the classify
+  // derivations, since the drawer tabs share it.)
   const organizeField = organizeBy
     ? organizeFields.find((f) => norm(f.name) === norm(organizeBy)) ?? null
     : null;
@@ -627,17 +658,6 @@ export default function App() {
     if (!activeRole || !organizeField) return [];
     return visibleObjects.filter((o) => o.role && norm(o.role) === norm(activeRole.name));
   }, [visibleObjects, activeRole, organizeField]);
-  // The panel's "N not yet classified" must stay the TRUE unclassified
-  // count (§11 — coverage is a fact about the collection), independent of
-  // whatever subset the grid is currently narrowed to.
-  const unclassifiedCount = useMemo(() => {
-    if (!classifyOpen || !effectiveClassifyField) return 0;
-    return roleObjects.filter((o) => {
-      const raw = o.fields[effectiveClassifyField];
-      const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
-      return values.length === 0;
-    }).length;
-  }, [classifyOpen, effectiveClassifyField, roleObjects]);
   const collectionIds = useMemo(() => new Set(baseObjects.map((o) => o.id)), [baseObjects]);
   // Shared store-level list (same identity across App/DetailPanel/
   // Workbench/WritingWorkspace) — the similarity corpus cache keys on it.
@@ -652,7 +672,7 @@ export default function App() {
   useEffect(() => {
     if (
       view.kind === "collection" &&
-      primaryFacetNames.length > 0 &&
+      (primaryFacetNames.length > 0 || stackedKinds.length > 1) &&
       !useStore.getState().workbenchOpen
     ) {
       state.openClassificationPanel();
@@ -1495,11 +1515,11 @@ export default function App() {
           over the work. */}
       <Membrane
         edge="right"
-        open={state.workbenchOpen || !!state.openCanvasId || classifyOpen}
+        open={state.workbenchOpen || !!state.openCanvasId || anyClassifyOpen}
         onToggle={() => {
           if (state.openCanvasId) {
             useStore.getState().openCanvas(null);
-          } else if (classifyOpen) {
+          } else if (anyClassifyOpen) {
             state.closeClassificationPanel();
           } else if (state.workbenchOpen) {
             state.setWorkbenchOpen(false);
@@ -1514,7 +1534,7 @@ export default function App() {
                 winW - 220,
                 Math.max(480, state.canvasSplitWidth ?? winW - 300)
               )
-            : classifyOpen
+            : anyClassifyOpen
               ? 400
               : 360
         }
@@ -1523,7 +1543,7 @@ export default function App() {
         seamLabel={
           state.openCanvasId
             ? "Close the canvas (layout is saved)"
-            : classifyOpen
+            : anyClassifyOpen
               ? "Close classification"
               : "Workbench — a temporary worktable (⌘J)"
         }
@@ -1534,7 +1554,7 @@ export default function App() {
         ) : (
           <div className="h-full flex flex-col">
             <MembraneTabs
-              active={classifyOpen ? "classify" : "bench"}
+              active={anyClassifyOpen ? "classify" : "bench"}
               benchCount={state.workbenchCount}
               canClassify={view.kind === "collection"}
               onSelect={(tab) => {
@@ -1543,11 +1563,11 @@ export default function App() {
                 // re-clicking the active Classify tab would otherwise close
                 // the compartment and silently fall back to Bench.
                 if (tab === "classify") {
-                  if (classifyOpen) return;
+                  if (anyClassifyOpen) return;
                   state.setWorkbenchOpen(false);
                   handleClassifyClick();
                 } else {
-                  if (state.workbenchOpen && !classifyOpen) return;
+                  if (state.workbenchOpen && !anyClassifyOpen) return;
                   state.closeClassificationPanel();
                   state.setWorkbenchOpen(true);
                 }
@@ -1565,9 +1585,8 @@ export default function App() {
                   allObjects={allObjectsList}
                   activeRole={activeRole}
                   fieldName={effectiveClassifyField ?? ""}
-                  reservoirCount={unclassifiedCount}
                   fieldOptions={
-                    organizeField ? organizeFields.map((f) => f.name) : undefined
+                    currentCollection ? classifiableFieldNames : undefined
                   }
                   onFieldChange={(name) => {
                     setClassifyField(name);
@@ -1589,6 +1608,13 @@ export default function App() {
                       ? state.facetFieldFilter.value
                       : null
                   }
+                  onOpen={state.openDetail}
+                />
+              ) : stackedClassifyOpen ? (
+                <StackedClassifyPanel
+                  kinds={stackedKinds}
+                  members={baseObjects}
+                  collection={currentCollection}
                   onOpen={state.openDetail}
                 />
               ) : (

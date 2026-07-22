@@ -6,6 +6,7 @@ import { rankByHybridSimilarity } from "../lib/hybridSimilarity";
 import { UNGROUPED_LABEL } from "../lib/grouping";
 import { norm } from "../lib/textNorm";
 import { asFieldString } from "../lib/mymindSync";
+import { resolveCollectionFields } from "../lib/fieldCatalog";
 import { DRAG_MIME, objectDragProps } from "../lib/objectDrag";
 import {
   AUTO_APPLY_CONFIDENCE,
@@ -13,7 +14,7 @@ import {
   classifierProvider,
 } from "../lib/fieldExtraction";
 import { AskGemini } from "./AskGemini";
-import type { DesignObject, RoleDefinition } from "../types";
+import type { Collection, DesignObject, RoleDefinition } from "../types";
 
 /** Same ceiling the ledger uses — one round is at most four batches, so a
  * wrong taxonomy is caught cheaply instead of billed across an archive. */
@@ -94,82 +95,55 @@ function Peek({
 }
 
 /**
- * The conditional floating panel from Samuel's sketch ("this is like a
- * conditional floating panel with tabs… modular pieces that come and go
- * depending on context"). Summoned by ✦ Classify, recedes on close (N21).
+ * The classification core for ONE (role, field): the reservoir note + its
+ * "ask Gemini" offer, the half-naked folder rows that let their contents
+ * peek through, and the "+ add category" seed. Owns nothing about position
+ * or chrome — the parent decides whether this sits alone in the drawer
+ * (`ClassifyPanel`) or stacked one-per-kind under "All objects"
+ * (`StackedClassifyPanel`). Extracting it is what lets those two surfaces
+ * share a single definition of "classify these things by this property",
+ * instead of the drag/drop/seed logic living in two places.
  *
- * The inversion that matters (design-philosophy N8): the *unclassified
- * reservoir stays in the main grid* — the sacred space — and the classified
- * values live here as half-naked folder rows that let their content peek
- * through. Drag a thing from the grid onto a folder to classify it.
- *
- * Below the folders, two cross-pollination modules:
- * - Related reading — textual objects from the wider library whose tags
- *   match this facet's values (cross-category: images link to words).
- * - Similar outside — hybrid-similarity neighbours of this collection that
- *   live OUTSIDE it, so the world's edges stay porous.
+ * `members` are the objects this block classifies (already scoped to the
+ * collection + role); the reservoir count is derived from them, never from
+ * whatever subset the grid is currently narrowed to.
  */
-export function ClassifyPanel({
-  roleObjects,
-  collectionIds,
-  allObjects,
-  activeRole,
+function FacetFolders({
+  role,
+  members,
   fieldName,
-  reservoirCount,
-  onFieldChange,
-  fieldOptions,
   onFilterValue,
   activeFilterValue,
   onOpen,
 }: {
-  /** Collection members carrying the active role — the folders' population. */
-  roleObjects: DesignObject[];
-  /** Every id in the current collection — the outside/inside boundary. */
-  collectionIds: Set<string>;
-  /** Whole library (stable reference — feeds the similarity corpus cache). */
-  allObjects: DesignObject[];
-  activeRole: RoleDefinition;
+  role: RoleDefinition;
+  members: DesignObject[];
   fieldName: string;
-  /** How many things are still unfolded for this facet — shown as a quiet
-   * note here (the grid itself carries no annotation). */
-  reservoirCount: number;
-  onFieldChange: (name: string) => void;
-  /** Which properties this drawer can switch between. Normally the role's
-   * pinned primary facets; on the "Organize by" page it's the same list of
-   * properties the page's own tabs offer, so the drawer and the page never
-   * disagree about what can be read/assigned (Samuel, 2026-07-21). */
-  fieldOptions?: string[];
-  /** §1 — categories are navigable: called with a value (or
-   * UNCLASSIFIED_VALUE) to narrow the main grid to that subset, null to
-   * clear back to the whole collection. */
   onFilterValue: (value: string | null) => void;
-  /** The value currently narrowing the grid, so the active category can
-   * read as selected here. */
   activeFilterValue: string | null;
   onOpen: (id: string) => void;
 }) {
-  const primaryFacets = fieldOptions ?? activeRole.primaryFacets ?? [];
-  const activeField = activeRole.fields.find((f) => f.name === fieldName);
+  const activeField = role.fields.find((f) => f.name === fieldName);
   const [dragOverLabel, setDragOverLabel] = useState<string | null>(null);
   // Folders created by hand this session that have no members yet — they
   // exist to be dropped into ("+ new folder" in the sketch). Reset per facet.
   const [draftFolders, setDraftFolders] = useState<string[]>([]);
   const [draftName, setDraftName] = useState("");
-  useEffect(() => setDraftFolders([]), [fieldName, activeRole.name]);
+  useEffect(() => setDraftFolders([]), [fieldName, role.name]);
 
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
-  useEffect(() => setAskError(null), [fieldName, activeRole.name]);
+  useEffect(() => setAskError(null), [fieldName, role.name]);
 
-  /** The pile this drawer exists to empty — and the classifier only ever
+  /** The pile this block exists to empty — and the classifier only ever
    * touches it, never anything already answered. */
   const unclassified = useMemo(
     () =>
-      roleObjects.filter((o) => {
+      members.filter((o) => {
         const v = o.fields[fieldName];
         return Array.isArray(v) ? v.length === 0 : !v;
       }),
-    [roleObjects, fieldName]
+    [members, fieldName]
   );
 
   async function askClassifier() {
@@ -208,12 +182,236 @@ export function ClassifyPanel({
   }
 
   const buckets = useMemo(
-    () => (activeField ? orderedFacetBuckets(roleObjects, activeField) : []),
-    [roleObjects, activeField]
+    () => (activeField ? orderedFacetBuckets(members, activeField) : []),
+    [members, activeField]
   );
   const valueBuckets = buckets.filter((b) => b.label !== UNGROUPED_LABEL);
   const existingLabels = new Set(valueBuckets.map((b) => norm(b.label)));
   const drafts = draftFolders.filter((d) => !existingLabels.has(norm(d)));
+
+  function handleDrop(e: React.DragEvent, label: string) {
+    e.preventDefault();
+    setDragOverLabel(null);
+    const raw = e.dataTransfer.getData(DRAG_MIME);
+    if (!raw) return;
+    const ids: string[] = JSON.parse(raw);
+    const st = useStore.getState();
+    // A "+ new folder" IS a new option on this property — dropping into it
+    // must add the option to the field's definition (shared vocabulary,
+    // issue #96), not just write values that no other surface knows about.
+    // Table's grouped view already did both; this was the missing half.
+    if (!activeField!.options?.some((opt) => norm(opt) === norm(label))) {
+      st.addFieldOption(activeField!.name, label);
+    }
+    // Filing something here ADDS it here — it keeps whatever categories it
+    // already belonged to (Samuel, 2026-07-21). Leaving one is the explicit
+    // × on the item, never a side effect of joining another.
+    st.addFieldValue(ids, activeField!.name, label);
+  }
+
+  function folderRow(label: string, folderMembers: DesignObject[]) {
+    const over = dragOverLabel === label;
+    const filtering = activeFilterValue === label;
+    return (
+      <div
+        key={label}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOverLabel(label);
+        }}
+        onDragLeave={() => setDragOverLabel((cur) => (cur === label ? null : cur))}
+        onDrop={(e) => handleDrop(e, label)}
+        className={[
+          "rounded-xl border bg-canvas/70 px-3 py-2 transition-shadow",
+          over ? "border-accent ring-2 ring-accent/30 shadow-cardHover" : "border-line",
+        ].join(" ")}
+      >
+        <div className="flex items-baseline justify-between mb-1.5">
+          {/* A category is NAVIGABLE, not a static pile (§1): clicking it
+           * narrows the main grid to exactly this subset, beside the panel,
+           * on top of whatever collection/filters are already active. */}
+          <button
+            onClick={() => onFilterValue(filtering ? null : label)}
+            className={[
+              "font-mono text-[12px] truncate text-left hover:underline decoration-dotted underline-offset-2",
+              filtering ? "text-accent" : "text-ink/85",
+            ].join(" ")}
+            title={
+              filtering
+                ? "Showing only these — click to show the whole collection again"
+                : `Show only ${label} in the grid`
+            }
+          >
+            {filtering ? "● " : ""}
+            {label}
+          </button>
+          <span className="font-mono text-[11px] text-muted shrink-0">{folderMembers.length}</span>
+        </div>
+        {folderMembers.length > 0 ? (
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            {folderMembers.slice(0, 14).map((o) => (
+              <Peek
+                key={o.id}
+                object={o}
+                onOpen={onOpen}
+                onRemove={() =>
+                  useStore.getState().removeFieldValue([o.id], activeField!.name, label)
+                }
+              />
+            ))}
+            {folderMembers.length > 14 && (
+              <span className="shrink-0 self-center font-mono text-[10px] text-muted px-1">
+                +{folderMembers.length - 14}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="h-12 rounded-md border border-dashed border-line/80 flex items-center justify-center font-mono text-[10px] text-muted/70">
+            drop things here
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (!activeField) {
+    return (
+      <p className="text-[12px] text-muted leading-relaxed">
+        "{role.name}" has no properties to classify by in this collection — add one from the
+        entity nav's field sub-row.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {unclassified.length > 0 && (
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <button
+            onClick={() => onFilterValue(UNCLASSIFIED_VALUE)}
+            className="font-mono text-[10px] text-muted/80 hover:text-ink hover:underline decoration-dotted underline-offset-2 text-left"
+            title={`Show only the objects with no ${fieldName} yet`}
+          >
+            {unclassified.length.toLocaleString()} not yet classified by {fieldName} — drag them in,
+            or click to see them
+          </button>
+          {/* The third and most obvious touchpoint (Samuel, 2026-07-21:
+           * "haz más obvios los puntos de contacto"), and the one that
+           * needed it most: this drawer is where classifying actually
+           * happens, staring at a pile that has to be dragged one by one.
+           *
+           * Same conditions as everywhere else: only with categories
+           * already declared, only on the unclassified, never automatic. */}
+          {(activeField.options ?? []).length >= 2 && (
+            <AskGemini
+              label={`ask about ${Math.min(unclassified.length, CLASSIFY_LIMIT)}`}
+              busy={asking}
+              onAsk={askClassifier}
+              detail={`Looks at ${Math.min(unclassified.length, CLASSIFY_LIMIT)} of them one by one and picks from ${fieldName}'s own categories, using`}
+            />
+          )}
+          {askError && <span className="font-mono text-[10px] text-muted/70">{askError}</span>}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {valueBuckets.map((b) => folderRow(b.label, b.objects))}
+        {drafts.map((d) => folderRow(d, []))}
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const name = draftName.trim();
+            if (!name || existingLabels.has(norm(name))) return;
+            setDraftFolders((cur) => [...cur, name]);
+            setDraftName("");
+          }}
+          className="flex items-center gap-1.5 pt-0.5"
+        >
+          {/* Not a folder — a new VALUE of this property (§2): the category
+           * becomes a real option on the field the moment something lands
+           * in it, shared everywhere this property appears. */}
+          <input
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            placeholder={`+ add ${fieldName} category`}
+            className="flex-1 rounded-lg border border-dashed border-line bg-transparent px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent placeholder:text-muted/60"
+          />
+          {draftName.trim() !== "" && (
+            <button type="submit" className="font-mono text-[11px] text-accent hover:underline shrink-0">
+              add
+            </button>
+          )}
+        </form>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The conditional floating panel from Samuel's sketch ("this is like a
+ * conditional floating panel with tabs… modular pieces that come and go
+ * depending on context"). Summoned by ✦ Classify, recedes on close (N21).
+ * Rendered when a SINGLE entity is active — one role, its folders, and the
+ * two cross-pollination modules below.
+ *
+ * The inversion that matters (design-philosophy N8): the *unclassified
+ * reservoir stays in the main grid* — the sacred space — and the classified
+ * values live here as half-naked folder rows that let their content peek
+ * through. Drag a thing from the grid onto a folder to classify it.
+ *
+ * Below the folders, two cross-pollination modules:
+ * - Related reading — textual objects from the wider library whose tags
+ *   match this facet's values (cross-category: images link to words).
+ * - Similar outside — hybrid-similarity neighbours of this collection that
+ *   live OUTSIDE it, so the world's edges stay porous.
+ */
+export function ClassifyPanel({
+  roleObjects,
+  collectionIds,
+  allObjects,
+  activeRole,
+  fieldName,
+  onFieldChange,
+  fieldOptions,
+  onFilterValue,
+  activeFilterValue,
+  onOpen,
+}: {
+  /** Collection members carrying the active role — the folders' population. */
+  roleObjects: DesignObject[];
+  /** Every id in the current collection — the outside/inside boundary. */
+  collectionIds: Set<string>;
+  /** Whole library (stable reference — feeds the similarity corpus cache). */
+  allObjects: DesignObject[];
+  activeRole: RoleDefinition;
+  fieldName: string;
+  onFieldChange: (name: string) => void;
+  /** Which properties this drawer can switch between. Aligned to the
+   * collection's own field VIEW (resolveCollectionFields), so the drawer
+   * tabs and the By-X sub-row never disagree about what a collection shows
+   * (Samuel, 2026-07-21/22). Falls back to the role's pinned facets outside
+   * a collection. */
+  fieldOptions?: string[];
+  /** §1 — categories are navigable: called with a value (or
+   * UNCLASSIFIED_VALUE) to narrow the main grid to that subset, null to
+   * clear back to the whole collection. */
+  onFilterValue: (value: string | null) => void;
+  /** The value currently narrowing the grid, so the active category can
+   * read as selected here. */
+  activeFilterValue: string | null;
+  onOpen: (id: string) => void;
+}) {
+  const primaryFacets = fieldOptions ?? activeRole.primaryFacets ?? [];
+  const activeField = activeRole.fields.find((f) => f.name === fieldName);
+
+  const valueBuckets = useMemo(
+    () =>
+      (activeField ? orderedFacetBuckets(roleObjects, activeField) : []).filter(
+        (b) => b.label !== UNGROUPED_LABEL
+      ),
+    [roleObjects, activeField]
+  );
 
   // Cross-category: textual library objects (outside this collection) whose
   // tags/title mention one of this facet's values — "articles about the
@@ -275,92 +473,6 @@ export function ClassifyPanel({
     );
   }
 
-
-  function handleDrop(e: React.DragEvent, label: string) {
-    e.preventDefault();
-    setDragOverLabel(null);
-    const raw = e.dataTransfer.getData(DRAG_MIME);
-    if (!raw) return;
-    const ids: string[] = JSON.parse(raw);
-    const st = useStore.getState();
-    // A "+ new folder" IS a new option on this property — dropping into it
-    // must add the option to the field's definition (shared vocabulary,
-    // issue #96), not just write values that no other surface knows about.
-    // Table's grouped view already did both; this was the missing half.
-    if (!activeField!.options?.some((opt) => norm(opt) === norm(label))) {
-      st.addFieldOption(activeField!.name, label);
-    }
-    // Filing something here ADDS it here — it keeps whatever categories it
-    // already belonged to (Samuel, 2026-07-21). Leaving one is the explicit
-    // × on the item, never a side effect of joining another.
-    st.addFieldValue(ids, activeField!.name, label);
-  }
-
-  function folderRow(label: string, members: DesignObject[]) {
-    const over = dragOverLabel === label;
-    const filtering = activeFilterValue === label;
-    return (
-      <div
-        key={label}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOverLabel(label);
-        }}
-        onDragLeave={() => setDragOverLabel((cur) => (cur === label ? null : cur))}
-        onDrop={(e) => handleDrop(e, label)}
-        className={[
-          "rounded-xl border bg-canvas/70 px-3 py-2 transition-shadow",
-          over ? "border-accent ring-2 ring-accent/30 shadow-cardHover" : "border-line",
-        ].join(" ")}
-      >
-        <div className="flex items-baseline justify-between mb-1.5">
-          {/* A category is NAVIGABLE, not a static pile (§1): clicking it
-           * narrows the main grid to exactly this subset, beside the panel,
-           * on top of whatever collection/filters are already active. */}
-          <button
-            onClick={() => onFilterValue(filtering ? null : label)}
-            className={[
-              "font-mono text-[12px] truncate text-left hover:underline decoration-dotted underline-offset-2",
-              filtering ? "text-accent" : "text-ink/85",
-            ].join(" ")}
-            title={
-              filtering
-                ? "Showing only these — click to show the whole collection again"
-                : `Show only ${label} in the grid`
-            }
-          >
-            {filtering ? "● " : ""}
-            {label}
-          </button>
-          <span className="font-mono text-[11px] text-muted shrink-0">{members.length}</span>
-        </div>
-        {members.length > 0 ? (
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-            {members.slice(0, 14).map((o) => (
-              <Peek
-                key={o.id}
-                object={o}
-                onOpen={onOpen}
-                onRemove={() =>
-                  useStore.getState().removeFieldValue([o.id], activeField!.name, label)
-                }
-              />
-            ))}
-            {members.length > 14 && (
-              <span className="shrink-0 self-center font-mono text-[10px] text-muted px-1">
-                +{members.length - 14}
-              </span>
-            )}
-          </div>
-        ) : (
-          <div className="h-12 rounded-md border border-dashed border-line/80 flex items-center justify-center font-mono text-[10px] text-muted/70">
-            drop things here
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
     // Membrane content (§6, 2026-07-21): Classify is a compartment of the
     // workshop like the Workbench — it opens inward from the right edge and
@@ -396,67 +508,17 @@ export function ClassifyPanel({
             ))}
           </div>
         )}
-        {reservoirCount > 0 && (
-          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <button
-              onClick={() => onFilterValue(UNCLASSIFIED_VALUE)}
-              className="font-mono text-[10px] text-muted/80 hover:text-ink hover:underline decoration-dotted underline-offset-2 text-left"
-              title={`Show only the objects with no ${fieldName} yet`}
-            >
-              {reservoirCount.toLocaleString()} not yet classified by {fieldName} — drag them in,
-              or click to see them
-            </button>
-            {/* The third and most obvious touchpoint (Samuel, 2026-07-21:
-             * "haz más obvios los puntos de contacto"), and the one that
-             * needed it most: this drawer is where classifying actually
-             * happens, staring at a pile that has to be dragged one by one.
-             * Offering the model right beside that count is the difference
-             * between a feature you own and a feature you remember exists.
-             *
-             * Same conditions as everywhere else: only with categories
-             * already declared, only on the unclassified, never automatic. */}
-            {unclassified.length > 0 && (activeField?.options ?? []).length >= 2 && (
-              <AskGemini
-                label={`ask about ${Math.min(unclassified.length, CLASSIFY_LIMIT)}`}
-                busy={asking}
-                onAsk={askClassifier}
-                detail={`Looks at ${Math.min(unclassified.length, CLASSIFY_LIMIT)} of them one by one and picks from ${fieldName}'s own categories, using`}
-              />
-            )}
-            {askError && <span className="font-mono text-[10px] text-muted/70">{askError}</span>}
-          </div>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
-        {valueBuckets.map((b) => folderRow(b.label, b.objects))}
-        {drafts.map((d) => folderRow(d, []))}
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const name = draftName.trim();
-            if (!name || existingLabels.has(norm(name))) return;
-            setDraftFolders((cur) => [...cur, name]);
-            setDraftName("");
-          }}
-          className="flex items-center gap-1.5 pt-0.5"
-        >
-          {/* Not a folder — a new VALUE of this property (§2): the category
-           * becomes a real option on the field the moment something lands
-           * in it, shared everywhere this property appears. */}
-          <input
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            placeholder={`+ add ${fieldName} category`}
-            className="flex-1 rounded-lg border border-dashed border-line bg-transparent px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent placeholder:text-muted/60"
-          />
-          {draftName.trim() !== "" && (
-            <button type="submit" className="font-mono text-[11px] text-accent hover:underline shrink-0">
-              add
-            </button>
-          )}
-        </form>
+        <FacetFolders
+          role={activeRole}
+          members={roleObjects}
+          fieldName={fieldName}
+          onFilterValue={onFilterValue}
+          activeFilterValue={activeFilterValue}
+          onOpen={onOpen}
+        />
 
         {relatedReading.length > 0 && (
           <div className="mt-3">
@@ -493,6 +555,134 @@ export function ClassifyPanel({
           </div>
         </div>
       )}
+    </aside>
+  );
+}
+
+/** One kind's block inside the stacked "All objects" drawer — its own field
+ * tabs (drawn from the collection's field VIEW for THIS kind), its own
+ * reservoir, its own folders. Selecting a folder narrows the shared grid by
+ * this block's field; only one block's narrowing can be active at a time
+ * (the grid carries a single facet filter), which reads correctly. */
+function StackedBlock({
+  role,
+  members,
+  collection,
+  onOpen,
+}: {
+  role: RoleDefinition;
+  members: DesignObject[];
+  collection: Collection | undefined;
+  onOpen: (id: string) => void;
+}) {
+  const fieldNames = useMemo(
+    () =>
+      resolveCollectionFields(collection, role)
+        .filter((f) => f.type === "select" || f.type === "multi-select")
+        .map((f) => f.name),
+    [collection, role]
+  );
+  const [field, setField] = useState(fieldNames[0] ?? "");
+  useEffect(() => {
+    if (!fieldNames.some((n) => norm(n) === norm(field))) setField(fieldNames[0] ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldNames.join("|")]);
+
+  const facetFieldFilter = useStore((s) => s.facetFieldFilter);
+  const activeFilterValue =
+    facetFieldFilter && norm(facetFieldFilter.field) === norm(field) ? facetFieldFilter.value : null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <PanelLabel>
+          Classify {role.name} by {field || "…"}
+        </PanelLabel>
+        <span className="font-mono text-[10px] text-muted/70 shrink-0">{members.length}</span>
+      </div>
+      {fieldNames.length > 1 && (
+        <div className="flex items-center gap-1 flex-wrap">
+          {fieldNames.map((name) => (
+            <button
+              key={name}
+              onClick={() => setField(name)}
+              className={[
+                "tag-chip font-mono shrink-0",
+                norm(name) === norm(field) ? "border-accent/40 bg-accent/5 text-ink" : "",
+              ].join(" ")}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+      <FacetFolders
+        role={role}
+        members={members}
+        fieldName={field}
+        onFilterValue={(value) =>
+          useStore
+            .getState()
+            .setFacetFieldFilter(value === null ? null : { field, value })
+        }
+        activeFilterValue={activeFilterValue}
+        onOpen={onOpen}
+      />
+    </div>
+  );
+}
+
+/**
+ * "All objects" in a MULTI-kind collection: never one entity's
+ * classification forced across everything (the bug from the screenshots —
+ * "CLASSIFYING ARTICLE BY TOPIC" over a 1,203-item Typography collection).
+ * Instead, one classification block per real kind, stacked — "Classify
+ * Photo by…", "Classify Post by…" — each speaking only for its own kind.
+ * The grid stays flat (App keeps it un-narrowed while no single entity is
+ * active); this drawer is where the multi-kind pile gets sorted.
+ */
+export function StackedClassifyPanel({
+  kinds,
+  members,
+  collection,
+  onOpen,
+}: {
+  /** The real kinds present in the collection (junk roles already filtered). */
+  kinds: RoleDefinition[];
+  /** Every collection member — split per kind here. */
+  members: DesignObject[];
+  collection: Collection | undefined;
+  onOpen: (id: string) => void;
+}) {
+  const byKind = useMemo(() => {
+    const map = new Map<string, DesignObject[]>();
+    for (const o of members) {
+      if (!o.role) continue;
+      const k = norm(o.role);
+      const arr = map.get(k);
+      if (arr) arr.push(o);
+      else map.set(k, [o]);
+    }
+    return map;
+  }, [members]);
+
+  return (
+    <aside className="h-full flex flex-col overflow-hidden" aria-label="Classification by kind">
+      <div className="shrink-0 px-4 pb-3 pt-1 border-b border-line/70">
+        <PanelLabel>All objects · classify each kind on its own</PanelLabel>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-6 divide-y divide-line/50">
+        {kinds.map((role) => (
+          <div key={role.name} className="pt-3 first:pt-0">
+            <StackedBlock
+              role={role}
+              members={byKind.get(norm(role.name)) ?? []}
+              collection={collection}
+              onOpen={onOpen}
+            />
+          </div>
+        ))}
+      </div>
     </aside>
   );
 }
